@@ -18,12 +18,12 @@ Retrouver la discipline de l'argentique sur un GR : on charge une pellicule (un 
 
 ## Cycle de vie d'un rouleau
 
-1. **Préparer** : régler l'Image Control (le film), le ratio (le format) et le reste avec les menus natifs, mettre « Mode pellicule » sur On, puis faire Save Settings dans une BOX. La ligne est sans effet en P, Av, Tv, M (grisée si possible).
+1. **Préparer** : régler l'Image Control (le film), le ratio (le format) et le reste avec les menus natifs, mettre « Mode pellicule » sur On, puis faire Save Settings dans une BOX. La ligne est grisée en P, Av, Tv, M.
 2. **Démarrer** : le rouleau démarre à la **première vue** prise dans un mode U dont la BOX a le mode pellicule sur On. Aucune action de menu. Le firmware crée alors le dossier du rouleau, force Save Interim Images à Off et verrouille les réglages.
 3. **Photographier** : le GR reste en multi-exposition pendant tout le rouleau.
    - Déclencheur : prend la photo. Si la vue n'a pas été avancée, la photo se superpose à la précédente (équivaut à « Next shot »).
    - ADJ vers la droite : avance le film (équivaut à « Complete »). La vue est enregistrée, le compteur passe à la vue suivante.
-4. **Fin du rouleau** : à la dernière vue avancée, le rouleau est terminé. La vue suivante démarre **automatiquement un nouveau rouleau** (nouveau dossier, compteur à 1), avec les mêmes réglages de BOX.
+4. **Fin du rouleau** : à la dernière vue avancée, le rouleau est terminé. Idéal visé : un **message de fin de rouleau** qui propose de changer de pellicule (réglages de la BOX). À défaut, la vue suivante démarre **automatiquement un nouveau rouleau** (nouveau dossier, compteur à 1), avec les mêmes réglages de BOX.
 5. **Rembobiner** : mettre « Mode pellicule » sur Off termine le rouleau en cours. Faire Save Settings par-dessus la BOX d'un rouleau entamé a le même effet : le rouleau est terminé, et si la nouvelle BOX a le mode pellicule sur On, un nouveau rouleau démarre à la première vue.
 
 Pour des photos normales, on passe en P, Av, Tv ou M, jamais touchés par le mod.
@@ -50,7 +50,7 @@ La longueur se déduit du ratio mémorisé : aucune donnée supplémentaire à s
 Le ratio 3:4 vertical (3000 x 4000, recadrage central) est à ajouter.
 
 ### Verrou pendant un rouleau
-Réglages bloqués : Image Control, ratio, recadrage, format de fichier (JPEG seul), taille JPEG, balance des blancs, mode de déclenchement (multi-exposition), Save Interim Images (forcé à Off au chargement).
+Réglages bloqués : Image Control, ratio, recadrage, format de fichier (JPEG seul ; **à étudier** : imposer le JPEG au démarrage du rouleau, comme Save Interim Images, sachant que la multi-exposition native accepte le RAW : superposition finale en DNG constatée le 2026-10-27), taille JPEG, balance des blancs, mode de déclenchement (multi-exposition), Save Interim Images (forcé à Off au chargement).
 C'est exactement la liste que le GR bloque nativement pendant une multi-exposition (manuel p. 78). Le verrou consiste à étendre cette condition native : « multi-exposition en cours OU rouleau chargé ». **Constat (2026-10-27) :** ouvrir le MENU pendant une multi-exposition termine la séquence (comme Complete) ; le menu principal n'a donc pas de verrou natif et devra être verrouillé par le mod pendant un rouleau.
 
 ### Stockage
