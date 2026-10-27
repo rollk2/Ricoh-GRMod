@@ -152,7 +152,7 @@ Certitude : **testé**, relevés de l'utilisateur.
 | A3 | pas de rafale ; 3e et 4e photos : PP +1 chacune | un encodage par photo simple |
 | B1, B2 | SS +1, OO +1, PP continue | **0x9b1 à 0x9b3 survivent à l'extinction : octets validés** |
 | B3 | extinction automatique puis réveil : SS et OO inchangés, PP +1 | la mise en veille n'est pas une extinction : **aucune sauvegarde** |
-| B4 | batterie retirée boîtier allumé : valeurs identiques à la photo d'avant | pas de sauvegarde ; l'état depuis l'allumage est perdu (détail de PP à confirmer) |
+| B4 | batterie retirée boîtier allumé : SS, OO et PP identiques à la photo d'avant | pas de sauvegarde ; l'état depuis l'allumage est perdu |
 | C1 | RAW+JPEG : PP +1 | un encodage |
 | C2 | développement RAW intégré : PP +1, puis +1 à la photo suivante | **le développement compte comme un encodage** (conseil de Maxwooow confirmé) |
 | C3 | lecture et zoom : PP +1 à la photo suivante seulement | la lecture n'encode pas |
@@ -161,7 +161,8 @@ Certitude : **testé**, relevés de l'utilisateur.
 | D2 | retour sur P : compteurs de P retrouvés | la copie 0 est restaurée au retour (comme lu dans `0x53279fa8`) |
 | D3 | U1 : PP repart de la valeur de U1, MM = 04 ; U2 : MM = 03 | U2 rappelle la copie 2 ; chaque mode a ses propres octets |
 | D4 | sur U1, extinction puis rallumage : PP +1 | l'état de U1 tient après extinction (SS, OO à préciser) |
-| D5 | enregistrement dans une BOX puis rappel : MM +1, PP +1 | à préciser |
+| D5 | sur P (`2001.04.01 01:02` avant), enregistrement dans BOX5 puis rappel de BOX5 par le menu : `2005.01.01 04:33` | le rappel par le menu recopie la BOX dans les réglages du boîtier (mode 0) avec nos octets ; MM reste 01 |
+| U3 | `2006.06.01 05:35` | U3 rappelle la copie 5, qui contient les compteurs enregistrés dans BOX5 à l'étape D5 (puis +1 démarrage, +1 extinction, +2 photos) |
 
 Conséquences :
 - **Brique « octet de stockage » validée.** 0x9b1 à 0x9b3 sont persistants et propres à chaque mode.
@@ -170,4 +171,10 @@ Conséquences :
   veille fait perdre le rouleau.
 - **Détection d'une prise de vue :** ni le nombre d'encodages (développement RAW, 2 par vue en
   multi-exposition) ni l'encodeur ne conviennent. Il faut un point propre à la capture (phase 2.3).
-- **Correspondance des modes :** U1 = copie 3, U2 = copie 2 (U3 = copie 1 probablement, à vérifier).
+- **Modes et BOX (testé, interprétation forte) :** les 7 copies stockées de l'objet des réglages
+  sont la copie 0 (réglages du boîtier, sauvegardés avant un rappel) et **BOX1 à BOX6** (copies 1
+  à 6, `0x5324b760` « enregistrer dans la BOX n »). Les positions U1, U2, U3 de la molette
+  rappellent chacune une BOX choisie par l'utilisateur : ici U1 = BOX3, U2 = BOX2, U3 = BOX5.
+  L'octet « mode actif » contient le numéro de la BOX rappelée (0 sur P, Av, Tv, M...).
+- **Rappel d'une BOX par le menu :** recopie la BOX dans les réglages du boîtier (mode 0), état du
+  rouleau compris. À traiter en phase 4 (rouleau dupliqué entre la BOX et le mode 0).
