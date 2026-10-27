@@ -312,7 +312,7 @@ Certitude : **testé**, relevés de l'utilisateur (`20SS.MM.01 OO:PP`, SS fins d
 | S2 multi-exposition 2 vues + Complete | `2005.03.01 04:36` | PP +2 ; **MM 03 (état 2)** ; SS inchangé sur l'image finale |
 | S3 1 vue, Retake, 1 vue, Complete | `2006.03.01 05:38` | **OO +1** ; PP +2 ; SS +1 = la fin de S2, comptée **après** l'encodage de son image finale |
 | S4 2 vues puis extinction ; après rallumage, photo normale | `2008.03.01 05:40` puis `2008.01.01 05:41` | l'image superposée est enregistrée à l'extinction ; SS +2 = la fin de S3, puis la fin par extinction (comptée avant l'encodage de l'image) ; rien de plus au rallumage |
-| S5 2 vues puis changement de mode ; photo normale | `2009.01.01 05:44` | SS +1 : **le changement de mode termine aussi la séquence** ; PP +3 |
+| S5 2 vues puis changement de mode ; photo normale | `2009.01.01 05:44` | SS +1 : **le changement de mode termine aussi la séquence**, et l'image superposée est enregistrée (confirmé) ; PP +3 |
 | S6 bracketing, intervalle | non fait | facultatif |
 
 Conclusions :
