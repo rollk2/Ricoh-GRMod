@@ -546,3 +546,6 @@ F1), `107TESTT` (6825, 6826 : F2), `108TESTU` (6827, 6828 : F3), `109TESTV` (682
   octets `+0x116` et `+0x117` sont la **demande de nouveau dossier en attente** (levés au moment de
   l'image superposée, à 0 ensuite). Le mot `+0x118` vaut 1 (−1 juste après le flash, photo 6823) :
   rôle à préciser. Reste à tester : **écrire** un ancien numéro pour y revenir.
+- **Brique 3 : testée.** Compteur à l'écran pendant `T10-FILMPROBE5` : 81, 82, 83, 84, une photo
+  à chaque fois. Le crochet `0x532aa1f4` remplace bien l'affichage des vues restantes, sans gêner
+  le déclenchement.
