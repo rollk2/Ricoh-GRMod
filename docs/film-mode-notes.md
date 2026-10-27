@@ -235,8 +235,53 @@ Certitude : **testé**, relevés de l'utilisateur (sur U3, MM = 06).
 | P2 | RAW+JPEG : PP 38 | +1 |
 | P3 | JPEG développé depuis le RAW : PP 38 | **le développement RAW ne compte plus** |
 | P4 | multi-exposition 3 vues puis Complete : PP 41 | **+3, une par vue** (l'encodeur donnait +6) |
-| P5 | poses de 1,3 s puis 5 s : PP 42 puis 43 | +1 chacune ; la dark frame ne compte pas, si la réduction du bruit a bien tourné (à confirmer) |
+| P5 | poses de 1,3 s puis 5 s : PP 42 puis 43 ; pose longue à ISO 128000 avec réduction du bruit (temps de traitement constaté) : PP 44 | **+1 par pose longue, la dark frame ne compte pas** |
 | P6 | non fait (Pixel Mapping) | facultatif |
 
 **Brique « détection d'une prise de vue » validée** : `SetShootingInfoResultBeforeExpose`
 (`0x534322d8`) compte une fois par vue, multi-exposition comprise, et ignore le développement RAW.
+
+## Phase 2.4 : verrou et « Complete », étape 1 (recherche statique, 2026-10-27)
+
+Certitude : **statique** pour tout ce qui suit.
+
+### État de la multi-exposition (la condition du verrou)
+
+- **Octet d'état : `+0x6c0` de l'enregistrement de prise de vue en direct** (objet unique
+  `0x553458b0`, getter `0x53525d5c`, puis `+0x518`, puis `[0]` ; le même enregistrement dont GR Mod
+  lit l'orientation à `+0xc8`). Lecture : `0x535493ac(objet)` (sous mutex, via `0x535512e0`
+  `ldrb r0,[r3,#0x6c0]`). Écriture : `0x5354700c(objet, état)` (via `0x53555e68`, qui notifie au
+  changement).
+- **Valeurs** (`0x5346a850`, au déclenchement, d'après le mode de déclenchement `+0x799`) :
+  0 normal ; 1 intervalle (modes 4, 5) ; **2 multi-exposition** (mode 3) ; 3 bracketing (mode 2).
+- **Le verrou natif teste « état == 2 »** : 33 appels à `0x535493ac`, dont 18 suivis de
+  `cmp r0,#2` et 5 de `sub r0,r0,#2`. Exemples : la disponibilité de 8 fonctions du levier ADJ
+  (`0x531a4d38`, fonctions 3, 4, 5, 10, 12, 16, 18, 19 de la table `0x53b39a14`, dont Image Control
+  12 et Crop 16) ; la commande distante de multi-exposition (`0x5328eca8`). Étendre le verrou =
+  traiter « rouleau chargé » comme l'état 2 **dans les seuls sites d'interface** (à trier : certains
+  sites peuvent servir au traitement d'image). Phase 5.
+
+### Phase de la multi-exposition et fin de séquence (« Complete »)
+
+Petite classe (compteur de phase à `+4`), appelée par la machine à états de prise de vue
+`ExecuteMessageEvent` (`0x534639d4`) :
+
+| Fonction | Rôle (déduit) | Déclencheur |
+|---|---|---|
+| `0x5346a850` | déclenchement : phase 1 puis 2, état 2 en multi-exposition | appels `0x534686b4`, `0x53468f50` |
+| `0x5346a8d8` | **Retake** : phase 1 → état 0, sinon état 2 | message `0x42411817` |
+| `0x5346a910` | **fin de séquence** : phase 0, état 0 | message `0x42411c16` |
+| `0x5346a96c` | remise à zéro de l'état | `0x53463190` |
+
+- **Identifiants des messages** : la commande de débogage n° 6 (`MSG_ID_CMD_SHOOTING_MULTI_EXPOSURE_END`)
+  envoie `0x42411c16`, la n° 7 (`..._RETAKE`) envoie `0x42411817` (`0x5301f83c`, `0x5301f954`, par
+  `0x535157b4`).
+- **Côté traitement d'image** (`BEStillImageProcess.cpp`) : `0x535186e0(this, 0)` termine la
+  multi-exposition (journal « Multi Exposure End »), `(this, 1)` la reprend (« Multi Exposure
+  Retake ») ; répartiteur `0x5351b9e8` (cas 0xb et 0xc) ; il renvoie `0x42411c16` à la fin
+  (`0x5351bc8c`). D'autres récepteurs écoutent `0x42411c16` (`HTControl.cpp`, `0x533b0fe8`).
+- Candidat pour l'événement « Complete » : **`0x5346a910`** (une fois par séquence terminée).
+  À vérifier : extinction en cours de surimpression, changement de mode.
+- Non trouvé : le dialogue Next shot / Retake / Complete et ses touches. Piste : la table de
+  touches de `QuickViewController` (`0x53b41324`, touches 0x2b4 à 0x2b6 et 0x2c5, 0x2c6 ; la
+  fonction `0x531ca7d8` publie l'événement 0xb7).
