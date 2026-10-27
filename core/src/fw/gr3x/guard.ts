@@ -60,6 +60,8 @@ export interface Gr3xGuardOptions {
    * rounds 6..9 had it; with 0x13 on no slot either, soft focus is turned off (byte 0): the level
    * decides alone (GR IV), and soft focus that no ADJ slot shows could not be seen or changed. */
   softFocusR10?: boolean;
+  /** Film mode (film-roll.ts): called after the guard on a recalled record, (record, mode recalled). */
+  recallAfter?: number;
 }
 const SOFT_FOCUS_BYTE = 0x9a1;
 const ADJ_SLOT_BYTES = [0x918, 0x91a, 0x91c, 0x91e, 0x920];
@@ -105,12 +107,14 @@ export function installGr3xGuardCode(p: Gr3xGuardProgram, o: Gr3xGuardOptions) {
 }
 
 /** The mode recall: the record just copied into use. */
-export function installGr3xGuardRecall(p: Gr3xGuardProgram, fix: number, before?: number) {
+export function installGr3xGuardRecall(p: Gr3xGuardProgram, fix: number, before?: number, after?: number) {
   if (p.u32(GR3X_RECALL_COPY) !== bl(GR3X_RECALL_COPY, MEMCPY) || p.u32(GR3X_RECALL_COPY - 0x18) !== 0xe5950004 || p.u32(GR3X_RECALL_COPY - 0x50) !== 0xe1a05000 ||
       p.u32(GR3X_RECALL_COPY + 0x14) !== bl(GR3X_RECALL_COPY + 0x14, 0x532750f8)) fail('mode recall');
   // `before(settings object)` (the films' own parameters, slots3.c): r5 holds the object here.
   const pre = before ? `push {r0,r1,r2,r3,r4,lr};mov r0,r5;bl #${before};pop {r0,r1,r2,r3,r4,lr};` : '';
-  const recall = p.code(`${pre}push {r4,lr};mov r4,r0;bl #${MEMCPY};mov r0,r4;bl #${fix};mov r0,r4;pop {r4,pc};`);
+  // `after(record, mode)`: the recall (0x53279fa8) keeps the mode recalled in r6 (0x53279fb8 to 0x5327a00c).
+  const post = after ? `mov r0,r4;mov r1,r6;bl #${after};` : '';
+  const recall = p.code(`${pre}push {r4,lr};mov r4,r0;bl #${MEMCPY};mov r0,r4;bl #${fix};${post}mov r0,r4;pop {r4,pc};`);
   p.patch(GR3X_RECALL_COPY, bl(GR3X_RECALL_COPY, MEMCPY), bl(GR3X_RECALL_COPY, recall), 'settings guard: a recalled mode');
   return recall;
 }
@@ -123,7 +127,7 @@ export function installGr3xGuard(p: Gr3xGuardProgram, o: Gr3xGuardOptions) {
   p.patch(GR3X_LOAD_CALL, bl(GR3X_LOAD_CALL, GR3X_LOAD_DATA), bl(GR3X_LOAD_CALL, load), 'settings guard: after the settings load');
   const save = p.code(`push {r4,lr};mov r4,r0;bl #${fixAll};mov r0,r4;pop {r4,lr};b #${GR3X_SAVE_DATA};`);
   p.patch(GR3X_SAVE_CALL, branchWord(GR3X_SAVE_CALL, GR3X_SAVE_DATA), branchWord(GR3X_SAVE_CALL, save), 'settings guard: before the settings save');
-  const recall = installGr3xGuardRecall(p, fix);
+  const recall = installGr3xGuardRecall(p, fix, undefined, o.recallAfter);
   return { guardFix: fix, guardFixAll: fixAll, guardLoad: load, guardSave: save, guardRecall: recall };
 }
 
@@ -140,6 +144,6 @@ export function installGr3xGuardR10(p: Gr3xGuardProgram & { sites: Gr3xSite[] },
   gr3xSettingsHook(p, 'load', load, 'settings guard: after the settings load');
   const save = p.code(`push {r4,lr};mov r4,r0;bl #${fixAll};mov r0,r4;pop {r4,lr};b #${priorSave};`);
   gr3xSettingsHook(p, 'save', save, 'settings guard: before the settings save');
-  const recall = installGr3xGuardRecall(p, fix, before);
+  const recall = installGr3xGuardRecall(p, fix, before, o.recallAfter);
   return { guardFix: fix, guardFixAll: fixAll, guardLoad: load, guardSave: save, guardRecall: recall };
 }

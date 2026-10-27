@@ -773,3 +773,37 @@ Plus grand dossier au départ : `106`.
   l'enregistrement). Démarrage du rouleau à la première vue dans un mode U dont la BOX est sur On ;
   fin de rouleau : nouveau rouleau automatique (nouveau dossier, vue 1) ; Off ou Save Settings sur
   une BOX entamée = rembobiner. Plus de ligne « Charger » ni de chargement provisoire.
+
+## Phase 3.1 : état du rouleau et compteur de vues (2026-10-27)
+
+### Sauvegarde immédiate (statique)
+
+- `0x5323f274` (sauvegarde à l'extinction) écrit chaque copie des réglages dans un **fichier** de la
+  mémoire interne : `0x53826c54(stockage, index, taille, données)`, stockage =
+  `[0x53828014() + 8]`, nom `APData%02d` (`0x53826bdc`, « src/AppData.cpp »), lecteur interne
+  `H:\DOMDTBK`. Index : 0 l'octet de mode (1 octet), **1 l'enregistrement en cours**, **2 + k la
+  copie k** (table `0x53b59200` : 2..8), 9 et 10 les propriétés communes. On peut donc écrire un
+  seul enregistrement. Certitude : forte (lecture du code), non testé sur le boîtier.
+- Save Settings dans la BOX n : `0x5324b760(objet, n)` (memcpy de l'enregistrement en cours vers la
+  copie n, puis fusion `0x53246df8`), appelé par `UserModeBoxSelectController`.
+- Rappel d'un mode : dans `0x53279fa8`, `r6` garde le mode rappelé de `0x53279fb8` à `0x5327a00c` ;
+  l'enregistrement va aux valeurs actives en `0x5327a018`, après la copie (crochet du garde-fou).
+
+### Build de test T11-ROLL1 (`core/src/fw/gr3x/film-roll.ts`)
+
+- Mode pellicule forcé dans U1 à U3 (octet de mode 1 à 6), en attendant la ligne de menu.
+- État : `0x9b1` bit 1 rouleau entamé, `0x9b2` vue à prendre ; écrit dans l'enregistrement en cours
+  et dans la copie de la BOX active.
+- Première exposition (préfixe du crochet d'exposition) : démarre le rouleau, vue 1.
+- Fin du modèle `0x5323a080` (état de multi-exposition 2) : vue + 1 ; au-delà de la longueur (ratio
+  `+0x4c2` : 3:2 36, 1:1 12, XPan 21, sinon 36) le rouleau se termine ; puis écriture immédiate des
+  fichiers 1 et mode + 2.
+- Compteur à l'écran : vue à prendre en U (1 avant le démarrage), compte normal ailleurs.
+- Save Settings dans la BOX n : rouleau de la BOX n terminé (et celui en cours si n est le mode actif).
+- Rappel de U1 à U3 : Save Interim Images (`+0x482`) à Off dans l'enregistrement en cours, par le
+  crochet de rappel du garde-fou (option `recallAfter`).
+- Vérifié en émulateur (`tools/gr3x/film_roll_check.py`) : 1372 cas (exposition 48, fin 960 dont
+  108 avances et 72 fins de rouleau, compteur 192, Save Settings 72, rappel natif 28) ; trois
+  contre-épreuves détectées ; sonde du garde-fou adaptée et repassée. 324 tests passent.
+- Limites : seules les séquences de multi-exposition font avancer le film (la BOX doit être en
+  multi-exposition) ; pas encore de dossier de rouleau, ni de numéro de vue incrusté.

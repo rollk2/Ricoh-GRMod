@@ -36,6 +36,7 @@ import { installGr3xLiveView } from './liveview';
 import { installGr3xRawDevelopment } from './raw-development';
 import { installGr3xShading } from './shading';
 import { installGr3xFullFrameRaw } from './raw-full-frame';
+import { installGr3xFilmRoll } from './film-roll';
 
 export const GR3X_ADJ = {
   order: 0x53b5a520,
@@ -104,6 +105,9 @@ export interface Gr3xAdjFeatures {
    * exposures, state); 'emitters': which poster of the end ran; 'folders': the screen counter and
    * the folder actions. Not recorded in the recipe: never a release. */
   filmProbe?: boolean | 'exposures' | 'sequence' | 'emitters' | 'folders' | 'return' | 'return2' | 'return3';
+  /** Film mode phase 3.1 (film-roll.ts): the roll's state and frame counter in U1..U3. Round 10
+   * with the date imprint, without the film probe. */
+  filmRoll?: boolean;
   /** Round 8: the Image Control order and hidden looks (look-layout.ts; the camera's order with
    * nothing hidden is the same as none). */
   lookLayout?: Gr3xLookLayout;
@@ -128,6 +132,8 @@ export async function buildGr3xAdjResearch(raw: Uint8Array, ratioMenu: readonly 
   if (round10 && !round9) fail('IIIx round 10 builds on round 9');
   const filmProbe = features.filmProbe === true || features.filmProbe === 'exposures' || features.filmProbe === 'sequence' || features.filmProbe === 'emitters' || features.filmProbe === 'folders' || features.filmProbe === 'return' || features.filmProbe === 'return2' || features.filmProbe === 'return3';
   if (filmProbe && !(round10 && dateImprint)) fail('IIIx film probe: round 10 with the date imprint');
+  const filmRoll = features.filmRoll === true;
+  if (filmRoll && (!(round10 && dateImprint) || filmProbe)) fail('IIIx film roll: round 10 with the date imprint, without the film probe');
   if (features.lookLayout && !round8) fail('IIIx look layout: round 8');
   if (round7 && dateImprint && features.dateMenu !== 'submenu') fail('IIIx round 7: the date imprint submenu');
   const dateForm: Gr3xDateForm = features.dateMenu === 'submenu' ? 'submenu' : 'list';
@@ -203,7 +209,8 @@ export async function buildGr3xAdjResearch(raw: Uint8Array, ratioMenu: readonly 
   const scaffold = round10 ? installGr3xSettingsScaffold({ code, sites, u32: word }) : {};
   // Film mode test builds: hooked first, so every later hook (films, End Screen, guard) runs around it.
   const probe = filmProbe ? installGr3xFilmProbe({ code, sites, patch }, features.filmProbe === true ? 'encodes' : features.filmProbe as 'exposures' | 'sequence' | 'emitters' | 'folders' | 'return' | 'return2' | 'return3') : undefined;
-  const probeEntries = probe?.entries;
+  const roll = filmRoll ? installGr3xFilmRoll({ code, sites, patch }, menu) : undefined;
+  const probeEntries = probe?.entries ?? roll?.entries;
   if (round10) patch(GR3X_ZERO_FILL_LITERAL, GR3X_FILL_OFFICIAL, GR3X_FILL_R10, 'start-up zero fill over the 76 bytes before the heap (round 10\'s RAM words)');
   const order = append(Uint8Array.from(geometry.ratios.map(r => r.id)));
   for (const at of m.orderSites) pair(at, at + 4, 3, m.order, order, `${spelled}-entry native menu order`);
@@ -361,7 +368,7 @@ export async function buildGr3xAdjResearch(raw: Uint8Array, ratioMenu: readonly 
       ...(round7 ? { onOffText: true } : {}), ...(date8 ? { round8: true } : {}), ...(round10 ? { zeroFillDone: true } : {}) }),
     ...(dateImprint ? installGr3xDateImprintStage({ code, append, patch, word, read },
       round7 ? { stash: GR3X_HALATION_STASH, monoFilms: layer.monoFilms ?? [], ...(lookNames ? { names: lookNames } : {}), ...(round10 ? { r10: true } : {}) } : undefined,
-      probeEntries?.filmProbeTime, probe?.exposure) : {}),
+      probeEntries?.filmProbeTime, probe?.exposure ?? roll?.exposure) : {}),
     ...(pictureCount ? installGr3xPictureStage({ code, append, patch, word, read }, pictureCount, { pick: !pictureSub }) : {}) } : {};
   // Round 7 without films: the look word for the date imprint (the image-control layer's
   // development adapter writes it when there are films), and the settings guard.
@@ -385,9 +392,11 @@ export async function buildGr3xAdjResearch(raw: Uint8Array, ratioMenu: readonly 
     const layout = features.lookLayout && !isGr3xFactoryLayout(features.lookLayout, 0) ? features.lookLayout : undefined;
     if (features.lookLayout) validateGr3xLookLayout(features.lookLayout, 0);
     const layoutEntries = layout ? installGr3xLookLayout({ code, append, patch, u32: word, read }, layout, 0) : {};
-    const guardOptions = { films: 0, maxRatio: gr3xMaxId(menu), ...(layout ? { hidden: layout.hidden } : {}), ...(round10 && softFocus ? { softFocusR10: true } : {}) };
+    const guardOptions = { films: 0, maxRatio: gr3xMaxId(menu), ...(layout ? { hidden: layout.hidden } : {}), ...(round10 && softFocus ? { softFocusR10: true } : {}), ...(roll ? { recallAfter: roll.entries.filmRollRecall } : {}) };
     return { ...out, ...layoutEntries, ...(round10 ? installGr3xGuardR10({ code, patch, u32: word, sites }, guardOptions) : installGr3xGuard({ code, patch, u32: word }, guardOptions)) };
   })() : {};
+  // The film roll's Save Interim Images rides on the guard's recall hook: no guard, no build.
+  if (roll && !('guardRecall' in lookEntries)) fail('IIIx film roll: the settings guard (round 7 without films)');
   const payload = new Uint8Array((length + 3) & ~3);
   let at = 0; for (const part of parts) { payload.set(part, at); at += part.length; }
   const iconAddition = new Uint8Array(iconOffset - originalIcons.length);
@@ -401,7 +410,7 @@ export async function buildGr3xAdjResearch(raw: Uint8Array, ratioMenu: readonly 
     adjSoftFocus: softFocus,
     dateImprint: dateImprint ? { ...dateIds, form: dateForm, ...(round7 ? { iconOff: 296, iconOn: 297 } : {}), ...(lookNames ? { names: lookNames } : {}) } : undefined,
     round7,
-    ...(round8 ? { round8 } : {}), ...(round9 ? { round9 } : {}), ...(round10 ? { round10 } : {}), ...(filmProbe ? { filmProbe: features.filmProbe } : {}),
+    ...(round8 ? { round8 } : {}), ...(round9 ? { round9 } : {}), ...(round10 ? { round10 } : {}), ...(filmProbe ? { filmProbe: features.filmProbe } : {}), ...(filmRoll ? { filmRoll: true } : {}),
     ...(round8 && !layer.looksFollow && features.lookLayout && !isGr3xFactoryLayout(features.lookLayout, 0) ? { lookLayout: { order: [...features.lookLayout.order], hidden: [...features.lookLayout.hidden] } } : {}),
     pictures: pictureCount ? (pictureSub ? { form: 'submenu' as const, count: pictureCount, ...endIds, names: pictures.map((_, k) => endIds.factoryText + 1 + k),
       factoryIcons: [...endIds.factoryIcons], icons: [...endIds.icons], choices: pictures.map(x => x.id!) }
