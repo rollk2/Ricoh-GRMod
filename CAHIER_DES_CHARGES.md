@@ -80,7 +80,9 @@ Sources : code de GR Mod (`core/src/fw/gr3x`) et réponse de son auteur, Maxwooo
 | Ratio | Connu | Offset `+0x4c2`. Lecture `0x53245260`, modification `0x532525a4` (voir `experimental.ts`) |
 | Garde-fou des réglages | Connu | `guard.ts` s'accroche au chargement, à la sauvegarde et au rappel de mode. Bon endroit pour garder un rouleau verrouillé cohérent. |
 | Ligne de menu ajoutée | Méthode connue | `datestamp.ts` documente l'ajout de la ligne Date Imprint et de son sous-menu (identifiants de contrôleurs, listes, textes, icônes). « Charger la pellicule » suivra le même modèle. |
-| Octet de stockage du rouleau | À trouver | `0x9a1` (soft focus), `0x9a2` (date) et `0x9a3` (image d'extinction) sont pris. Trouver et vérifier un autre octet libre, avec la méthode de `guard.ts` et `adj-softfocus.ts`. Repli possible : reprendre `0x9a3`. |
+| Octet de stockage du rouleau | Trouvé, à confirmer sur le boîtier | `0x9b1`, `0x9b2`, `0x9b3` : bourrage après le drapeau `0x9b0`, même situation que `0x9a9` à `0x9ab` (GR Mod, testés). Aucun accès du firmware officiel, mis à 0 par les valeurs d'usine, copiés en bloc (chargement, sauvegarde, modes U). Identique sur GR IIIx. Preuves : `docs/film-mode-notes.md`, sonde `tools/gr3x/settings_layout_probe.py`. Réserve : `0x905` à `0x907`. |
+| Carte des champs de l'enregistrement | Connue (émulée) | Fusion avec les valeurs d'usine `0x53246df8` : 1043 champs { valeur ; drapeau }, 253 octets de bourrage. Valeurs d'usine `0x5323f424`. |
+| Mode U actif, enregistrer dans un mode U | Connus (statique) | Numéro du mode actif : octet pointé par `*UserDataModel`. Enregistrer dans le mode n : `0x5324b760`. Le rappel (`0x53279fa8`) ne sauvegarde que le mode 0 avant de changer. |
 | Détection d'une prise de vue | À trouver | Ne pas compter les appels à l'encodeur JPEG, qui sert aussi au développement RAW intégré. Compter les captures. |
 | Condition de verrou en multi-exposition | À trouver | |
 | Dialogue Next shot / Retake shot / Complete et ses touches | À trouver | |
