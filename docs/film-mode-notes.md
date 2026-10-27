@@ -660,3 +660,22 @@ Dossiers au départ : `100RICOH`, `101RICOH`. Contenu à la fin (capture de l'ut
   `0x5359c4e4`). Certitude : moyenne.
 - La suppression (`DcfContentsDeleteService`, `0x535b3810`) écrit aussi dans cette table et dans
   `+0x116` / `+0x117`.
+
+### Isolement du déclencheur (build T10-FILMPROBE6, 2026-10-27)
+
+Tests D1 à D4 (plus grand dossier au départ : `102`). Résultat (capture de l'utilisateur) :
+
+- D1 : P 6846 (supprimée ensuite en D4), U1 JPEG 6847 dans `100`, P 6848 dans `102`. Pas de
+  nouveau dossier.
+- D2 : U1 DNG 6849 dans `100`, P 6850 dans `102`. Pas de nouveau dossier.
+- D3 : U1 multi-exposition, 6851 et 6852 dans `100`, puis P 6853 dans **`103RICOH`, nouveau**.
+- D4 : suppression en P de 6846 (dossier `102`) sans blocage. D5 (suppression dans `100`) non
+  fait.
+- **Testé : la multi-exposition est le déclencheur**, en accord avec la piste statique (fin d'une
+  multi-exposition : le bit du plus grand dossier est mis à la fermeture du fichier, drapeau
+  `+0x21` de la requête). Le RAW et le JPEG seul ne déclenchent rien. R4 puis R5 (même suite) avaient
+  créé `102`.
+- Correction envisagée, un seul mot : en `0x535a6dac`, `mov r2,r7` (plus grand dossier) devient
+  `ldrh r2,[r6,#0x10]` (dossier où le fichier a été écrit : chemin de la requête, `+0xc + 4`). En
+  usage normal les deux sont égaux, donc rien ne change ; avec un dossier imposé, la marque va sur
+  le bon dossier. `r6` est la requête dans toute la fonction ; octets identiques sur IIIx 1.60.
