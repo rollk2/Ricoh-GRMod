@@ -178,3 +178,37 @@ Conséquences :
   L'octet « mode actif » contient le numéro de la BOX rappelée (0 sur P, Av, Tv, M...).
 - **Rappel d'une BOX par le menu :** recopie la BOX dans les réglages du boîtier (mode 0), état du
   rouleau compris. À traiter en phase 4 (rouleau dupliqué entre la BOX et le mode 0).
+
+## Phase 2.3 : détection d'une prise de vue, étape 1 (recherche statique, 2026-10-27)
+
+### Résultat
+
+Candidat : **`SetShootingInfoResultBeforeExpose` (`0x534322d8`)**, au début de chaque exposition
+d'une photo. GR Mod s'y accroche déjà (orientation de la date incrustée, `datestamp.ts`, testé sur
+boîtier depuis le round 8). Certitude : **statique** ; à confirmer par un build de test.
+
+### Chaîne d'appels (fichier source d'après les assertions : `src/FECaptureProcess.cpp`)
+
+| Adresse | Rôle | Preuve |
+|---|---|---|
+| `0x5342da08` | méthode virtuelle de réception des messages du processus de capture (table `0x53c1a1dc`, précédée des noms `OnRelease`, `OnReleaseContinuous`) ; aiguille selon l'identifiant du message | table de méthodes, `switch` sur r3 |
+| `0x5342ac64` | préparation d'une photo : appelle `0x53434200(exposition, 0)` | appel depuis `0x5342dce4` |
+| `0x53434200` | fixe le **type d'exposition** : `[[exposition + 0x20] + 0x24] = 1 - argument` | `eor r0,r1,#1 ; str r0,[r4,#0x24]` |
+| `0x5342adb4` | lance l'exposition : `0x534323d0(objet + 0x48)` | appel depuis `0x5342dbe0` |
+| `0x534323d0` | `StartStillExpopsureProcess` (sic) | chaîne d'assertion |
+| `0x534324f4` | n'appelle `BeforeExpose` **que si le type vaut 1** | `cmp r3,#1 ; bne` avant `bl 0x534322d8` |
+
+Les autres chemins vers `StartStillExpopsureProcess` mettent le type à 0, donc n'appellent pas
+`BeforeExpose` :
+- `0x534325e8`, **`SlowShutterNrProcess`** (seconde exposition, obturateur fermé, de la réduction
+  du bruit en pose longue) : `str r2(0),[ip,#0x24]` ;
+- `0x53430cd8`, calibration du bruit : `0x53434200(…, 1)`, donc type 0 ;
+- `0x5342fa80`, calibration liée au Pixel Mapping (`IsPixelMappingProcessView`) : ne fixe pas le
+  type lui-même (il garde la valeur précédente). Fonction de menu, hors prise de vue normale.
+
+Le développement RAW intégré ne passe pas par une exposition : il n'appelle pas `BeforeExpose`.
+
+### Ce qui reste à confirmer sur le boîtier
+
+Photo simple (+1), développement RAW (+0), multi-exposition 3 vues (+3), pose longue avec
+réduction du bruit (+1), et facultativement Pixel Mapping (attendu +0, à vérifier).
