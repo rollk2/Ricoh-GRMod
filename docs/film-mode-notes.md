@@ -614,3 +614,28 @@ Chaîne de création d'un fichier, toutes dans `DcfContentsCreateService.cpp` :
   fonction native elle-même n'est pas exécutée en émulateur.
 - Attendu sur le boîtier : en P, Av, etc., les photos vont dans le dossier le plus élevé ; en U1,
   U2, U3, dans le plus ancien dossier, avec la numérotation continue.
+
+### Résultats sur le boîtier (build T10-FILMPROBE6, 2026-10-27)
+
+Dossiers au départ : `100RICOH`, `101RICOH`. Contenu à la fin (capture de l'utilisateur) :
+`100RICOH` : `_R016838.DNG`, `_R016839.DNG`, `_R016840.DNG` + `.JPG`, `_R016841.JPG`,
+`_R016842.JPG`, `R0016844.JPG` ; `101RICOH` : `R0016837.JPG` ; `102RICOH` (créé à 22:10) :
+`R0016843.JPG`, `R0016845.JPG`. (`_R` : espace couleur Adobe RGB de la BOX de U1.)
+
+- R1 (P) : 6837 dans `101`, le plus élevé. Conforme.
+- R2 à R4 (U1 : RAW, RAW+JPEG, multi-exposition) : 6838 à 6842 dans `100`, le plus ancien,
+  numérotation continue, DNG et JPEG ensemble. Conforme. R6 (U2, après extinction) : 6844 dans
+  `100`. Conforme.
+- **Brique 5, écriture : testée.** Imposer le numéro de dossier à l'entrée de `SetFilePath` fait
+  enregistrer dans un ancien dossier existant, sans erreur, nom du dossier respecté.
+- **Effet de bord** : R5 (retour en P après U1) a **créé `102RICOH`** au lieu d'écrire dans
+  `101`. R6 (P après la photo U2) va dans `102` sans nouveau dossier. Pistes statiques : dans
+  `GetTargetDirectoryNumber`, un nouveau dossier est pris si la demande `+0x116` est levée ou si
+  le bit du dossier visé est mis dans la table de bits `[info + 0x248] + 0x10 + emplacement * 0x80`
+  (`0x535853a4`) ; ces deux marques sont posées par `0x535a83a4` (« GetDcfInformationService »,
+  appelée par `0x535a84f8`) selon les drapeaux de l'entrée du dossier visé (octet `+0xe`, bits 1
+  et 2) et une analyse de ses fichiers (`0x535a81b8`). Cause exacte non établie.
+- **Suppression** : en lecture, la suppression de 2 photos anciennes a laissé « Data being
+  processed » affiché sans fin, alors que les photos ont bien été supprimées
+  (`DcfContentsDeleteService`, `0x535b3810`, touche aussi `+0x116` / `+0x117`). Lien avec le
+  crochet non établi.
