@@ -14,6 +14,11 @@ imprint's exposure hook (SetShootingInfoResultBeforeExpose's entry) adds 1 to it
 the hook to the function's second instruction, every argument register, lr and sp as they were, ip
 = sp, the orientation and frame-look words written as without the probe, nothing written with no
 record in use.
+Third form ('sequence', T10-FILMPROBE3): no settings hooks; the entries of the multi-exposure end
+(0x5346a910) and retake (0x5346a8d8) add 1 to 0x9b1 / 0x9b3, then the function's own first
+instruction, every register kept; the exposure hook also leaves the state (byte 0x6c0 of the live
+shooting record, 0 when a pointer is missing) at 0x55804388; the clock shows { 2000 + ends % 100,
+state + 1 (at most 12), 1, retakes % 24, exposures % 60 }, nothing written.
 This does not establish the camera's start, power off, menus or pictures.
 """
 import argparse,hashlib,json,random,struct
@@ -24,7 +29,7 @@ from native_probe import STOP
 
 if not __debug__:raise RuntimeError('Validation requires Python assertions')
 
-STARTS,PICTURES,OFFS=0x9b1,0x9b2,0x9b3;BEFORE_EXPOSE=0x534322d8
+STARTS,PICTURES,OFFS=0x9b1,0x9b2,0x9b3;END,RETAKE,STATE=0x5346a910,0x5346a8d8,0x55804388;OBJ,HOLDER,LIVE=0x63034000,0x63035000,0x63036000;BEFORE_EXPOSE=0x534322d8
 FRAME_LOOK,ORIENT,STASH,SINGLETON=0x55804384,0x55804380,0x55804378,0x553458b0
 MODEL=0x55063f30;POINTER=MODEL+4;GET_TIME=0x536b6510
 TIME=0x63030000;MODE=0x63031000
@@ -42,14 +47,14 @@ class Probe(GuardProbe):
 
 def verify(data,manifest,seed=2610,rounds=64):
     e=manifest['entries'];assert manifest.get('filmProbe') and manifest.get('round10')
-    exposures=manifest['filmProbe']=='exposures'
+    form=manifest['filmProbe'];exposures=form in ('exposures','sequence');sequence=form=='sequence'
     sites={s['address']:s for s in manifest['sites']}
     max_ratio=max(r['id'] for r in manifest['menu'])
     want=lambda rec:guarded(rec,0,max_ratio)
     p=Probe(data,manifest);cpu=p.uc;rng=random.Random(seed);calls=0
     # The guard is outermost at both entries; the probe is in the chain (the guard's prior).
     for at in (LOAD_DATA,SAVE_DATA):assert 'guard' in sites[at]['reason']
-    # 1. Load.
+    # 1. Load (the third form has no settings hooks: as the guard alone).
     for i in range(rounds):
         recs,ud=p.records(rng,pointers=i%8!=7);p.loads=0
         p.run(LOAD_DATA,STOP,{0:UD});calls+=1
@@ -57,7 +62,7 @@ def verify(data,manifest,seed=2610,rounds=64):
         for k,rec in enumerate(recs):
             w=bytearray(want(rec));ptr=struct.unpack_from('<I',ud,4+4*k)[0]
             if not ptr:w=bytearray(rec)
-            if k==0 and ptr:w[STARTS]=(rec[STARTS]+1)&255
+            if k==0 and ptr and not sequence:w[STARTS]=(rec[STARTS]+1)&255
             assert bytes(cpu.mem_read(RECS+k*0x1000,SIZE))==bytes(w),(i,k)
     # 2. Save: the firmware's save sees the record in use with power-offs + 1.
     for i in range(rounds):
@@ -66,7 +71,7 @@ def verify(data,manifest,seed=2610,rounds=64):
         assert cpu.reg_read(reg.UC_ARM_REG_R0)==0x5a and len(p.saves)==1
         for k,rec in enumerate(recs):
             w=bytearray(want(rec))
-            if k==0:w[OFFS]=(rec[OFFS]+1)&255
+            if k==0 and not sequence:w[OFFS]=(rec[OFFS]+1)&255
             assert p.saves[0][k]==bytes(w),(i,k)
     # 3. The clock stub.
     t=e['filmProbeTime']
@@ -81,11 +86,12 @@ def verify(data,manifest,seed=2610,rounds=64):
             rec=bytearray(rng.randrange(256) for _ in range(SIZE));rec[STARTS]=v;rec[PICTURES]=(v*7+mode if mode else v*3)&255;rec[OFFS]=(255-v)
             cpu.mem_write(RECS,bytes(rec))
             if mode is not None:cpu.mem_write(MODE,bytes([mode]))
+            if sequence:cpu.mem_write(STATE,bytes([mode or 0]))
             got=clock(RECS,MODE if mode is not None else 0);calls+=1;cases+=1
             pics=rec[PICTURES] if exposures else (rec[PICTURES]+1)&255
             after=bytearray(rec);after[PICTURES]=pics
             assert bytes(cpu.mem_read(RECS,SIZE))==bytes(after)
-            month=1 if mode is None else min(mode+1,12)
+            month=min((mode or 0)+1,12) if sequence else 1 if mode is None else min(mode+1,12)
             assert got==struct.pack('<H',2000+v%100)+bytes([month,1,(255-v)%24,pics%60])+bytes(10),(v,mode,got.hex())
             assert p.clock==0
     got=clock(0,MODE);calls+=1
@@ -100,11 +106,16 @@ def verify(data,manifest,seed=2610,rounds=64):
     exposure_cases=0
     for v in (0,1,0x7f,0xfe,0xff):
         for with_rec in (True,False):
+          for chain in ((None,0),(0,0),(2,1),(1,3),(0,7)) if sequence else ((None,0),):
             for stash in (0,0x1000b,0x10040|0x200):
                 rec=bytearray(rng.randrange(256) for _ in range(SIZE));rec[PICTURES]=v;cpu.mem_write(RECS,bytes(rec))
                 cpu.mem_write(POINTER,struct.pack('<I',RECS if with_rec else 0))
                 cpu.mem_write(STASH,struct.pack('<I',stash));cpu.mem_write(FRAME_LOOK,bytes(4));cpu.mem_write(ORIENT,bytes(4))
-                cpu.mem_write(SINGLETON,bytes(4))
+                cpu.mem_write(SINGLETON,bytes(4));cpu.mem_write(STATE,b'\xee')
+                state,direction=chain
+                if state is not None:
+                    cpu.mem_write(SINGLETON,struct.pack('<I',OBJ));cpu.mem_write(OBJ+0x518,struct.pack('<I',HOLDER))
+                    cpu.mem_write(HOLDER,struct.pack('<I',LIVE));cpu.mem_write(LIVE+0x6c0,bytes([state]));cpu.mem_write(LIVE+0xc8,bytes([direction]))
                 regs={0:0x1111,1:0x2222,2:0x3333,3:0x4444}
                 p.run(hook,BEFORE_EXPOSE+4,regs);calls+=1;exposure_cases+=1
                 for k,val in regs.items():assert cpu.reg_read(getattr(reg,'UC_ARM_REG_R%d'%k))==val
@@ -112,9 +123,30 @@ def verify(data,manifest,seed=2610,rounds=64):
                 after=bytearray(rec)
                 if exposures and with_rec:after[PICTURES]=(v+1)&255
                 assert bytes(cpu.mem_read(RECS,SIZE))==bytes(after),(v,with_rec)
-                # Without the direction singleton: the frame look is the stash's word, no orientation.
-                assert struct.unpack('<I',cpu.mem_read(FRAME_LOOK,4))[0]==stash and cpu.mem_read(ORIENT,4)==bytes(4)
-    return dict(schema=1,rtos_sha256=hashlib.sha256(data).hexdigest(),form='exposures' if exposures else 'encodes',calls=calls,clock_cases=cases,exposure_cases=exposure_cases,seed=seed,hardware_tested=False,
+                assert struct.unpack('<I',cpu.mem_read(FRAME_LOOK,4))[0]==stash
+                if state is None:assert cpu.mem_read(ORIENT,4)==bytes(4)
+                else:assert struct.unpack('<I',cpu.mem_read(ORIENT,4))[0]==((direction if direction<=3 else 0)|0x100)
+                if sequence:assert cpu.mem_read(STATE,1)[0]==(state or 0)
+                else:assert cpu.mem_read(STATE,1)[0]==0xee
+    # 6. Third form: the multi-exposure end and retake, from the patched entries.
+    seq_cases=0
+    if sequence:
+        for at,off in ((END,STARTS),(RETAKE,OFFS)):
+            assert 'film probe' in sites[at]['reason']
+            for v in (0,5,0xff):
+                for with_rec in (True,False):
+                    rec=bytearray(rng.randrange(256) for _ in range(SIZE));rec[off]=v;cpu.mem_write(RECS,bytes(rec))
+                    cpu.mem_write(POINTER,struct.pack('<I',RECS if with_rec else 0))
+                    regs={0:0xaaaa,1:0xbbbb,2:0xcccc,3:0xdddd}
+                    p.run(at,at+4,regs);calls+=1;seq_cases+=1
+                    for k,val in regs.items():assert cpu.reg_read(getattr(reg,'UC_ARM_REG_R%d'%k))==val
+                    assert cpu.reg_read(reg.UC_ARM_REG_LR)==STOP and cpu.reg_read(reg.UC_ARM_REG_IP)==cpu.reg_read(reg.UC_ARM_REG_SP)
+                    after=bytearray(rec)
+                    if with_rec:after[off]=(v+1)&255
+                    assert bytes(cpu.mem_read(RECS,SIZE))==bytes(after),(hex(at),v,with_rec)
+    else:
+        for at in (END,RETAKE):assert at not in sites
+    return dict(schema=1,sequence_cases=seq_cases,rtos_sha256=hashlib.sha256(data).hexdigest(),form='encodes' if form is True else form,calls=calls,clock_cases=cases,exposure_cases=exposure_cases,seed=seed,hardware_tested=False,
         scope='Load and save entries run natively (firmware load/save substituted); clock stub called directly.')
 
 if __name__=='__main__':

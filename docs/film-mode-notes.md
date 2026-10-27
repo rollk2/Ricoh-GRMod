@@ -285,3 +285,18 @@ Petite classe (compteur de phase à `+4`), appelée par la machine à états de 
 - Non trouvé : le dialogue Next shot / Retake / Complete et ses touches. Piste : la table de
   touches de `QuickViewController` (`0x53b41324`, touches 0x2b4 à 0x2b6 et 0x2c5, 0x2c6 ; la
   fonction `0x531ca7d8` publie l'événement 0xb7).
+
+## Phase 2.4 : étapes 2 et 3, build de test de la séquence (2026-10-27)
+
+- Variante `filmProbe: 'sequence'` (révision `T10-FILMPROBE3`, `--sequence`). Aucun crochet sur
+  le chargement ni la sauvegarde. Deux crochets d'entrée : `0x5346a910` (fin de séquence, 0x9b1
+  +1) et `0x5346a8d8` (Retake, 0x9b3 +1). Au début de chaque exposition : 0x9b2 +1, et l'état de
+  la multi-exposition (`+0x6c0` de l'enregistrement de prise de vue en direct) copié dans l'octet
+  `0x55804388` (mot réservé de GR Mod, inutilisé ; builds de test seulement).
+- Affichage : `20SS.MM.01 OO:PP` = SS fins de séquence, MM état + 1 à la dernière exposition,
+  OO Retake, PP expositions.
+- Les builds `T10-FILMPROBE` et `T10-FILMPROBE2` ressortent identiques.
+- Émulé : les deux crochets exécutés depuis l'entrée réelle des fonctions (compteur +1, rien
+  sans enregistrement, registres intacts, reprise à la deuxième instruction) ; le crochet
+  d'exposition avec une chaîne de pointeurs simulée (état et orientation lus, 0 si un pointeur
+  manque). Contre-épreuves : la sonde échoue si l'on inverse fin et Retake, ou les variantes.

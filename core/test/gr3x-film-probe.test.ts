@@ -7,7 +7,7 @@ import { buildGr3xAdjResearch } from '../src/fw/gr3x/adj';
 import { planGr3xMenu } from '../src/fw/gr3x/geometry';
 import { buildGr3xTestFirmware } from '../src/fw/gr3x/research-package';
 import { GR3X_SETTINGS_LOAD, GR3X_SETTINGS_SAVE } from '../src/fw/gr3x/round10';
-import { GR3X_GET_TIME } from '../src/fw/gr3x/film-probe';
+import { GR3X_GET_TIME, GR3X_MULTI_END, GR3X_MULTI_RETAKE } from '../src/fw/gr3x/film-probe';
 import { GR3X_BEFORE_EXPOSE } from '../src/fw/gr3x/datestamp';
 
 const input = process.env.GRMOD_GR3_FIRMWARE;
@@ -47,5 +47,19 @@ describe.skipIf(!input)('GR III film probe (film mode test build)', () => {
     expect(exp.append.bytes).not.toBe(enc.append.bytes);
     const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmProbe: 'exposures' });
     expect(built.report.revision).toBe('T10-FILMPROBE2');
+  }, 240000);
+  it('hooks the multi-exposure end and retake, and no settings hook (third form)', async () => {
+    const plain = await buildGr3xAdjResearch(raw, menu, r10);
+    const seq = await buildGr3xAdjResearch(raw, menu, { ...r10, filmProbe: 'sequence' });
+    const e = seq.entries as Record<string, number>;
+    expect(seq).toMatchObject({ filmProbe: 'sequence' });
+    expect(e).not.toHaveProperty('filmProbeLoad');
+    for (const at of [GR3X_MULTI_END, GR3X_MULTI_RETAKE]) {
+      expect(plain.sites.some(s => s.address === at)).toBe(false);
+      expect(seq.sites.find(s => s.address === at)!).toMatchObject({ expected: '0dc0a0e1', reason: expect.stringMatching(/^film probe/) });
+    }
+    expect(seq.sites.length).toBe(plain.sites.length + 2);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmProbe: 'sequence' });
+    expect(built.report.revision).toBe('T10-FILMPROBE3');
   }, 240000);
 });

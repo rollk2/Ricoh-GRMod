@@ -22,14 +22,33 @@
  * exposures of type 1: not for the slow-shutter noise reduction's dark frame, the noise
  * calibration or RAW development; docs/film-mode-notes.md), in front of the date imprint's own
  * hook there (datestamp.ts); the clock stub then only reads it.
+ *
+ * Third form, 'sequence' (phase 2.4, revision T10-FILMPROBE3), for the multi-exposure sequence; no
+ * settings hooks (starts and power-offs are not counted):
+ *  - 0x9b1: ends of a sequence, + 1 at the entry of 0x5346a910 (message 0x42411c16, phase and
+ *    state back to 0: "Complete");
+ *  - 0x9b2: exposures, as in the second form;
+ *  - 0x9b3: retakes, + 1 at the entry of 0x5346a8d8 (message 0x42411817);
+ *  - the multi-exposure state (byte 0x6c0 of the live shooting record: singleton 0x553458b0,
+ *    + 0x518, [0]; 2 in a multi-exposure) at the last exposure, in the byte at 0x55804388 (round
+ *    10's word kept for the End Screen choice, unused: test builds only).
+ * The clock then shows 20SS.MM.01 OO:PP: SS ends, MM state + 1, OO retakes, PP exposures.
  */
-import { gr3xSettingsHook, gr3xSettingsPrior } from './round10';
+import { branchWord } from '../aspect/arm';
+import { FirmwareError } from '../types';
+import { GR3X_R10, gr3xSettingsHook, gr3xSettingsPrior } from './round10';
 import type { Gr3xSite } from './round10';
 
 export const GR3X_FILM_STARTS = 0x9b1;
 export const GR3X_FILM_PICTURES = 0x9b2;
 export const GR3X_FILM_POWER_OFFS = 0x9b3;
 const MODEL = 0x55063f30, POINTER = MODEL + 4;
+/** Phase 2.4: the multi-exposure sequence's end and retake (docs/film-mode-notes.md). */
+export const GR3X_MULTI_END = 0x5346a910;
+export const GR3X_MULTI_RETAKE = 0x5346a8d8;
+/** Test builds only: the state at the last exposure (round 10's unused End Screen word). */
+export const GR3X_FILM_STATE = GR3X_R10.endScreenChoice;
+const SINGLETON = 0x553458b0;
 /** The camera's clock (the date imprint's get_time, datestamp.ts). */
 export const GR3X_GET_TIME = 0x536b6510;
 
@@ -39,10 +58,16 @@ const mod = (r: string, n: number, label: string) => `${label}:cmp ${r},#${n};su
 export interface Gr3xFilmProbeProgram {
   code(source: string): number;
   sites: Gr3xSite[];
+  /** The third form patches two function entries. */
+  patch?(address: number, expected: number, replacement: number, reason: string): void;
 }
+const ram = (r: string, label: string) => `cmp ${r},#0x40000000;blo ${label};cmp ${r},#0xc0000000;bhs ${label};tst ${r},#3;bne ${label};`;
+const bump = (offset: number, label: string) => `push {r0,r1};movw r0,#${lo(POINTER)};movt r0,#${hi(POINTER)};ldr r0,[r0];cmp r0,#0;beq ${label};
+  ldrb r1,[r0,#${offset}];add r1,r1,#1;strb r1,[r0,#${offset}];${label}:pop {r0,r1};`;
 
 /** The two settings hooks (the scaffold must be installed) and the clock stub for the date imprint. */
-export function installGr3xFilmProbe(p: Gr3xFilmProbeProgram, form: 'encodes' | 'exposures' = 'encodes') {
+export function installGr3xFilmProbe(p: Gr3xFilmProbeProgram, form: 'encodes' | 'exposures' | 'sequence' = 'encodes') {
+  if (form === 'sequence') return installSequence(p);
   const priorLoad = gr3xSettingsPrior(p, 'load'), priorSave = gr3xSettingsPrior(p, 'save');
   // The load works from r0 (the settings object, record in use at +4), as every load hook.
   const load = p.code(`push {r4,r5,r6,lr};mov r4,r0;bl #${priorLoad};mov r5,r0;
@@ -69,4 +94,31 @@ export function installGr3xFilmProbe(p: Gr3xFilmProbeProgram, form: 'encodes' | 
   const exposure = form === 'exposures' ? `push {r0,r1};movw r0,#${lo(POINTER)};movt r0,#${hi(POINTER)};ldr r0,[r0];cmp r0,#0;
     ldrbne r1,[r0,#${GR3X_FILM_PICTURES}];addne r1,r1,#1;strbne r1,[r0,#${GR3X_FILM_PICTURES}];pop {r0,r1};` : '';
   return { entries: { filmProbeLoad: load, filmProbeSave: save, filmProbeTime: time }, exposure };
+}
+
+/** The third form: the sequence's end and retake hooks, the exposure count and state, the clock. */
+function installSequence(p: Gr3xFilmProbeProgram) {
+  if (!p.patch) throw new FirmwareError('internal', 'IIIx film probe: the sequence form patches');
+  const entries: Record<string, number> = {};
+  for (const [name, at, offset] of [['filmProbeEnd', GR3X_MULTI_END, GR3X_FILM_STARTS], ['filmProbeRetake', GR3X_MULTI_RETAKE, GR3X_FILM_POWER_OFFS]] as const) {
+    if (p.sites.some(s => s.address === at)) throw new FirmwareError('unexpected-instruction', `IIIx film probe: ${at.toString(16)} already patched`);
+    const stub = p.code(`${bump(offset, 'done')}mov ip,sp;b #${at + 4};`);
+    p.patch(at, 0xe1a0c00d, branchWord(at, stub), `film probe: ${name === 'filmProbeEnd' ? 'multi-exposure end' : 'multi-exposure retake'} + 1`);
+    entries[name] = stub;
+  }
+  const time = p.code(`movw r3,#${lo(POINTER)};movt r3,#${hi(POINTER)};ldr r3,[r3];cmp r3,#0;beq clock;
+    push {r4,lr};
+    ldrb r0,[r3,#${GR3X_FILM_STARTS}];${mod('r0', 100, 'year')}add r0,r0,#2000;strb r0,[r1];mov r0,r0,lsr #8;strb r0,[r1,#1];
+    movw r4,#${lo(GR3X_FILM_STATE)};movt r4,#${hi(GR3X_FILM_STATE)};ldrb r0,[r4];add r0,r0,#1;cmp r0,#12;movhi r0,#12;strb r0,[r1,#2];
+    mov r0,#1;strb r0,[r1,#3];
+    ldrb r0,[r3,#${GR3X_FILM_POWER_OFFS}];${mod('r0', 24, 'hour')}strb r0,[r1,#4];
+    ldrb r0,[r3,#${GR3X_FILM_PICTURES}];${mod('r0', 60, 'minute')}strb r0,[r1,#5];
+    pop {r4,pc};
+    clock:b #${GR3X_GET_TIME};`);
+  // At each exposure: exposures + 1, and the state (0 when a pointer is missing).
+  const exposure = `${bump(GR3X_FILM_PICTURES, 'counted')}push {r0,r1};mov r1,#0;
+    movw r0,#${lo(SINGLETON)};movt r0,#${hi(SINGLETON)};ldr r0,[r0];${ram('r0', 'state')}
+    ldr r0,[r0,#0x518];${ram('r0', 'state')}ldr r0,[r0];${ram('r0', 'state')}ldrb r1,[r0,#0x6c0];
+    state:movw r0,#${lo(GR3X_FILM_STATE)};movt r0,#${hi(GR3X_FILM_STATE)};strb r1,[r0];pop {r0,r1};`;
+  return { entries: { ...entries, filmProbeTime: time }, exposure };
 }
