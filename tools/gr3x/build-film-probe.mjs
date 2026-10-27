@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 // Film mode phase 2: the test build of the roll's bytes 0x9b1..0x9b3 (core/src/fw/gr3x/film-probe.ts).
-// Round 10 with the date imprint, no films, one added ratio (XPan 65:24, the build needs one). Never discovers or writes a camera or card.
+// --exposures: pictures counted at each still exposure (T10-FILMPROBE2). Round 10 with the date imprint, no films, one added ratio (XPan 65:24, the build needs one). Never discovers or writes a camera or card.
 import { registerHooks } from 'node:module';
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
@@ -15,15 +15,15 @@ registerHooks({ resolve(specifier, context, next) {
   }
 } });
 const [input, directory, ...extra] = process.argv.slice(2);
-if (!input || !directory || extra.length) {
-  console.error('Usage: node tools/gr3x/build-film-probe.mjs OFFICIAL.bin NEW-directory');
+if (!input || !directory || extra.length > 1 || (extra.length && extra[0] !== '--exposures')) {
+  console.error('Usage: node tools/gr3x/build-film-probe.mjs OFFICIAL.bin NEW-directory [--exposures]');
   process.exit(2);
 }
 const { buildGr3xTestFirmware } = await import('../../core/src/fw/gr3x/research-package.ts');
 const { planGr3xMenu } = await import('../../core/src/fw/gr3x/geometry.ts');
 const raw = new Uint8Array(await readFile(input));
 const result = await buildGr3xTestFirmware(raw, [], undefined, planGr3xMenu([{ ratio: '65:24', name: 'XPan' }]),
-  { dateImprint: true, dateMenu: 'submenu', round7: true, round8: true, round9: true, round10: true, filmProbe: true });
+  { dateImprint: true, dateMenu: 'submenu', round7: true, round8: true, round9: true, round10: true, filmProbe: extra.length ? 'exposures' : true });
 const target = resolve(directory);
 await mkdir(target); // Never overwrite an earlier build or the official input.
 await writeFile(join(target, result.report.filename), result.bytes, { flag: 'wx' });

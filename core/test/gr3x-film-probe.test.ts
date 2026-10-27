@@ -8,6 +8,7 @@ import { planGr3xMenu } from '../src/fw/gr3x/geometry';
 import { buildGr3xTestFirmware } from '../src/fw/gr3x/research-package';
 import { GR3X_SETTINGS_LOAD, GR3X_SETTINGS_SAVE } from '../src/fw/gr3x/round10';
 import { GR3X_GET_TIME } from '../src/fw/gr3x/film-probe';
+import { GR3X_BEFORE_EXPOSE } from '../src/fw/gr3x/datestamp';
 
 const input = process.env.GRMOD_GR3_FIRMWARE;
 const menu = planGr3xMenu([{ ratio: '65:24', name: 'XPan' }]);
@@ -36,5 +37,15 @@ describe.skipIf(!input)('GR III film probe (film mode test build)', () => {
     const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmProbe: true });
     expect(built.report.revision).toBe('T10-FILMPROBE');
     expect(built.report.filename).toBe('fwdc239b.bin');
+  }, 240000);
+  it('counts exposures in front of the date imprint\'s exposure hook (second form)', async () => {
+    const enc = await buildGr3xAdjResearch(raw, menu, { ...r10, filmProbe: true });
+    const exp = await buildGr3xAdjResearch(raw, menu, { ...r10, filmProbe: 'exposures' });
+    expect(exp).toMatchObject({ filmProbe: 'exposures' });
+    expect(exp.sites.map(s => s.address).sort()).toEqual(enc.sites.map(s => s.address).sort());
+    expect(exp.sites.find(s => s.address === GR3X_BEFORE_EXPOSE)!.reason).toMatch(/direction/);
+    expect(exp.append.bytes).not.toBe(enc.append.bytes);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmProbe: 'exposures' });
+    expect(built.report.revision).toBe('T10-FILMPROBE2');
   }, 240000);
 });

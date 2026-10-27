@@ -236,7 +236,7 @@ function gr3xLookNameTable(p: Gr3xDateProgram, names: Readonly<Record<number, st
 export const GR3X_BEFORE_EXPOSE = 0x534322d8;
 const DIRECTION_SINGLETON = 0x553458b0;
 const ram = (r: string, label: string) => `cmp ${r},#0x40000000;blo ${label};cmp ${r},#0xc0000000;bhs ${label};tst ${r},#3;bne ${label};`;
-export function installGr3xExposureOrientation(p: Gr3xDateProgram, stash: number, r10 = false) {
+export function installGr3xExposureOrientation(p: Gr3xDateProgram, stash: number, r10 = false, prefix = '') {
   const guards: readonly (readonly [number, number])[] = [
     [GR3X_BEFORE_EXPOSE, 0xe1a0c00d], [GR3X_BEFORE_EXPOSE + 4, 0xe92dd830], // mov ip, sp; push {r4, r5, fp, ip, lr, pc}
     [GR3X_BEFORE_EXPOSE + 0x88, 0xe5c41946], // strb r1, [r4, #0x946] (the frame's date)
@@ -246,8 +246,10 @@ export function installGr3xExposureOrientation(p: Gr3xDateProgram, stash: number
     [0x535f63d0, 0xe28320c8], // the EXIF setter's +0x14: the record + 0xc8
   ];
   for (const [at, w] of guards) if (p.word(at) !== w >>> 0) fail(`IIIx exposure orientation guard at ${at.toString(16)}`);
+  if (prefix && !r10) fail('IIIx exposure hook prefix: round 10');
+  // `prefix` (round 10, the film probe's test builds): code run first, which keeps every register.
   // Round 10 (GR IV): the stash's word as it is (FRAME_LOOK), the direction | 0x100 (ORIENT_WORD).
-  const stub = r10 ? p.code(`push {r0,r1};
+  const stub = r10 ? p.code(`${prefix}push {r0,r1};
     movw r0,#${lo(stash)};movt r0,#${hi(stash)};ldr r0,[r0];
     movw r1,#${lo(GR3X_R10.frameLook)};movt r1,#${hi(GR3X_R10.frameLook)};str r0,[r1];
     movw r0,#${lo(DIRECTION_SINGLETON)};movt r0,#${hi(DIRECTION_SINGLETON)};ldr r0,[r0];${ram('r0', 'done')}
@@ -301,8 +303,9 @@ export function gr3xMonoTable(monoFilms: readonly boolean[]): Uint8Array {
 
 /** The picture side: the module behind a stub at the start of Execute. Returns the stub, which
  * ends by carrying on with Execute; the halation (jpeg-stage.ts) goes in front of it. `getTime`:
- * the clock the module reads (the film probe's counters in its test builds, film-probe.ts). */
-export function installGr3xDateImprintStage(p: Gr3xDateProgram, look?: Gr3xDateLook, getTime = GET_TIME) {
+ * the clock the module reads (the film probe's counters in its test builds, film-probe.ts);
+ * `exposurePrefix`: code run first at each exposure (the film probe's exposure count). */
+export function installGr3xDateImprintStage(p: Gr3xDateProgram, look?: Gr3xDateLook, getTime = GET_TIME, exposurePrefix = '') {
   const guards: readonly (readonly [number, number])[] = [
     [GR3X_JPEG_EXECUTE, 0xe1a0c00d], [GR3X_JPEG_EXECUTE + 4, 0xe92ddff0], [GR3X_JPEG_EXECUTE + 0x18, 0xe5914008],
     [CACHE, 0xe30d01b4], [CACHE_FLUSH_FOR_READ, 0xe1a0c00d], [CACHE_CLEAN, 0xe1a00001], [PLATFORM, 0xe1a0c00d], [GET_TIME, 0xe5d0300c],
@@ -317,7 +320,7 @@ export function installGr3xDateImprintStage(p: Gr3xDateProgram, look?: Gr3xDateL
   const r8Words = round8 ? [r10 ? GR3X_R10.orientWord : GR3X_ORIENT_BYTE, r10 ? GR3X_R10.frameLook : GR3X_FRAME_LOOK, gr3xLookNameTable(p, look!.names!)] : [];
   const ctx = p.append(u32([CACHE, CACHE_FLUSH_FOR_READ, CACHE_CLEAN, PLATFORM, getTime, GR3X_DATE_SETTINGS_POINTER, GR3X_DATE_OFFSET, ...lookWords, ...r8Words]));
   if (r10 && !round8) fail('IIIx date imprint: round 10 builds on round 8');
-  const exposure = round8 ? installGr3xExposureOrientation(p, look!.stash, r10) : {};
+  const exposure = round8 ? installGr3xExposureOrientation(p, look!.stash, r10, exposurePrefix) : {};
   const module = p.append(gr3xDateModule(r10 ? 10 : round8 ? 8 : look ? 7 : 6));
   const stub = p.code(`push {r0-r3,ip,lr};ldr r1,[r1,#8];movw r0,#${lo(ctx)};movt r0,#${hi(ctx)};bl #${module};pop {r0-r3,ip,lr};
     mov ip,sp;b #${GR3X_JPEG_EXECUTE + 4};`);

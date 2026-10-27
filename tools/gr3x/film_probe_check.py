@@ -9,6 +9,11 @@
    power-offs % 24, pictures % 60 } for every value of the three bytes and of the mode; with the
    record pointer at 0 it is the camera's clock (0x536b6510), untouched.
  - The date imprint's context reads the clock stub.
+Second form ('exposures', T10-FILMPROBE2): the clock stub only reads the pictures byte, and the date
+imprint's exposure hook (SetShootingInfoResultBeforeExpose's entry) adds 1 to it first: run from
+the hook to the function's second instruction, every argument register, lr and sp as they were, ip
+= sp, the orientation and frame-look words written as without the probe, nothing written with no
+record in use.
 This does not establish the camera's start, power off, menus or pictures.
 """
 import argparse,hashlib,json,random,struct
@@ -19,15 +24,17 @@ from native_probe import STOP
 
 if not __debug__:raise RuntimeError('Validation requires Python assertions')
 
-STARTS,PICTURES,OFFS=0x9b1,0x9b2,0x9b3
+STARTS,PICTURES,OFFS=0x9b1,0x9b2,0x9b3;BEFORE_EXPOSE=0x534322d8
+FRAME_LOOK,ORIENT,STASH,SINGLETON=0x55804384,0x55804380,0x55804378,0x553458b0
 MODEL=0x55063f30;POINTER=MODEL+4;GET_TIME=0x536b6510
 TIME=0x63030000;MODE=0x63031000
 
 class Probe(GuardProbe):
     def __init__(self,data,manifest):
         super().__init__(data,manifest);self.clock=0
-        try:self.uc.mem_map(0x55060000,0x10000)
-        except Exception:pass
+        for at in (0x55060000,0x55340000):
+            try:self.uc.mem_map(at,0x10000)
+            except Exception:pass
     def _hook(self,cpu,at,size,user):
         if at==GET_TIME:
             self.clock+=1;cpu.reg_write(reg.UC_ARM_REG_PC,cpu.reg_read(reg.UC_ARM_REG_LR))
@@ -35,6 +42,7 @@ class Probe(GuardProbe):
 
 def verify(data,manifest,seed=2610,rounds=64):
     e=manifest['entries'];assert manifest.get('filmProbe') and manifest.get('round10')
+    exposures=manifest['filmProbe']=='exposures'
     sites={s['address']:s for s in manifest['sites']}
     max_ratio=max(r['id'] for r in manifest['menu'])
     want=lambda rec:guarded(rec,0,max_ratio)
@@ -74,7 +82,7 @@ def verify(data,manifest,seed=2610,rounds=64):
             cpu.mem_write(RECS,bytes(rec))
             if mode is not None:cpu.mem_write(MODE,bytes([mode]))
             got=clock(RECS,MODE if mode is not None else 0);calls+=1;cases+=1
-            pics=(rec[PICTURES]+1)&255
+            pics=rec[PICTURES] if exposures else (rec[PICTURES]+1)&255
             after=bytearray(rec);after[PICTURES]=pics
             assert bytes(cpu.mem_read(RECS,SIZE))==bytes(after)
             month=1 if mode is None else min(mode+1,12)
@@ -85,7 +93,28 @@ def verify(data,manifest,seed=2610,rounds=64):
     # 4. The date imprint's context: cache, flush, clean, platform, then the clock.
     ctx=e['dateContext']
     assert struct.unpack('<I',cpu.mem_read(ctx+16,4))[0]==t
-    return dict(schema=1,rtos_sha256=hashlib.sha256(data).hexdigest(),calls=calls,clock_cases=cases,seed=seed,hardware_tested=False,
+    # 5. The exposure hook.
+    sites={s['address']:s for s in manifest['sites']}
+    hook=e['exposureOrientation']
+    assert int.from_bytes(bytes.fromhex(sites[BEFORE_EXPOSE]['replacement']),'little')==(0xea000000|(((hook-BEFORE_EXPOSE-8)>>2)&0xffffff))
+    exposure_cases=0
+    for v in (0,1,0x7f,0xfe,0xff):
+        for with_rec in (True,False):
+            for stash in (0,0x1000b,0x10040|0x200):
+                rec=bytearray(rng.randrange(256) for _ in range(SIZE));rec[PICTURES]=v;cpu.mem_write(RECS,bytes(rec))
+                cpu.mem_write(POINTER,struct.pack('<I',RECS if with_rec else 0))
+                cpu.mem_write(STASH,struct.pack('<I',stash));cpu.mem_write(FRAME_LOOK,bytes(4));cpu.mem_write(ORIENT,bytes(4))
+                cpu.mem_write(SINGLETON,bytes(4))
+                regs={0:0x1111,1:0x2222,2:0x3333,3:0x4444}
+                p.run(hook,BEFORE_EXPOSE+4,regs);calls+=1;exposure_cases+=1
+                for k,val in regs.items():assert cpu.reg_read(getattr(reg,'UC_ARM_REG_R%d'%k))==val
+                assert cpu.reg_read(reg.UC_ARM_REG_LR)==STOP and cpu.reg_read(reg.UC_ARM_REG_IP)==cpu.reg_read(reg.UC_ARM_REG_SP)
+                after=bytearray(rec)
+                if exposures and with_rec:after[PICTURES]=(v+1)&255
+                assert bytes(cpu.mem_read(RECS,SIZE))==bytes(after),(v,with_rec)
+                # Without the direction singleton: the frame look is the stash's word, no orientation.
+                assert struct.unpack('<I',cpu.mem_read(FRAME_LOOK,4))[0]==stash and cpu.mem_read(ORIENT,4)==bytes(4)
+    return dict(schema=1,rtos_sha256=hashlib.sha256(data).hexdigest(),form='exposures' if exposures else 'encodes',calls=calls,clock_cases=cases,exposure_cases=exposure_cases,seed=seed,hardware_tested=False,
         scope='Load and save entries run natively (firmware load/save substituted); clock stub called directly.')
 
 if __name__=='__main__':

@@ -99,8 +99,9 @@ export interface Gr3xAdjFeatures {
    * the End Screen choice as a record of the settings store. Absent: the files of round 9. */
   round10?: boolean;
   /** Film mode test builds (film-probe.ts; needs round 10 and the date imprint): counters in the
-   * roll's bytes 0x9b1..0x9b3, shown by the date imprint. Not recorded in the recipe: never a release. */
-  filmProbe?: boolean;
+   * roll's bytes 0x9b1..0x9b3, shown by the date imprint; 'exposures': pictures counted at each
+   * still exposure instead of each JPEG. Not recorded in the recipe: never a release. */
+  filmProbe?: boolean | 'exposures';
   /** Round 8: the Image Control order and hidden looks (look-layout.ts; the camera's order with
    * nothing hidden is the same as none). */
   lookLayout?: Gr3xLookLayout;
@@ -123,7 +124,7 @@ export async function buildGr3xAdjResearch(raw: Uint8Array, ratioMenu: readonly 
   if (round9 && !round8) fail('IIIx round 9 builds on round 8');
   const round10 = features.round10 === true;
   if (round10 && !round9) fail('IIIx round 10 builds on round 9');
-  const filmProbe = features.filmProbe === true;
+  const filmProbe = features.filmProbe === true || features.filmProbe === 'exposures';
   if (filmProbe && !(round10 && dateImprint)) fail('IIIx film probe: round 10 with the date imprint');
   if (features.lookLayout && !round8) fail('IIIx look layout: round 8');
   if (round7 && dateImprint && features.dateMenu !== 'submenu') fail('IIIx round 7: the date imprint submenu');
@@ -199,7 +200,8 @@ export async function buildGr3xAdjResearch(raw: Uint8Array, ratioMenu: readonly 
   // Round 10 (round10.ts): the settings scaffold, and the zero fill over the 76 bytes before the heap.
   const scaffold = round10 ? installGr3xSettingsScaffold({ code, sites, u32: word }) : {};
   // Film mode test builds: hooked first, so every later hook (films, End Screen, guard) runs around it.
-  const probeEntries = filmProbe ? installGr3xFilmProbe({ code, sites }) : undefined;
+  const probe = filmProbe ? installGr3xFilmProbe({ code, sites }, features.filmProbe === 'exposures' ? 'exposures' : 'encodes') : undefined;
+  const probeEntries = probe?.entries;
   if (round10) patch(GR3X_ZERO_FILL_LITERAL, GR3X_FILL_OFFICIAL, GR3X_FILL_R10, 'start-up zero fill over the 76 bytes before the heap (round 10\'s RAM words)');
   const order = append(Uint8Array.from(geometry.ratios.map(r => r.id)));
   for (const at of m.orderSites) pair(at, at + 4, 3, m.order, order, `${spelled}-entry native menu order`);
@@ -357,7 +359,7 @@ export async function buildGr3xAdjResearch(raw: Uint8Array, ratioMenu: readonly 
       ...(round7 ? { onOffText: true } : {}), ...(date8 ? { round8: true } : {}), ...(round10 ? { zeroFillDone: true } : {}) }),
     ...(dateImprint ? installGr3xDateImprintStage({ code, append, patch, word, read },
       round7 ? { stash: GR3X_HALATION_STASH, monoFilms: layer.monoFilms ?? [], ...(lookNames ? { names: lookNames } : {}), ...(round10 ? { r10: true } : {}) } : undefined,
-      probeEntries?.filmProbeTime) : {}),
+      probeEntries?.filmProbeTime, probe?.exposure) : {}),
     ...(pictureCount ? installGr3xPictureStage({ code, append, patch, word, read }, pictureCount, { pick: !pictureSub }) : {}) } : {};
   // Round 7 without films: the look word for the date imprint (the image-control layer's
   // development adapter writes it when there are films), and the settings guard.
@@ -397,7 +399,7 @@ export async function buildGr3xAdjResearch(raw: Uint8Array, ratioMenu: readonly 
     adjSoftFocus: softFocus,
     dateImprint: dateImprint ? { ...dateIds, form: dateForm, ...(round7 ? { iconOff: 296, iconOn: 297 } : {}), ...(lookNames ? { names: lookNames } : {}) } : undefined,
     round7,
-    ...(round8 ? { round8 } : {}), ...(round9 ? { round9 } : {}), ...(round10 ? { round10 } : {}), ...(filmProbe ? { filmProbe } : {}),
+    ...(round8 ? { round8 } : {}), ...(round9 ? { round9 } : {}), ...(round10 ? { round10 } : {}), ...(filmProbe ? { filmProbe: features.filmProbe } : {}),
     ...(round8 && !layer.looksFollow && features.lookLayout && !isGr3xFactoryLayout(features.lookLayout, 0) ? { lookLayout: { order: [...features.lookLayout.order], hidden: [...features.lookLayout.hidden] } } : {}),
     pictures: pictureCount ? (pictureSub ? { form: 'submenu' as const, count: pictureCount, ...endIds, names: pictures.map((_, k) => endIds.factoryText + 1 + k),
       factoryIcons: [...endIds.factoryIcons], icons: [...endIds.icons], choices: pictures.map(x => x.id!) }

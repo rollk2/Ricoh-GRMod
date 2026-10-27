@@ -212,3 +212,15 @@ Le développement RAW intégré ne passe pas par une exposition : il n'appelle p
 
 Photo simple (+1), développement RAW (+0), multi-exposition 3 vues (+3), pose longue avec
 réduction du bruit (+1), et facultativement Pixel Mapping (attendu +0, à vérifier).
+
+## Phase 2.3 : étapes 2 et 3, build de test des expositions (2026-10-27)
+
+- Variante `filmProbe: 'exposures'` (révision `T10-FILMPROBE2`, `--exposures` pour
+  `tools/gr3x/build-film-probe.mjs`). PP (0x9b2) compte les expositions : +1 au début du crochet
+  déjà posé par la date incrustée sur `SetShootingInfoResultBeforeExpose` (`0x534322d8`), avant
+  son code d'orientation. L'horloge de remplacement ne fait plus que lire PP. SS et OO inchangés.
+- Le build `T10-FILMPROBE` ressort identique octet pour octet (SHA-256 `46ca299f…`).
+- Émulé (`tools/gr3x/film_probe_check.py`) : du crochet jusqu'à la deuxième instruction de la
+  fonction d'origine, PP +1 (rien sans enregistrement), r0 à r3, lr, sp intacts, ip = sp,
+  mots d'orientation et de film du cadre écrits comme sans la sonde. Contre-épreuves : la sonde
+  échoue si l'on intervertit les deux variantes.
