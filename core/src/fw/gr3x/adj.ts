@@ -103,7 +103,7 @@ export interface Gr3xAdjFeatures {
    * still exposure instead of each JPEG; 'sequence': the multi-exposure sequence (ends, retakes,
    * exposures, state); 'emitters': which poster of the end ran; 'folders': the screen counter and
    * the folder actions. Not recorded in the recipe: never a release. */
-  filmProbe?: boolean | 'exposures' | 'sequence' | 'emitters' | 'folders';
+  filmProbe?: boolean | 'exposures' | 'sequence' | 'emitters' | 'folders' | 'return';
   /** Round 8: the Image Control order and hidden looks (look-layout.ts; the camera's order with
    * nothing hidden is the same as none). */
   lookLayout?: Gr3xLookLayout;
@@ -126,7 +126,7 @@ export async function buildGr3xAdjResearch(raw: Uint8Array, ratioMenu: readonly 
   if (round9 && !round8) fail('IIIx round 9 builds on round 8');
   const round10 = features.round10 === true;
   if (round10 && !round9) fail('IIIx round 10 builds on round 9');
-  const filmProbe = features.filmProbe === true || features.filmProbe === 'exposures' || features.filmProbe === 'sequence' || features.filmProbe === 'emitters' || features.filmProbe === 'folders';
+  const filmProbe = features.filmProbe === true || features.filmProbe === 'exposures' || features.filmProbe === 'sequence' || features.filmProbe === 'emitters' || features.filmProbe === 'folders' || features.filmProbe === 'return';
   if (filmProbe && !(round10 && dateImprint)) fail('IIIx film probe: round 10 with the date imprint');
   if (features.lookLayout && !round8) fail('IIIx look layout: round 8');
   if (round7 && dateImprint && features.dateMenu !== 'submenu') fail('IIIx round 7: the date imprint submenu');
@@ -202,7 +202,7 @@ export async function buildGr3xAdjResearch(raw: Uint8Array, ratioMenu: readonly 
   // Round 10 (round10.ts): the settings scaffold, and the zero fill over the 76 bytes before the heap.
   const scaffold = round10 ? installGr3xSettingsScaffold({ code, sites, u32: word }) : {};
   // Film mode test builds: hooked first, so every later hook (films, End Screen, guard) runs around it.
-  const probe = filmProbe ? installGr3xFilmProbe({ code, sites, patch }, features.filmProbe === true ? 'encodes' : features.filmProbe as 'exposures' | 'sequence' | 'emitters' | 'folders') : undefined;
+  const probe = filmProbe ? installGr3xFilmProbe({ code, sites, patch }, features.filmProbe === true ? 'encodes' : features.filmProbe as 'exposures' | 'sequence' | 'emitters' | 'folders' | 'return') : undefined;
   const probeEntries = probe?.entries;
   if (round10) patch(GR3X_ZERO_FILL_LITERAL, GR3X_FILL_OFFICIAL, GR3X_FILL_R10, 'start-up zero fill over the 76 bytes before the heap (round 10\'s RAM words)');
   const order = append(Uint8Array.from(geometry.ratios.map(r => r.id)));

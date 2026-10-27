@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 // Film mode phase 2: the test build of the roll's bytes 0x9b1..0x9b3 (core/src/fw/gr3x/film-probe.ts).
-// --exposures: pictures counted at each still exposure (T10-FILMPROBE2); --sequence: the multi-exposure sequence (T10-FILMPROBE3); --emitters: which poster ended it (T10-FILMPROBE4); --folders: screen counter and folders (T10-FILMPROBE5). Round 10 with the date imprint, no films, one added ratio (XPan 65:24, the build needs one). Never discovers or writes a camera or card.
+// --exposures: pictures counted at each still exposure (T10-FILMPROBE2); --sequence: the multi-exposure sequence (T10-FILMPROBE3); --emitters: which poster ended it (T10-FILMPROBE4); --folders: screen counter and folders (T10-FILMPROBE5); --return: the lowest folder in a recalled mode (T10-FILMPROBE6). Round 10 with the date imprint, no films, one added ratio (XPan 65:24, the build needs one). Never discovers or writes a camera or card.
 import { registerHooks } from 'node:module';
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
@@ -15,8 +15,8 @@ registerHooks({ resolve(specifier, context, next) {
   }
 } });
 const [input, directory, ...extra] = process.argv.slice(2);
-if (!input || !directory || extra.length > 1 || (extra.length && !['--exposures', '--sequence', '--emitters', '--folders'].includes(extra[0]))) {
-  console.error('Usage: node tools/gr3x/build-film-probe.mjs OFFICIAL.bin NEW-directory [--exposures | --sequence | --emitters | --folders]');
+if (!input || !directory || extra.length > 1 || (extra.length && !['--exposures', '--sequence', '--emitters', '--folders', '--return'].includes(extra[0]))) {
+  console.error('Usage: node tools/gr3x/build-film-probe.mjs OFFICIAL.bin NEW-directory [--exposures | --sequence | --emitters | --folders | --return]');
   process.exit(2);
 }
 const { buildGr3xTestFirmware } = await import('../../core/src/fw/gr3x/research-package.ts');

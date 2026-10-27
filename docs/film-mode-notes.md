@@ -565,3 +565,52 @@ F1), `107TESTT` (6825, 6826 : F2), `108TESTU` (6827, 6828 : F3), `109TESTV` (682
   stratégies (`0x535b6678`, `0x535b66e0`, `0x535b67dc`) selon deux octets de la description de
   nommage (`+0x15`, `+0x0`) ; chaînes voisines « GetDirectoryType », « dataCreationTime » ;
   `0x535b6964` compare des noms de dossiers (préfixe « _ », numéro sur deux chiffres). À étudier.
+- Correction (phase 2.9) : `0x535b6858` ne choisit rien, elle **met en forme** le nom à partir d'un
+  numéro reçu en `r2` (voir ci-dessous).
+
+## Phase 2.9 : choix du dossier d'une photo (statique, 2026-10-27)
+
+Chaîne de création d'un fichier, toutes dans `DcfContentsCreateService.cpp` :
+
+- `CreateContents` `0x535b3070` (et `CreateVirtualContents` `0x535b32d8`, 4e argument 1) appelle
+  `SetFilePath` `0x535b2e8c(service, nommage, chemin, ...)` avec `chemin` = requête + `0xc`. Dans
+  `chemin` : demi-mot `+4` = **numéro de dossier**, demi-mot `+6` = numéro de fichier. Certitude :
+  forte (lecture du code).
+- `SetFilePath` : si `chemin+4` vaut **0**, le numéro est choisi par `GetTargetDirectoryNumber`
+  `0x535b21c8` (chaîne de log), le dossier est créé s'il diffère du dossier visé
+  (`0x535b2ac4`), puis le numéro est écrit dans `chemin+4`. Si `chemin+4` **n'est pas 0**, il est
+  pris tel quel : contrôle de plage (100 à 999), recherche dans la base des dossiers
+  (`0x535b7480`) ; **s'il existe, rien n'est créé**, sinon il est créé avec le nom en cours.
+- Base des dossiers : objet `X = [[service + 8] + 8]`. `X + 0x10` : table de 900 pointeurs
+  (dossiers 100 à 999, index = numéro − 100). `X + 0x28` : index du **plus petit** dossier,
+  `X + 0x2a` : index du **plus grand** (accesseurs `0x535b5bc4`, `0x535b5b98` ; « suivant » /
+  « précédent » `0x535b5bd4` / `0x535b5c5c` bouclent de l'un à l'autre). `X + 0x4a` : numéro
+  réservé par une demande de nouveau dossier.
+- Dossier visé (`0x535b5ba8`) : le **plus grand** dossier existant, ou 0 si `X + 0x4a` l'a
+  dépassé (on crée alors `max(plus grand, X + 0x4a) + 1`, `0x535b5ce0`). C'est la règle DCF
+  habituelle : **il n'existe pas de variable « dossier en cours »** à réécrire.
+- Le chemin vers un dossier existant est construit à partir de **son propre nom** dans la base
+  (`0x535b756c` → `0x535b74c0`, nom par la méthode `+8` de l'entrée), qui charge aussi la liste de
+  ses fichiers dans `[service + 0xc]`.
+- Numéro de fichier (`0x535b1efc`) : si `chemin+6` vaut 0, compteur continu des réglages
+  (`0x53584db8`) + 1, au moins le suivant libre du dossier (`0x535b7184`). Il continue donc la
+  numérotation même dans un ancien dossier.
+- `0x535b6858` : mise en forme du nom (3 chiffres + suffixe) ; `0x535b6678` nom fourni par la
+  description, `0x535b66e0` forme date `NNN_MMDD`, `0x535b67dc` nom libre des réglages
+  (`0x53585200`).
+- Conséquence pour la brique 5 : pour revenir dans un ancien dossier, il suffit d'écrire son
+  numéro dans `chemin+4` à l'entrée de `SetFilePath` quand il vaut 0. Octets identiques sur IIIx
+  1.60 à cet endroit.
+
+### Build de test T10-FILMPROBE6 (brique 5, écriture)
+
+- Crochet à l'entrée de `SetFilePath` (`mov ip,sp` remplacé). Si `chemin+4` vaut 0 **et** qu'un
+  mode U est rappelé (octet de mode `*(u8*)*(0x55063f30)` non nul), il écrit le **plus petit**
+  dossier existant (`X + 0x28` + 100), seulement si son entrée de table n'est pas vide. Tous les
+  registres sont conservés. Pas de compteur, horloge normale.
+- Vérifié en émulateur (`tools/gr3x/film_probe_check.py`, 36 cas : modes 1 à 255, index 0 à 899 ;
+  aucun effet si dossier déjà fourni, mode 0, pas de modèle, pointeur nul ou mal aligné, index
+  hors plage, entrée vide) ; contre-épreuves (mauvais dossier attendu, mode 0) détectées. La
+  fonction native elle-même n'est pas exécutée en émulateur.
+- Attendu sur le boîtier : en P, Av, etc., les photos vont dans le dossier le plus élevé ; en U1,
+  U2, U3, dans le plus ancien dossier, avec la numérotation continue.

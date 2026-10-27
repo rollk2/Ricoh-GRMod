@@ -53,6 +53,15 @@
  *    + 0x248]: word + 0x118, halfword + 0x11c, flags + 0x116 / + 0x117): 20YY.MM.01 HH:mm with YY
  *    folder number % 100 (99 above 999), MM 1 + flag 0x116 + 2 * flag 0x117 (as 0 / 1), HH ends % 24,
  *    mm file number % 60.
+ *
+ * Sixth form, 'return' (phase 2.9, revision T10-FILMPROBE6): a picture goes into an older folder.
+ * The DCF service's SetFilePath (0x535b2e8c) takes the folder number from its path argument
+ * (halfword + 4) when it is not 0, and else picks the highest folder (docs/film-mode-notes.md). At
+ * its entry, when that halfword is 0 and a mode is recalled (U1..U3: mode byte not 0), the hook
+ * writes the lowest existing folder number there (directory list: [[service + 8] + 8], lowest
+ * index halfword + 0x28, table of 900 entries at + 0x10, folders 100..999), only if its entry is
+ * not empty. Every register kept, then the function's own first instruction. Nothing else: the
+ * camera's clock, no counters.
  */
 import { branchWord } from '../aspect/arm';
 import { FirmwareError } from '../types';
@@ -81,6 +90,8 @@ export const GR3X_REMAINING_SHOTS = 0x532aa1f4;
 export const GR3X_FOLDER_NAME_SET = 0x5326caa0, GR3X_FOLDER_TYPE_SET = 0x53258604;
 export const GR3X_FILE_INFO = 0x53584c74, GR3X_NEW_FOLDER = 0x5358515c;
 const APP = 0x5320ad88, USER_DATA = 0x5320b31c;
+/** Phase 2.9: the DCF service's SetFilePath(service, naming, path (+ 4 folder number), ...). */
+export const GR3X_SET_FILE_PATH = 0x535b2e8c;
 /** The camera's clock (the date imprint's get_time, datestamp.ts). */
 export const GR3X_GET_TIME = 0x536b6510;
 
@@ -98,9 +109,10 @@ const bump = (offset: number, label: string) => `push {r0,r1};movw r0,#${lo(POIN
   ldrb r1,[r0,#${offset}];add r1,r1,#1;strb r1,[r0,#${offset}];${label}:pop {r0,r1};`;
 
 /** The two settings hooks (the scaffold must be installed) and the clock stub for the date imprint. */
-export function installGr3xFilmProbe(p: Gr3xFilmProbeProgram, form: 'encodes' | 'exposures' | 'sequence' | 'emitters' | 'folders' = 'encodes') {
+export function installGr3xFilmProbe(p: Gr3xFilmProbeProgram, form: 'encodes' | 'exposures' | 'sequence' | 'emitters' | 'folders' | 'return' = 'encodes') {
   if (form === 'sequence' || form === 'emitters') return installSequence(p, form === 'emitters');
   if (form === 'folders') return installFolders(p);
+  if (form === 'return') return installReturn(p);
   const priorLoad = gr3xSettingsPrior(p, 'load'), priorSave = gr3xSettingsPrior(p, 'save');
   // The load works from r0 (the settings object, record in use at +4), as every load hook.
   const load = p.code(`push {r4,r5,r6,lr};mov r4,r0;bl #${priorLoad};mov r5,r0;
@@ -209,4 +221,19 @@ function installFolders(p: Gr3xFilmProbeProgram) {
     clock:b #${GR3X_GET_TIME};`);
   const exposure = `${bump(GR3X_FILM_PICTURES, 'counted')}`;
   return { entries: { ...entries, filmProbeTime: time }, exposure };
+}
+
+/** The sixth form: in a recalled mode, SetFilePath gets the lowest existing folder. */
+function installReturn(p: Gr3xFilmProbeProgram) {
+  if (!p.patch) throw new FirmwareError('internal', 'IIIx film probe: the return form patches');
+  if (p.sites.some(s => s.address === GR3X_SET_FILE_PATH)) throw new FirmwareError('unexpected-instruction', `IIIx film probe: ${GR3X_SET_FILE_PATH.toString(16)} already patched`);
+  // r0 service, r2 path; r1 and r3 used, then restored.
+  const stub = p.code(`push {r0,r1,r3,lr};ldrh r3,[r2,#4];cmp r3,#0;bne out;
+    movw r3,#${lo(MODEL)};movt r3,#${hi(MODEL)};ldr r3,[r3];cmp r3,#0;beq out;ldrb r3,[r3];cmp r3,#0;beq out;
+    ldr r3,[r0,#8];${ram('r3', 'out')}ldr r3,[r3,#8];${ram('r3', 'out')}
+    ldrh r1,[r3,#0x28];cmp r1,#0x384;bhs out;ldr r3,[r3,#0x10];${ram('r3', 'out')}ldr r3,[r3,r1,lsl #2];cmp r3,#0;beq out;
+    add r1,r1,#100;strh r1,[r2,#4];
+    out:pop {r0,r1,r3,lr};mov ip,sp;b #${GR3X_SET_FILE_PATH + 4};`);
+  p.patch(GR3X_SET_FILE_PATH, 0xe1a0c00d, branchWord(GR3X_SET_FILE_PATH, stub), 'film probe: SetFilePath, the lowest folder in a recalled mode');
+  return { entries: { filmProbeReturn: stub } as Record<string, number>, exposure: '' };
 }
