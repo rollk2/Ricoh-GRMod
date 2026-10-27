@@ -549,3 +549,19 @@ F1), `107TESTT` (6825, 6826 : F2), `108TESTU` (6827, 6828 : F3), `109TESTV` (682
 - **Brique 3 : testée.** Compteur à l'écran pendant `T10-FILMPROBE5` : 81, 82, 83, 84, une photo
   à chaque fois. Le crochet `0x532aa1f4` remplace bien l'affichage des vues restantes, sans gêner
   le déclenchement.
+
+### Brique 5, écriture : le candidat n'est pas la commande (statique, 2026-10-27)
+
+- `0x53585188` (écriture de `+0x118` et `+0x11c`) a **un seul appelant**, `0x535b2ac4`, dans le
+  service de création DCF (`ContentsControl/Camera/DCF/src/DcfContentsCreateService.cpp`, appelé
+  par `0x535b2cbc` et `0x535b2e8c`, « namingInfo »). Il calcule d'abord le nom de l'objet à créer
+  (`0x535b6858`), puis, si une condition (`0x53585150`) est vraie, **recopie** dans `+0x118` /
+  `+0x11c` le résultat (mot `[service + 0x38]`, numéro de dossier) ; sinon il les remet à
+  (−1, 0) (`0x5358519c`). S'il faut créer un dossier, il le crée (heure par `0x536b6510`) puis
+  baisse les drapeaux (`0x5358513c(info, 0)`, `0x5358515c(info, 0)`).
+- Conclusion : `+0x11c` est un **compte rendu** du dossier du dernier objet créé, pas la variable
+  qui choisit le dossier du suivant. L'écrire ne ferait probablement rien.
+- Le choix du dossier se fait dans le calcul du nom DCF : `0x535b6858` aiguille entre trois
+  stratégies (`0x535b6678`, `0x535b66e0`, `0x535b67dc`) selon deux octets de la description de
+  nommage (`+0x15`, `+0x0`) ; chaînes voisines « GetDirectoryType », « dataCreationTime » ;
+  `0x535b6964` compare des noms de dossiers (préfixe « _ », numéro sur deux chiffres). À étudier.
