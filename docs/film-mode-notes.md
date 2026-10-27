@@ -141,3 +141,33 @@ Questions que le test doit trancher sur le boîtier :
    Avance-t-il au développement RAW intégré ? (utile pour la phase 3 : compter les captures)
 3. Que deviennent les compteurs en passant sur une BOX / un mode U, puis en revenant ?
 4. Retrait de la batterie sans éteindre : perte depuis l'allumage ? (attendu : oui)
+
+### Résultats sur le boîtier (GR III 2.10, build T10-FILMPROBE, 2026-10-27)
+
+Certitude : **testé**, relevés de l'utilisateur.
+
+| Cas | Observation | Conclusion |
+|---|---|---|
+| A1, A2 | `2001.01.01 00:01` puis PP = 02 | conforme |
+| A3 | pas de rafale ; 3e et 4e photos : PP +1 chacune | un encodage par photo simple |
+| B1, B2 | SS +1, OO +1, PP continue | **0x9b1 à 0x9b3 survivent à l'extinction : octets validés** |
+| B3 | extinction automatique puis réveil : SS et OO inchangés, PP +1 | la mise en veille n'est pas une extinction : **aucune sauvegarde** |
+| B4 | batterie retirée boîtier allumé : valeurs identiques à la photo d'avant | pas de sauvegarde ; l'état depuis l'allumage est perdu (détail de PP à confirmer) |
+| C1 | RAW+JPEG : PP +1 | un encodage |
+| C2 | développement RAW intégré : PP +1, puis +1 à la photo suivante | **le développement compte comme un encodage** (conseil de Maxwooow confirmé) |
+| C3 | lecture et zoom : PP +1 à la photo suivante seulement | la lecture n'encode pas |
+| C4 | multi-exposition, 3 vues superposées : PP +6 | **2 encodages par vue en multi-exposition** : l'encodeur ne peut pas servir de compteur |
+| D1 | U1 : MM = 04 | U1 rappelle la copie 3 |
+| D2 | retour sur P : compteurs de P retrouvés | la copie 0 est restaurée au retour (comme lu dans `0x53279fa8`) |
+| D3 | U1 : PP repart de la valeur de U1, MM = 04 ; U2 : MM = 03 | U2 rappelle la copie 2 ; chaque mode a ses propres octets |
+| D4 | sur U1, extinction puis rallumage : PP +1 | l'état de U1 tient après extinction (SS, OO à préciser) |
+| D5 | enregistrement dans une BOX puis rappel : MM +1, PP +1 | à préciser |
+
+Conséquences :
+- **Brique « octet de stockage » validée.** 0x9b1 à 0x9b3 sont persistants et propres à chaque mode.
+- **Sauvegarde :** la veille automatique ne sauvegarde pas. Le mode pellicule devra déclencher
+  lui-même une sauvegarde (au moins à chaque avance du film), sinon une batterie qui se vide en
+  veille fait perdre le rouleau.
+- **Détection d'une prise de vue :** ni le nombre d'encodages (développement RAW, 2 par vue en
+  multi-exposition) ni l'encodeur ne conviennent. Il faut un point propre à la capture (phase 2.3).
+- **Correspondance des modes :** U1 = copie 3, U2 = copie 2 (U3 = copie 1 probablement, à vérifier).
