@@ -89,8 +89,8 @@ Sources : code de GR Mod (`core/src/fw/gr3x`) et réponse de son auteur, Maxwooo
 | Dialogue Next shot / Retake shot / Complete et ses touches | En grande partie connu (statique) | Événements d'interface 0xb8 (fin) et 0xb7 (Retake) ; actions `0x532270f4` / `0x532270d4` ; modèle `0x5323a080` / `0x5323a1a4` (si état 2) ; commandes `0x42411c16` / `0x42411817` (`CMD_SHOOTING_MULTI_EXPOSURE_END` / `RETAKE`). Le dialogue est l'aperçu après la vue (`QuickViewController`, table de touches `0x53b41344`). Reste : identifier les touches et les neuf émetteurs de 0xb8. |
 | Événement « Complete » | Testé sur le boîtier | `0x5346a910` (message `0x42411c16`) : une fois par fin de séquence, que ce soit Complete, une extinction ou un changement de mode (testé). Après l'encodage de l'image finale pour Complete. Retake : `0x5346a8d8` (message `0x42411817`, testé). |
 | Fonction du compteur de vues restantes | Trouvée (statique) | Getter `0x53239e34` (`+0x3c` du modèle de prise de vue), un seul appelant : texte `0x532aa1d4` → `0x532aa140` (`%d`, tampon de 6 caractères), affiché par `LiveViewController`. Point d'accroche : `0x532aa1f4`. À vérifier par un build de test. |
-| Fonction de création de dossier et nom sur 5 caractères | À trouver | |
-| Variable du dossier en cours et écriture dans un ancien dossier | À trouver et tester | |
+| Fonction de création de dossier et nom sur 5 caractères | Trouvées (statique) | **Nom natif de 5 caractères** dans les réglages : `+0x936` (setter `0x5326ca50`, global), type de nom `+0x934` (setter `0x53258604`). « Create New Folder » = drapeau : `0x5358515c(0x53584c74(), 1)` (octets `+0x116`, `+0x117` de `[objet + 0x248]`), dossier créé à l'image suivante. |
+| Variable du dossier en cours et écriture dans un ancien dossier | Candidat (supposé) | Même structure : mot `+0x118` et demi-mot `+0x11c` (lecture `0x5358516c`, écriture `0x53585188`, remise à zéro `0x5358519c`), probablement numéros de dossier et de fichier. À tester. |
 
 ### Points de vigilance (conseils de l'auteur de GR Mod)
 - **Compter les captures, pas les encodages.** L'encodeur JPEG tourne aussi pour le développement RAW intégré.

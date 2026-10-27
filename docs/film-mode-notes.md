@@ -446,3 +446,35 @@ restantes) : y substituer le numéro de vue quand un rouleau est chargé. Ce che
 l'affichage ; le nombre réel (`+0x3c`) reste intact pour le reste du firmware (carte pleine,
 déclenchement). Le tampon de 6 caractères permet aussi « 12/36 ». Certitude : statique ; à
 vérifier par un build de test (afficher par exemple le nombre d'expositions).
+
+## Phase 2.8 : dossiers (statique, 2026-10-27)
+
+### Nom de dossier sur 5 caractères : natif
+
+- **Le GR III stocke un nom de dossier de 5 caractères dans ses réglages : `+0x936` à `+0x93a`**
+  (champ de 5 octets de la carte, drapeau `0x93c`). Setter `0x5326ca50` (copie dans les huit
+  enregistrements, donc réglage global), appelé par `0x5326caa0`, qui transmet ensuite le nom à
+  l'enregistrement de prise de vue en direct (`0x5354d138`). Réglage de débogage par nom :
+  `SetupFolderName` (`0x53330ba0`, 6 octets copiés).
+- **Type de nom : octet `+0x934`** (huit enregistrements), setter `0x53258604`, réglage de
+  débogage `SetupFolderNameType` (`0x53330b1c`, chaînes « Date » et « Any » ; valeurs à
+  confirmer). Textes du menu : « Folder Name » (0x235, 0x236), contrôleur `FolderNameController`
+  (`0x531de4b0`, `UpdateFolderName`).
+- Pour le mode pellicule : nom = code du film (`CCHRM`, `LEICA`...), type = nom libre. À vérifier :
+  quelle valeur de type utilise le nom libre, et si le menu natif le propose.
+
+### « Create New Folder » : un drapeau
+
+- Texte d'aide 0x2ab : « le dossier est créé à l'enregistrement de la prochaine image ».
+- Dialogue : `FolderCreateController` (table de méthodes `0x53b475d8`) ; préparation `0x531e5ec8`
+  (contrôleur 0x02000128) ; **validation `0x531e65b0`** : `0x5358515c(0x53584c74(), 1)`, puis le
+  message de confirmation (contrôleur 0x02000129).
+- `0x53584c74` renvoie l'objet d'informations fichiers (`0x55349808`, initialisé une fois) ;
+  `0x5358515c(objet, v)` écrit `v` aux octets `+0x116` et `+0x117` de la structure pointée par
+  `[objet + 0x248]`.
+
+### Numéro de dossier en cours (brique 5, candidat)
+
+Même structure (`[objet + 0x248]`) : `0x5358516c` lit un mot à `+0x118` et un demi-mot à
+`+0x11c` ; `0x53585188` les écrit ; `0x5358519c` les remet à (−1, 0). Probablement le numéro de
+dossier et le numéro de fichier en cours. Certitude : supposé ; à vérifier par un build de test.
