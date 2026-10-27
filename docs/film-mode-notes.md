@@ -750,3 +750,17 @@ Plus grand dossier au départ : `106`.
   F1 contre R6, E2, F2) : il disparaît à la source. Pas de build T10-FILMPROBE9 (blocage des
   demandes de nouveau dossier abandonné). La correction de la marque (`0x535a6dac`) est gardée.
 - Prochaine étape : trouver le champ Save Interim Images dans l'enregistrement des réglages.
+
+### Champ Save Interim Images (statique, 2026-10-27)
+
+- Nom interne (table des propriétés, commande de débogage) : `StillMultiExposureSaveProcess`,
+  voisin de `StillMultiExposureCompositeType`. Analyseurs `0x53306c78` (texte vers valeur) et
+  `0x533668a0` (valeur vers texte).
+- **Octet `+0x482` de l'enregistrement des réglages** ; getter `0x532451d0(UserDataModel)`,
+  setter `0x53262990(UserDataModel, valeur)` (écrit l'octet puis prévient la prise de vue,
+  `0x5354c744`). La carte des champs le classe comme champ de BOX (drapeau `+0x483`) : chaque
+  mode U a le sien.
+- Valeurs : **0 `Off`**, 1 `Original`, 2 `Composite`, 3 `OriginalComposite`. Le comportement de U1
+  (vue 1 seule + superposition finale) correspond probablement à `Original`. Libellés du menu à
+  confirmer sur le boîtier. Certitude : forte pour l'octet et le 0 = Off, moyenne pour les autres.
+- Pour le chargement : `0x53262990(0x5320b31c(0x5320ad88()), 0)`.
