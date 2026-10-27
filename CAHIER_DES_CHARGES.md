@@ -93,7 +93,7 @@ Sources : code de GR Mod (`core/src/fw/gr3x`) et réponse de son auteur, Maxwooo
 | Fonction du compteur de vues restantes | Testée sur le boîtier | Getter `0x53239e34` (`+0x3c` du modèle de prise de vue), un seul appelant : texte `0x532aa1d4` → `0x532aa140` (`%d`, tampon de 6 caractères), affiché par `LiveViewController`. Substitution en `0x532aa1f4` testée (`T10-FILMPROBE5` : l'écran affiche le nombre choisi, le déclenchement n'est pas gêné). |
 | Fonction de création de dossier et nom sur 5 caractères | Testées sur le boîtier | **Nom natif de 5 caractères** dans les réglages : `+0x936` (setter `0x5326caa0`, global), type de nom `+0x934` (setter `0x53258604`, 1 = nom libre). « Create New Folder » = drapeau : `0x5358515c(0x53584c74(), 1)` ; le dossier `NNNXXXXX` est créé à l'enregistrement suivant, image superposée comprise (testé, `T10-FILMPROBE5`). |
 | Variable du dossier en cours et écriture dans un ancien dossier | Lecture et écriture testées (`T10-FILMPROBE6` à `8`) ; effet de bord expliqué (vues intermédiaires, réglé par Save Interim Images Off) | Pas de variable « dossier en cours » : le boîtier vise toujours le plus grand dossier. Mais `SetFilePath` `0x535b2e8c` prend le numéro de dossier fourni dans son argument chemin (demi-mot `+4`) s'il n'est pas 0, sans rien créer si le dossier existe. Base des dossiers `[[service+8]+8]` : table `+0x10`, plus petit `+0x28`, plus grand `+0x2a`. |
-| Save Interim Images | Trouvé (statique) | Octet `+0x482` de l'enregistrement (champ de BOX), 0 = Off. Getter `0x532451d0`, setter `0x53262990(UserDataModel, valeur)`. |
+| Save Interim Images | Trouvé (statique, libellés relevés) | Octet `+0x482` de l'enregistrement (champ de BOX) : 0 Off, 1 Unblended, 2 Blended, 3 Unblended + Blended. Getter `0x532451d0`, setter `0x53262990(UserDataModel, valeur)`. |
 
 ### Points de vigilance (conseils de l'auteur de GR Mod)
 - **Compter les captures, pas les encodages.** L'encodeur JPEG tourne aussi pour le développement RAW intégré.
@@ -103,7 +103,7 @@ Sources : code de GR Mod (`core/src/fw/gr3x`) et réponse de son auteur, Maxwooo
 ## Plan de développement
 
 1. **Chaîne d'outils** : compiler GR Mod, flasher un firmware maison. **Fait** : firmware maison flashé et validé sur le GR III, démarrage aussi rapide qu'avec le firmware officiel.
-2. **Cartographie** : trouver les éléments « À trouver » ci-dessus. Priorité : octet de stockage, détection d'une prise de vue, condition de verrou en multi-exposition, événement « Complete ».
+2. **Cartographie** : trouver les éléments « À trouver » ci-dessus. **Faite (2026-10-27)** : toutes les briques nécessaires sont trouvées, la plupart testées sur le boîtier. Restent, non bloquants : chemin exact du Complete du dialogue, verrou du menu (étape 5), 20 BOX (évolution).
 3. **Compteur provisoire** dans le hook JPEG, incrusté avec la date, en ne comptant que les captures (pas le développement RAW intégré).
 4. **Ligne de menu « Pellicule »** : Charger, numéro de vue, Rembobiner. État persistant.
 5. **Verrou** : extension de la condition native.

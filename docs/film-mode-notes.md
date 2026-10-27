@@ -760,7 +760,9 @@ Plus grand dossier au départ : `106`.
   setter `0x53262990(UserDataModel, valeur)` (écrit l'octet puis prévient la prise de vue,
   `0x5354c744`). La carte des champs le classe comme champ de BOX (drapeau `+0x483`) : chaque
   mode U a le sien.
-- Valeurs : **0 `Off`**, 1 `Original`, 2 `Composite`, 3 `OriginalComposite`. Le comportement de U1
-  (vue 1 seule + superposition finale) correspond probablement à `Original`. Libellés du menu à
-  confirmer sur le boîtier. Certitude : forte pour l'octet et le 0 = Off, moyenne pour les autres.
+- Valeurs : **0 `Off`**, 1 `Original`, 2 `Composite`, 3 `OriginalComposite`. Libellés du menu
+  (relevés sur le boîtier) : 1 **Unblended** (chaque vue seule), 2 **Blended** (superpositions
+  intermédiaires), 3 **Unblended + Blended**, 0 **Off**. U1 est en Blended (2) : après la vue 1, la
+  superposition intermédiaire est la vue 1 seule (`_R016855`, « photo normale »), puis la
+  superposition finale (`_R016856`). Certitude : forte.
 - Pour le chargement : `0x53262990(0x5320b31c(0x5320ad88()), 0)`.
