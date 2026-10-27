@@ -366,3 +366,34 @@ rouleau est chargé, jamais au code de prise de vue.
 
 `0x5334688c` et `0x53386230` : réglage par nom pour le débogage (« StillAspectRatio » appelle le
 setter du ratio `0x532525a4`, etc.). Permettra de nommer les champs de l'enregistrement.
+
+## Phase 2.6 : le dialogue Next shot / Retake / Complete (2026-10-27)
+
+### Observation sur le boîtier (utilisateur)
+
+**Ouvrir le MENU pendant une multi-exposition revient à faire Complete** : rien n'y est grisé,
+la séquence se termine. Le verrou natif ne concerne donc que ce qui reste accessible pendant la
+séquence (levier ADJ, Fn, molettes, touches), pas le menu principal. Conséquence pour la phase 5 :
+pendant un rouleau, le menu devra être verrouillé par nos soins (lignes grisées ou entrée
+bloquée) ; l'hypothèse « étendre la condition native » du cahier des charges ne suffit pas.
+
+### Chaîne Complete / Retake (statique)
+
+| Étage | Complete (fin) | Retake | Preuve |
+|---|---|---|---|
+| Événement d'interface | **0xb8** | **0xb7** | table de sauts de `0x53227830` (index = événement - 0x34, table `0x53227850`) |
+| Action | `0x532270f4` | `0x532270d4` | récupèrent le modèle (`0x5320b19c`) |
+| Modèle | `0x5323a080` | `0x5323a1a4` | **seulement si l'état vaut 2** ; écrivent `+0x2e = 1`, `+0x8a3 = 0` |
+| Commande vers la capture | `0x42411c16` | `0x42411817` | envoyée par `0x532286dc` |
+| Nom de la commande | `CMD_SHOOTING_MULTI_EXPOSURE_END` (index 21) | `..._RETAKE` (index 22) | table de noms `0x540b4444` ; identifiant = `0x4241` + taille + (index + 1) |
+| Machine à états | `0x5346a910` | `0x5346a8d8` | testé (`T10-FILMPROBE3`) |
+
+- Qui publie l'événement 0xb7 (Retake) : la commande distante (`0x5328edc4`) et
+  `QuickViewController` (`0x531ca7d8`, dans sa table de touches `0x53b41344` : touches 0x2b4,
+  0x2b5, 0x2b6 ; la deuxième mène à `0x531ca7d8`). Le dialogue est donc l'**aperçu après la vue**.
+- Qui publie l'événement 0xb8 (fin) : la commande distante (`0x5328ed48`) et neuf autres endroits
+  (`0x531a4d80`, `0x531a6ef4`, `0x531cb5f4`, `0x531b3838`, `0x532a7c84`, `0x532a7cb0`,
+  `0x532a7cdc`, `0x532a7d08`, `0x532a7f6c`) : vraisemblablement les sorties de la prise de vue
+  (menu, lecture, levier ADJ, mode de déclenchement...). À identifier une par une.
+- **Pour la phase 6** : avancer le film = publier l'événement 0xb8 (ou appeler `0x5323a080`) ;
+  surimpression = ne rien faire (le déclencheur reste en multi-exposition).
