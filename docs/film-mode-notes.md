@@ -688,3 +688,19 @@ Tests D1 à D4 (plus grand dossier au départ : `102`). Résultat (capture de l'
   requête quel que soit le plus grand, autres registres intacts) ; contre-épreuve sur le build
   sans correction détectée. 321 tests passent (5 échecs habituels, fichiers privés GR IV absents).
 - Attendu sur le boîtier : une multi-exposition en U puis une photo en P ne crée plus de dossier.
+
+### Résultats sur le boîtier (build T10-FILMPROBE7, 2026-10-27)
+
+Plus grand dossier au départ : `103`. Contenu à la fin (capture de l'utilisateur) :
+
+- E1 : P 6854 dans `103` ; U1 multi-exposition, 6855 et 6856 (`_R`, Adobe RGB) dans `100` ; P 6857
+  dans **`104RICOH`, nouveau**. La correction de `0x535a6dac` **ne suffit pas**.
+- E2 : P 6858 dans `104` ; U2 multi-exposition, un seul fichier 6859 dans `100` ; P 6860 dans `104`.
+  Pas de nouveau dossier.
+- E3 / E4 : suppressions dans `100` (6847, 6849) et `101` (6837, dossier `101` disparu, vide)
+  sans blocage. Le blocage de la première fois ne se reproduit pas.
+- Observation : la multi-exposition en U1 donne toujours **deux fichiers** (R4, D3, E1), en U2 un
+  seul. Réglage de la BOX de U1 à identifier.
+- Autres poseurs de marques trouvés : `0x535aa224` (dans `0x535a9e18`, dossier lu dans un chemin,
+  `0x535b9788`), la suppression `0x535b3908` ; demande `+0x116` / `+0x117` posée par `0x535a5268`
+  selon un type de paramètre (2 : `+0x116` seul ; 3 : les deux, si rien n'est en attente).
