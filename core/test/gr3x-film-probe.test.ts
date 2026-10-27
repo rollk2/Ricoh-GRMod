@@ -104,4 +104,12 @@ describe.skipIf(!input)('GR III film probe (film mode test build)', () => {
     const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmProbe: 'return2' });
     expect(built.report.revision).toBe('T10-FILMPROBE7');
   }, 240000);
+  it('also cancels the pending new folder request (eighth form)', async () => {
+    const r2 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmProbe: 'return2' });
+    const r3 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmProbe: 'return3' });
+    expect(r3.sites.map(s => s.address).sort()).toEqual(r2.sites.map(s => s.address).sort());
+    expect(r3.append.bytes).not.toBe(r2.append.bytes);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmProbe: 'return3' });
+    expect(built.report.revision).toBe('T10-FILMPROBE8');
+  }, 240000);
 });

@@ -37,6 +37,8 @@ empty entry) nothing is written; every register kept, then the function's second
 Seventh form ('return2', T10-FILMPROBE7): the sixth, and at 0x535a6dac (the folder mark at a created
 file's close) r2 is the request's folder number (halfword + 0x10 of r6) instead of r7, the highest
 folder; run up to the mark's call, every other register kept.
+Eighth form ('return3', T10-FILMPROBE8): the seventh, and each time the hook writes the folder it
+calls 0x5358513c(0x53584c74(), 0) (substituted), once, and never when it writes nothing.
 This does not establish the camera's start, power off, menus or pictures.
 """
 import argparse,hashlib,json,random,struct
@@ -54,7 +56,7 @@ MODEL=0x55063f30;POINTER=MODEL+4;GET_TIME=0x536b6510
 TIME=0x63030000;MODE=0x63031000
 
 APP,USER_DATA,NAME_SET,TYPE_SET,FILE_INFO,NEW_FOLDER=0x5320ad88,0x5320b31c,0x5326caa0,0x53258604,0x53584c74,0x5358515c
-COUNTER=0x532aa1f4;UDM,INFO,FI=0x63037000,0x63038000,0x63039000
+COUNTER=0x532aa1f4;REQUEST_SET=0x5358513c;UDM,INFO,FI=0x63037000,0x63038000,0x63039000
 
 class Probe(GuardProbe):
     def __init__(self,data,manifest):
@@ -63,12 +65,13 @@ class Probe(GuardProbe):
             try:self.uc.mem_map(at,0x10000)
             except Exception:pass
     def _hook(self,cpu,at,size,user):
-        if self.stubs_on and at in (APP,USER_DATA,NAME_SET,TYPE_SET,FILE_INFO,NEW_FOLDER):
+        if self.stubs_on and at in (APP,USER_DATA,NAME_SET,TYPE_SET,FILE_INFO,NEW_FOLDER,REQUEST_SET):
             r=lambda n:cpu.reg_read(getattr(reg,'UC_ARM_REG_R%d'%n))
             ret={APP:0xa0a0,USER_DATA:UDM,FILE_INFO:INFO}.get(at,1)
             if at==NAME_SET:self.log.append(('name',r(0),bytes(cpu.mem_read(r(1),6))))
             elif at==TYPE_SET:self.log.append(('type',r(0),r(1)))
             elif at==NEW_FOLDER:self.log.append(('new',r(0),r(1)))
+            elif at==REQUEST_SET:self.log.append(('request',r(0),r(1)))
             elif at==USER_DATA:assert r(0)==0xa0a0
             cpu.reg_write(reg.UC_ARM_REG_R0,ret);cpu.reg_write(reg.UC_ARM_REG_PC,cpu.reg_read(reg.UC_ARM_REG_LR))
         elif at==GET_TIME:
@@ -139,10 +142,10 @@ SET_FILE_PATH=0x535b2e8c;FOLDER_MARK=0x535a6dac;REQ=0x63040000;SVC,WRAP,DIRS,TAB
 def verify_return(data,manifest,seed=2610):
     e=manifest['entries'];sites={s['address']:s for s in manifest['sites']}
     assert 'film probe' in sites[SET_FILE_PATH]['reason'] and 'filmProbeTime' not in e
-    mark=manifest['filmProbe']=='return2'
+    mark=manifest['filmProbe'] in ('return2','return3');cancel=manifest['filmProbe']=='return3'
     assert (FOLDER_MARK in sites)==mark
     for at in (END,RETAKE,COUNTER,MODEL_END)+EMITTERS:assert at not in sites
-    p=Probe(data,manifest);cpu=p.uc;rng=random.Random(seed);cases=0
+    p=Probe(data,manifest);cpu=p.uc;rng=random.Random(seed);cases=0;p.stubs_on=True
     for at in (SVC,WRAP,DIRS,TABLE,PATH,MODEB):
         try:cpu.mem_map(at,0x1000)
         except Exception:pass
@@ -155,7 +158,8 @@ def verify_return(data,manifest,seed=2610):
         path=bytearray(rng.randrange(256) for _ in range(16));path[4:6]=struct.pack('<H',given);cpu.mem_write(PATH,bytes(path));return path
     def run(path,want):
         nonlocal cases
-        regs={0:SVC,1:0x1111,2:PATH,3:0x3333,4:0x4444};p.run(SET_FILE_PATH,SET_FILE_PATH+4,regs);cases+=1
+        regs={0:SVC,1:0x1111,2:PATH,3:0x3333,4:0x4444};p.log=[];p.run(SET_FILE_PATH,SET_FILE_PATH+4,regs);cases+=1
+        assert p.log==([('request',INFO,0)] if cancel and want is not None else []),p.log
         for r,val in regs.items():assert cpu.reg_read(getattr(reg,'UC_ARM_REG_R%d'%r))==val
         assert cpu.reg_read(reg.UC_ARM_REG_LR)==STOP and cpu.reg_read(reg.UC_ARM_REG_IP)==cpu.reg_read(reg.UC_ARM_REG_SP)
         after=bytearray(path)
@@ -185,7 +189,7 @@ def verify_return(data,manifest,seed=2610):
 
 def verify(data,manifest,seed=2610,rounds=64):
     if manifest.get('filmProbe')=='folders':return verify_folders(data,manifest,seed)
-    if manifest.get('filmProbe') in ('return','return2'):return verify_return(data,manifest,seed)
+    if manifest.get('filmProbe') in ('return','return2','return3'):return verify_return(data,manifest,seed)
     e=manifest['entries'];assert manifest.get('filmProbe') and manifest.get('round10')
     form=manifest['filmProbe'];exposures=form in ('exposures','sequence','emitters');sequence=form in ('sequence','emitters');emitters=form=='emitters'
     sites={s['address']:s for s in manifest['sites']}

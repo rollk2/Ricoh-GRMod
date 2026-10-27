@@ -67,6 +67,11 @@
  * multi-exposure file goes to the folder the file was written in: at 0x535a6dac
  * (EventCloseCreateContents, request byte + 0x21 set), `mov r2,r7` (the highest folder) becomes
  * `ldrh r2,[r6,#0x10]` (the request's folder number). Without a given folder both are the same.
+ *
+ * Eighth form, 'return3' (revision T10-FILMPROBE8): the seventh, and when the hook gives the folder
+ * it also cancels a pending new folder request (0x5358513c(0x53584c74(), 0): + 0x116 and + 0x117 of
+ * the file information to 0). A multi-exposure that keeps its intermediate frames asks for a new
+ * folder before its first file (tested in P), which a given folder leaves pending.
  */
 import { branchWord } from '../aspect/arm';
 import { FirmwareError } from '../types';
@@ -99,6 +104,8 @@ const APP = 0x5320ad88, USER_DATA = 0x5320b31c;
 export const GR3X_SET_FILE_PATH = 0x535b2e8c;
 /** The folder mark at a created file's close: `mov r2,r7` before 0x5358533c(info, slot, folder, 1). */
 export const GR3X_FOLDER_MARK = 0x535a6dac;
+/** 0x5358513c(information, value): the new folder request (+ 0x116 = value, + 0x117 = 0). */
+export const GR3X_FOLDER_REQUEST_SET = 0x5358513c;
 /** The camera's clock (the date imprint's get_time, datestamp.ts). */
 export const GR3X_GET_TIME = 0x536b6510;
 
@@ -116,10 +123,10 @@ const bump = (offset: number, label: string) => `push {r0,r1};movw r0,#${lo(POIN
   ldrb r1,[r0,#${offset}];add r1,r1,#1;strb r1,[r0,#${offset}];${label}:pop {r0,r1};`;
 
 /** The two settings hooks (the scaffold must be installed) and the clock stub for the date imprint. */
-export function installGr3xFilmProbe(p: Gr3xFilmProbeProgram, form: 'encodes' | 'exposures' | 'sequence' | 'emitters' | 'folders' | 'return' | 'return2' = 'encodes') {
+export function installGr3xFilmProbe(p: Gr3xFilmProbeProgram, form: 'encodes' | 'exposures' | 'sequence' | 'emitters' | 'folders' | 'return' | 'return2' | 'return3' = 'encodes') {
   if (form === 'sequence' || form === 'emitters') return installSequence(p, form === 'emitters');
   if (form === 'folders') return installFolders(p);
-  if (form === 'return' || form === 'return2') return installReturn(p, form === 'return2');
+  if (form === 'return' || form === 'return2' || form === 'return3') return installReturn(p, form !== 'return', form === 'return3');
   const priorLoad = gr3xSettingsPrior(p, 'load'), priorSave = gr3xSettingsPrior(p, 'save');
   // The load works from r0 (the settings object, record in use at +4), as every load hook.
   const load = p.code(`push {r4,r5,r6,lr};mov r4,r0;bl #${priorLoad};mov r5,r0;
@@ -231,7 +238,7 @@ function installFolders(p: Gr3xFilmProbeProgram) {
 }
 
 /** The sixth form: in a recalled mode, SetFilePath gets the lowest existing folder. */
-function installReturn(p: Gr3xFilmProbeProgram, mark = false) {
+function installReturn(p: Gr3xFilmProbeProgram, mark = false, cancel = false) {
   if (!p.patch) throw new FirmwareError('internal', 'IIIx film probe: the return form patches');
   if (p.sites.some(s => s.address === GR3X_SET_FILE_PATH)) throw new FirmwareError('unexpected-instruction', `IIIx film probe: ${GR3X_SET_FILE_PATH.toString(16)} already patched`);
   // r0 service, r2 path; r1 and r3 used, then restored.
@@ -240,6 +247,7 @@ function installReturn(p: Gr3xFilmProbeProgram, mark = false) {
     ldr r3,[r0,#8];${ram('r3', 'out')}ldr r3,[r3,#8];${ram('r3', 'out')}
     ldrh r1,[r3,#0x28];cmp r1,#0x384;bhs out;ldr r3,[r3,#0x10];${ram('r3', 'out')}ldr r3,[r3,r1,lsl #2];cmp r3,#0;beq out;
     add r1,r1,#100;strh r1,[r2,#4];
+    ${cancel ? `push {r2,r3};bl #${GR3X_FILE_INFO};mov r1,#0;bl #${GR3X_FOLDER_REQUEST_SET};pop {r2,r3};` : ''}
     out:pop {r0,r1,r3,lr};mov ip,sp;b #${GR3X_SET_FILE_PATH + 4};`);
   p.patch(GR3X_SET_FILE_PATH, 0xe1a0c00d, branchWord(GR3X_SET_FILE_PATH, stub), 'film probe: SetFilePath, the lowest folder in a recalled mode');
   if (mark) {

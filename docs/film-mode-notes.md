@@ -704,3 +704,25 @@ Plus grand dossier au départ : `103`. Contenu à la fin (capture de l'utilisate
 - Autres poseurs de marques trouvés : `0x535aa224` (dans `0x535a9e18`, dossier lu dans un chemin,
   `0x535b9788`), la suppression `0x535b3908` ; demande `+0x116` / `+0x117` posée par `0x535a5268`
   selon un type de paramètre (2 : `+0x116` seul ; 3 : les deux, si rien n'est en attente).
+
+### Comportement natif de la multi-exposition avec vues intermédiaires (testé, 2026-10-27)
+
+- La BOX de U1 est en multi-exposition « Blended » **avec sauvegarde des vues intermédiaires** :
+  d'où deux fichiers par séquence de 2 vues (`_R016855` vue 1, `_R016856` superposition). U2 ne
+  sauvegarde pas : un seul fichier.
+- T1 (en P, crochet inactif) : séquence avec vues intermédiaires, 6861 et 6862 dans **`105RICOH`,
+  nouveau**. T2 (photo simple en P) : 6863 dans **`106RICOH`, nouveau**.
+- **Natif** : une séquence qui garde ses vues intermédiaires est isolée dans son propre dossier ;
+  le boîtier demande un nouveau dossier avant son premier fichier, et ferme ce dossier après
+  (marque à la fermeture, `0x535a6d60`). Le dossier imposé par le crochet laissait la première
+  demande en attente : la photo suivante en P la consommait (`102`, `103`, `104`). La correction
+  de la marque (T10-FILMPROBE7) traite le second point.
+
+### Build de test T10-FILMPROBE8 (annulation de la demande)
+
+- T10-FILMPROBE7 + : quand le crochet impose le dossier, il annule la demande de nouveau dossier
+  en attente (`0x5358513c(0x53584c74(), 0)`, `+0x116` et `+0x117` à 0).
+- Vérifié en émulateur (appel fait une fois à chaque dossier imposé, jamais sinon, registres
+  intacts) ; contre-épreuve sur le build sans annulation détectée. 322 tests passent (5 échecs
+  habituels).
+- Effet assumé pour le test : en mode U, « Create New Folder » est annulé par la photo suivante.
