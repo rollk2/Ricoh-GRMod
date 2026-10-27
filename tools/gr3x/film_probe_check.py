@@ -34,6 +34,9 @@ halfword (+ 4) at 0 and a recalled mode (mode byte not 0), the lowest existing f
 list [[service + 8] + 8]: index + 0x28, table + 0x10) goes into that halfword; in every other case
 (folder already given, mode 0, no model, a missing or misaligned pointer, an index out of range, an
 empty entry) nothing is written; every register kept, then the function's second instruction.
+Seventh form ('return2', T10-FILMPROBE7): the sixth, and at 0x535a6dac (the folder mark at a created
+file's close) r2 is the request's folder number (halfword + 0x10 of r6) instead of r7, the highest
+folder; run up to the mark's call, every other register kept.
 This does not establish the camera's start, power off, menus or pictures.
 """
 import argparse,hashlib,json,random,struct
@@ -131,11 +134,13 @@ def verify_folders(data,manifest,seed=2610):
     return dict(schema=1,form='folders',rtos_sha256=hashlib.sha256(data).hexdigest(),calls=calls,clock_cases=cases,seed=seed,hardware_tested=False,
         scope='Hooks run from their patched sites with the firmware functions they call substituted; clock called directly.')
 
-SET_FILE_PATH=0x535b2e8c;SVC,WRAP,DIRS,TABLE,PATH,MODEB=0x6303a000,0x6303b000,0x6303c000,0x6303d000,0x6303e000,0x6303f000
+SET_FILE_PATH=0x535b2e8c;FOLDER_MARK=0x535a6dac;REQ=0x63040000;SVC,WRAP,DIRS,TABLE,PATH,MODEB=0x6303a000,0x6303b000,0x6303c000,0x6303d000,0x6303e000,0x6303f000
 
 def verify_return(data,manifest,seed=2610):
     e=manifest['entries'];sites={s['address']:s for s in manifest['sites']}
     assert 'film probe' in sites[SET_FILE_PATH]['reason'] and 'filmProbeTime' not in e
+    mark=manifest['filmProbe']=='return2'
+    assert (FOLDER_MARK in sites)==mark
     for at in (END,RETAKE,COUNTER,MODEL_END)+EMITTERS:assert at not in sites
     p=Probe(data,manifest);cpu=p.uc;rng=random.Random(seed);cases=0
     for at in (SVC,WRAP,DIRS,TABLE,PATH,MODEB):
@@ -165,12 +170,22 @@ def verify_return(data,manifest,seed=2610):
     run(setup(mode=0),None);run(setup(model=False),None)
     run(setup(entry=0),None);run(setup(lowest=900),None);run(setup(lowest=0xffff),None)
     run(setup(svc_dirs=0),None);run(setup(svc_dirs=WRAP+2),None);run(setup(wrap_dirs=0),None);run(setup(table=0),None)
-    return dict(schema=1,form='return',rtos_sha256=hashlib.sha256(data).hexdigest(),cases=cases,seed=seed,hardware_tested=False,
+    if mark:
+        try:cpu.mem_map(REQ,0x1000)
+        except Exception:pass
+        for folder in (100,101,573,999):
+            for highest in (100,103,999):
+                cpu.mem_write(REQ+0x10,struct.pack('<H',folder))
+                regs={0:0xa0,1:0xb1,3:0xd3,4:0x44,5:0x55,6:REQ,7:highest,8:0x88}
+                p.run(FOLDER_MARK,FOLDER_MARK+8,regs);cases+=1
+                assert cpu.reg_read(reg.UC_ARM_REG_R2)==folder and cpu.reg_read(reg.UC_ARM_REG_R3)==1
+                for r in (0,1,4,5,6,7,8):assert cpu.reg_read(getattr(reg,'UC_ARM_REG_R%d'%r))==regs[r]
+    return dict(schema=1,form=manifest['filmProbe'],rtos_sha256=hashlib.sha256(data).hexdigest(),cases=cases,seed=seed,hardware_tested=False,
         scope='The SetFilePath hook run from its patched site to the function\'s second instruction on built directory structures; the function itself is not run.')
 
 def verify(data,manifest,seed=2610,rounds=64):
     if manifest.get('filmProbe')=='folders':return verify_folders(data,manifest,seed)
-    if manifest.get('filmProbe')=='return':return verify_return(data,manifest,seed)
+    if manifest.get('filmProbe') in ('return','return2'):return verify_return(data,manifest,seed)
     e=manifest['entries'];assert manifest.get('filmProbe') and manifest.get('round10')
     form=manifest['filmProbe'];exposures=form in ('exposures','sequence','emitters');sequence=form in ('sequence','emitters');emitters=form=='emitters'
     sites={s['address']:s for s in manifest['sites']}

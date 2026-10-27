@@ -7,7 +7,7 @@ import { buildGr3xAdjResearch } from '../src/fw/gr3x/adj';
 import { planGr3xMenu } from '../src/fw/gr3x/geometry';
 import { buildGr3xTestFirmware } from '../src/fw/gr3x/research-package';
 import { GR3X_SETTINGS_LOAD, GR3X_SETTINGS_SAVE } from '../src/fw/gr3x/round10';
-import { GR3X_END_EMITTERS, GR3X_GET_TIME, GR3X_MODEL_END, GR3X_MULTI_END, GR3X_MULTI_RETAKE, GR3X_REMAINING_SHOTS, GR3X_SET_FILE_PATH } from '../src/fw/gr3x/film-probe';
+import { GR3X_END_EMITTERS, GR3X_GET_TIME, GR3X_MODEL_END, GR3X_MULTI_END, GR3X_MULTI_RETAKE, GR3X_REMAINING_SHOTS, GR3X_SET_FILE_PATH, GR3X_FOLDER_MARK } from '../src/fw/gr3x/film-probe';
 import { GR3X_BEFORE_EXPOSE } from '../src/fw/gr3x/datestamp';
 
 const input = process.env.GRMOD_GR3_FIRMWARE;
@@ -94,5 +94,14 @@ describe.skipIf(!input)('GR III film probe (film mode test build)', () => {
     expect(ret.entries).not.toHaveProperty('filmProbeTime');
     const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmProbe: 'return' });
     expect(built.report.revision).toBe('T10-FILMPROBE6');
+  }, 240000);
+  it('also moves the multi-exposure folder mark to the written folder (seventh form)', async () => {
+    const ret = await buildGr3xAdjResearch(raw, menu, { ...r10, filmProbe: 'return' });
+    const r2 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmProbe: 'return2' });
+    expect(ret.sites.some(s => s.address === GR3X_FOLDER_MARK)).toBe(false);
+    expect(r2.sites.find(s => s.address === GR3X_FOLDER_MARK)!).toMatchObject({ expected: '0720a0e1', replacement: 'b021d6e1' });
+    expect(r2.sites.length).toBe(ret.sites.length + 1);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmProbe: 'return2' });
+    expect(built.report.revision).toBe('T10-FILMPROBE7');
   }, 240000);
 });

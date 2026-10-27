@@ -679,3 +679,12 @@ Tests D1 à D4 (plus grand dossier au départ : `102`). Résultat (capture de l'
   `ldrh r2,[r6,#0x10]` (dossier où le fichier a été écrit : chemin de la requête, `+0xc + 4`). En
   usage normal les deux sont égaux, donc rien ne change ; avec un dossier imposé, la marque va sur
   le bon dossier. `r6` est la requête dans toute la fonction ; octets identiques sur IIIx 1.60.
+
+### Build de test T10-FILMPROBE7 (correction de la marque)
+
+- T10-FILMPROBE6 + le mot `0x535a6dac` : `mov r2,r7` (`e1a02007`) devient `ldrh r2,[r6,#0x10]`
+  (`e1d621b0`). Aucun code ajouté.
+- Vérifié en émulateur : 48 cas (les 36 du crochet, plus 12 sur la marque : r2 = dossier de la
+  requête quel que soit le plus grand, autres registres intacts) ; contre-épreuve sur le build
+  sans correction détectée. 321 tests passent (5 échecs habituels, fichiers privés GR IV absents).
+- Attendu sur le boîtier : une multi-exposition en U puis une photo en P ne crée plus de dossier.
