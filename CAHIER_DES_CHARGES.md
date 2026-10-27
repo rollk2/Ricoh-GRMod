@@ -13,11 +13,12 @@ Retrouver la discipline de l'argentique sur un GR : on charge une pellicule (un 
 - Le choix du film et du format se fait avec les menus normaux, avant le chargement.
 - Le verrou s'appuie sur celui que le GR applique déjà pendant une multi-exposition.
 - Chaque mode U (U1, U2, U3) est un boîtier indépendant avec sa propre pellicule.
+- P, Av, Tv, M (et les autres positions de la molette) restent toujours en mode libre : jamais de pellicule, aucun effet du mod sur leurs dossiers.
 
 ## Cycle de vie d'un rouleau
 
 1. **Préparer** : choisir l'Image Control (le film) et le ratio (le format) avec les menus natifs.
-2. **Charger** : ligne de menu « Pellicule : Charger ». Le firmware crée un dossier dédié, fige les réglages et affiche la vue 1.
+2. **Charger** (dans un mode U uniquement) : ligne de menu « Pellicule : Charger ». Le firmware crée un dossier dédié, force Save Interim Images à Off, fige les réglages et affiche la vue 1.
 3. **Photographier** : le GR reste en multi-exposition pendant tout le rouleau.
    - Déclencheur : prend la photo. Si la vue n'a pas été avancée, la photo se superpose à la précédente (équivaut à « Next shot »).
    - ADJ vers la droite : avance le film (équivaut à « Complete »). La vue est enregistrée, le compteur passe à la vue suivante.
@@ -46,7 +47,7 @@ La longueur se déduit du ratio mémorisé : aucune donnée supplémentaire à s
 Le ratio 3:4 vertical (3000 x 4000, recadrage central) est à ajouter.
 
 ### Verrou pendant un rouleau
-Réglages bloqués : Image Control, ratio, recadrage, format de fichier (JPEG seul), taille JPEG, balance des blancs, mode de déclenchement (multi-exposition).
+Réglages bloqués : Image Control, ratio, recadrage, format de fichier (JPEG seul), taille JPEG, balance des blancs, mode de déclenchement (multi-exposition), Save Interim Images (forcé à Off au chargement).
 C'est exactement la liste que le GR bloque nativement pendant une multi-exposition (manuel p. 78). Le verrou consiste à étendre cette condition native : « multi-exposition en cours OU rouleau chargé ». **Constat (2026-10-27) :** ouvrir le MENU pendant une multi-exposition termine la séquence (comme Complete) ; le menu principal n'a donc pas de verrou natif et devra être verrouillé par le mod pendant un rouleau.
 
 ### Stockage
@@ -55,7 +56,8 @@ C'est exactement la liste que le GR bloque nativement pendant une multi-expositi
 - Chaque mode U mémorise le numéro de son dossier. En revenant sur un mode U, ses photos repartent dans son dossier.
 
 ### Modes U
-- U1, U2 et U3 ont chacun leur pellicule, leur compteur et leur dossier.
+- Seuls U1, U2 et U3 peuvent porter un rouleau. Chacun a sa pellicule, son compteur et son dossier.
+- P, Av, Tv, M restent libres : le boîtier y gère ses dossiers comme d'origine.
 - Passer d'un mode U à l'autre ne perd rien : chaque rouleau reprend où il en était.
 
 ### Cas particuliers
@@ -63,7 +65,7 @@ C'est exactement la liste que le GR bloque nativement pendant une multi-expositi
 
 ## Réglages natifs recommandés
 - Multi-exposition, mode de composition **Additif** (accumulation de lumière, comme le film). Comme en argentique, sous-exposer d'environ 1 IL pour une double exposition.
-- **Save Interim Images : Off**. Seule l'image finale est enregistrée, au moment de « Complete » (vérifié sur le boîtier).
+- **Save Interim Images : Off**, imposé par le mod au chargement (décision du 2026-10-27). Seule l'image finale est enregistrée, au moment de « Complete » (vérifié sur le boîtier). Avec On, le boîtier isole nativement la séquence dans un nouveau dossier, avant et après (testé) : avec un dossier de rouleau imposé, la photo suivante dans un mode libre partirait dans un nouveau dossier.
 
 ## Briques techniques
 

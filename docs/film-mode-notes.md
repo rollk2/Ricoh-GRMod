@@ -741,3 +741,12 @@ Plus grand dossier au départ : `106`.
   fichier de la séquence (le crochet ne repasse pas ensuite), ou par un autre mécanisme que la
   marque de `0x535a6dac`. Candidat principal : `0x535a5268` (type 2 : `0x5358513c(info, 1)` puis
   `0x5358515c(info, 0)` ; type 3 : les deux à 1), encore en mode U à la fin de la séquence.
+
+### Décision (2026-10-27)
+
+- Seuls U1, U2, U3 portent un rouleau ; P, Av, Tv, M restent libres (cahier des charges mis à jour).
+- Voie A : au chargement, le mod force **Save Interim Images à Off** et le verrouille pendant le
+  rouleau. Le dossier en trop après une séquence n'apparaît qu'avec ce réglage à On (R4, D3, E1,
+  F1 contre R6, E2, F2) : il disparaît à la source. Pas de build T10-FILMPROBE9 (blocage des
+  demandes de nouveau dossier abandonné). La correction de la marque (`0x535a6dac`) est gardée.
+- Prochaine étape : trouver le champ Save Interim Images dans l'enregistrement des réglages.
