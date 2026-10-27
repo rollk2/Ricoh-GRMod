@@ -726,3 +726,18 @@ Plus grand dossier au départ : `103`. Contenu à la fin (capture de l'utilisate
   intacts) ; contre-épreuve sur le build sans annulation détectée. 322 tests passent (5 échecs
   habituels).
 - Effet assumé pour le test : en mode U, « Create New Folder » est annulé par la photo suivante.
+
+### Résultats sur le boîtier (build T10-FILMPROBE8, 2026-10-27)
+
+Plus grand dossier au départ : `106`.
+
+- F1 : P 6864 dans `106` ; U1 (vues intermédiaires) 6865 `.JPG` (vue 1) et 6866 `.DNG`
+  (superposition, qualité de la BOX) dans `100` ; P 6867 dans **`107RICOH`, nouveau**. L'annulation
+  dans le crochet **ne suffit pas**.
+- F2 : U2 6868 dans `100` ; P 6869 dans `107`. Pas de nouveau dossier. Conforme.
+- F3 (P, natif) : séquence 6870 à 6872 dans **`108`, nouveau** ; photo simple 6873 dans **`109`,
+  nouveau**. Conforme au comportement d'origine : rien de cassé hors des modes U.
+- Lecture : la demande qui crée le dossier après la séquence est posée **après** le dernier
+  fichier de la séquence (le crochet ne repasse pas ensuite), ou par un autre mécanisme que la
+  marque de `0x535a6dac`. Candidat principal : `0x535a5268` (type 2 : `0x5358513c(info, 1)` puis
+  `0x5358515c(info, 0)` ; type 3 : les deux à 1), encore en mode U à la fin de la séquence.
