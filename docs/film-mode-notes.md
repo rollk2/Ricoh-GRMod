@@ -224,3 +224,19 @@ réduction du bruit (+1), et facultativement Pixel Mapping (attendu +0, à véri
   fonction d'origine, PP +1 (rien sans enregistrement), r0 à r3, lr, sp intacts, ip = sp,
   mots d'orientation et de film du cadre écrits comme sans la sonde. Contre-épreuves : la sonde
   échoue si l'on intervertit les deux variantes.
+
+### Résultats sur le boîtier (GR III 2.10, build T10-FILMPROBE2, 2026-10-27)
+
+Certitude : **testé**, relevés de l'utilisateur (sur U3, MM = 06).
+
+| Cas | Observation | Conclusion |
+|---|---|---|
+| P1 | 2 photos JPEG : PP 36 puis 37 | +1 par photo |
+| P2 | RAW+JPEG : PP 38 | +1 |
+| P3 | JPEG développé depuis le RAW : PP 38 | **le développement RAW ne compte plus** |
+| P4 | multi-exposition 3 vues puis Complete : PP 41 | **+3, une par vue** (l'encodeur donnait +6) |
+| P5 | poses de 1,3 s puis 5 s : PP 42 puis 43 | +1 chacune ; la dark frame ne compte pas, si la réduction du bruit a bien tourné (à confirmer) |
+| P6 | non fait (Pixel Mapping) | facultatif |
+
+**Brique « détection d'une prise de vue » validée** : `SetShootingInfoResultBeforeExpose`
+(`0x534322d8`) compte une fois par vue, multi-exposition comprise, et ignore le développement RAW.
