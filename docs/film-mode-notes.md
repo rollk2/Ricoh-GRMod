@@ -517,3 +517,24 @@ arguments vérifiés : nom, type 1, drapeau 1 ; rien sans réglages chargés), c
 Attention : le nom et le type de dossier sont des **réglages sauvegardés** ; après le test, les
 remettre depuis le menu (nom saisi au clavier virtuel, `SoftwareKeyboardController` `0x531dbce0` ;
 type dans la liste `0x531b76c4`).
+
+### Résultats sur le boîtier (build T10-FILMPROBE5, 2026-10-27, en cours)
+
+Arborescence de la carte après le test : `105RICOH` (avant le test), puis `106TESTT` (6823, 6824 :
+F1), `107TESTT` (6825, 6826 : F2), `108TESTU` (6827, 6828 : F3), `109TESTV` (6829, 6830 : F4),
+`110TESTW` (6831 : F5).
+
+- **Nom de dossier natif et drapeau de nouveau dossier : testés.** Chaque passage par la fin du
+  modèle a ouvert un nouveau dossier `NNNTESTx` à l'enregistrement suivant ; **l'image
+  superposée est enregistrée dans le nouveau dossier** (drapeau pris en compte avant son
+  enregistrement). La numérotation des dossiers continue (106 à 110).
+- La lettre retarde d'un cran : le crochet lit le compteur de fins avant `0x5346a910`.
+- La fin du modèle (`0x5323a080`) est appelée **aussi hors multi-exposition** (dossier `106TESTT`
+  créé avant F1) ; le test de l'état 2 est fait par la fonction d'origine, après le crochet. Le mode
+  pellicule devra tester l'état lui-même.
+- F4 (Complete du dialogue) a aussi créé un dossier : ce chemin passe par la fin du modèle avant
+  l'enregistrement (E1 avait laissé penser le contraire).
+- Candidat brique 5 : incrustations de F1 `2099.04.01 19:00` (6823 : mot `+0x118` > 999, deux
+  drapeaux levés) et `2001.01.01 19:46` (6824 : `+0x118` = 1, `+0x11c` % 60 = 46, alors que 6824 % 60
+  = 44). **Ce ne sont pas directement les numéros de dossier et de fichier.** En attente des
+  incrustations de F2 à F5.
