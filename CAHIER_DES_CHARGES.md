@@ -10,20 +10,23 @@ Retrouver la discipline de l'argentique sur un GR : on charge une pellicule (un 
 ## Principes de conception
 
 - Réutiliser au maximum les fonctions natives du GR plutôt que de créer de nouvelles interfaces.
-- Le choix du film et du format se fait avec les menus normaux, avant le chargement.
+- Le choix du film et du format se fait avec les menus normaux, puis s'enregistre dans une BOX avec Save Settings (natif).
+- **Une BOX = un rouleau.** Une ligne de menu « Mode pellicule : On / Off » est enregistrée dans la BOX avec les autres réglages.
 - Le verrou s'appuie sur celui que le GR applique déjà pendant une multi-exposition.
-- Chaque mode U (U1, U2, U3) est un boîtier indépendant avec sa propre pellicule.
+- Chaque mode U (U1, U2, U3) rappelle sa BOX : si elle a le mode pellicule sur On, c'est un boîtier indépendant avec sa propre pellicule ; sinon, une BOX normale.
 - P, Av, Tv, M (et les autres positions de la molette) restent toujours en mode libre : jamais de pellicule, aucun effet du mod sur leurs dossiers.
 
 ## Cycle de vie d'un rouleau
 
-1. **Préparer** : choisir l'Image Control (le film) et le ratio (le format) avec les menus natifs.
-2. **Charger** (dans un mode U uniquement) : ligne de menu « Pellicule : Charger ». Le firmware crée un dossier dédié, force Save Interim Images à Off, fige les réglages et affiche la vue 1.
+1. **Préparer** : régler l'Image Control (le film), le ratio (le format) et le reste avec les menus natifs, mettre « Mode pellicule » sur On, puis faire Save Settings dans une BOX. La ligne est sans effet en P, Av, Tv, M (grisée si possible).
+2. **Démarrer** : le rouleau démarre à la **première vue** prise dans un mode U dont la BOX a le mode pellicule sur On. Aucune action de menu. Le firmware crée alors le dossier du rouleau, force Save Interim Images à Off et verrouille les réglages.
 3. **Photographier** : le GR reste en multi-exposition pendant tout le rouleau.
    - Déclencheur : prend la photo. Si la vue n'a pas été avancée, la photo se superpose à la précédente (équivaut à « Next shot »).
    - ADJ vers la droite : avance le film (équivaut à « Complete »). La vue est enregistrée, le compteur passe à la vue suivante.
-4. **Fin du rouleau** : à la dernière vue avancée, le rouleau est terminé et les réglages se déverrouillent.
-5. **Rembobiner** (issue de secours) : ligne de menu « Rembobiner », avec confirmation. Termine le rouleau avant la fin.
+4. **Fin du rouleau** : à la dernière vue avancée, le rouleau est terminé. La vue suivante démarre **automatiquement un nouveau rouleau** (nouveau dossier, compteur à 1), avec les mêmes réglages de BOX.
+5. **Rembobiner** : mettre « Mode pellicule » sur Off termine le rouleau en cours. Faire Save Settings par-dessus la BOX d'un rouleau entamé a le même effet : le rouleau est terminé, et si la nouvelle BOX a le mode pellicule sur On, un nouveau rouleau démarre à la première vue.
+
+Pour des photos normales, on passe en P, Av, Tv ou M, jamais touchés par le mod.
 
 ## Règles
 
@@ -51,12 +54,13 @@ Réglages bloqués : Image Control, ratio, recadrage, format de fichier (JPEG se
 C'est exactement la liste que le GR bloque nativement pendant une multi-exposition (manuel p. 78). Le verrou consiste à étendre cette condition native : « multi-exposition en cours OU rouleau chargé ». **Constat (2026-10-27) :** ouvrir le MENU pendant une multi-exposition termine la séquence (comme Complete) ; le menu principal n'a donc pas de verrou natif et devra être verrouillé par le mod pendant un rouleau.
 
 ### Stockage
-- Un dossier par rouleau, créé au chargement par la fonction native « Create New Folder ».
+- Un dossier par rouleau, créé au démarrage du rouleau (première vue). Méthode testée : nom sur 5 caractères puis demande de nouveau dossier, ou numéro imposé à `SetFilePath` (un dossier imposé qui n'existe pas est créé).
+- L'état du rouleau (mode pellicule, rouleau entamé, numéro de vue, numéro de dossier) est rangé dans des octets libres de l'enregistrement des réglages : il suit la BOX (Save Settings, rappel par U1 à U3).
 - Nom du dossier : numéro + code du film sur 5 caractères (exemples : `101CCHRM`, `102LEICA`, `103XPAN_`). Version 1 : nom natif, code du film ensuite.
 - Chaque mode U mémorise le numéro de son dossier. En revenant sur un mode U, ses photos repartent dans son dossier.
 
 ### Modes U
-- Seuls U1, U2 et U3 peuvent porter un rouleau. Chacun a sa pellicule, son compteur et son dossier.
+- Seuls U1, U2 et U3 peuvent porter un rouleau, quand leur BOX a le mode pellicule sur On. Chacun a sa pellicule, son compteur et son dossier.
 - P, Av, Tv, M restent libres : le boîtier y gère ses dossiers comme d'origine.
 - Passer d'un mode U à l'autre ne perd rien : chaque rouleau reprend où il en était.
 
@@ -105,7 +109,7 @@ Sources : code de GR Mod (`core/src/fw/gr3x`) et réponse de son auteur, Maxwooo
 1. **Chaîne d'outils** : compiler GR Mod, flasher un firmware maison. **Fait** : firmware maison flashé et validé sur le GR III, démarrage aussi rapide qu'avec le firmware officiel.
 2. **Cartographie** : trouver les éléments « À trouver » ci-dessus. **Faite (2026-10-27)** : toutes les briques nécessaires sont trouvées, la plupart testées sur le boîtier. Restent, non bloquants : chemin exact du Complete du dialogue, verrou du menu (étape 5), 20 BOX (évolution).
 3. **Compteur provisoire** dans le hook JPEG, incrusté avec la date, en ne comptant que les captures (pas le développement RAW intégré).
-4. **Ligne de menu « Pellicule »** : Charger, numéro de vue, Rembobiner. État persistant.
+4. **Ligne de menu « Mode pellicule » On / Off**, enregistrée dans la BOX ; Off ou Save Settings sur une BOX entamée = rembobiner. État persistant.
 5. **Verrou** : extension de la condition native.
 6. **Multi-exposition** : déclencheur pour Next shot, ADJ droite pour Complete, compteur sur Complete.
 7. **Dossiers** par rouleau et par mode U, compteur à l'écran.

@@ -766,3 +766,10 @@ Plus grand dossier au départ : `106`.
   superposition intermédiaire est la vue 1 seule (`_R016855`, « photo normale »), puis la
   superposition finale (`_R016856`). Certitude : forte.
 - Pour le chargement : `0x53262990(0x5320b31c(0x5320ad88()), 0)`.
+
+### Décision : une BOX = un rouleau (2026-10-27)
+
+- Ligne de menu « Mode pellicule : On / Off » enregistrée dans la BOX (octet libre de
+  l'enregistrement). Démarrage du rouleau à la première vue dans un mode U dont la BOX est sur On ;
+  fin de rouleau : nouveau rouleau automatique (nouveau dossier, vue 1) ; Off ou Save Settings sur
+  une BOX entamée = rembobiner. Plus de ligne « Charger » ni de chargement provisoire.
