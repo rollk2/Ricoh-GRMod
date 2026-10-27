@@ -323,3 +323,46 @@ Conclusions :
   avance, comportement voulu).
 - **`0x5346a8d8` = Retake** (une fois par Retake).
 - Le verrou lui-même (grisé des menus) n'a pas été testé : le build ne le modifie pas.
+
+## Phase 2.5 : tri des lecteurs de l'état de multi-exposition (2026-10-27)
+
+Certitude : **statique**. Deux familles de lecteurs de l'octet d'état `+0x6c0`.
+
+### 1. Par le getter `0x535493ac` (33 appels)
+
+| Catégorie | Fonctions | Rôle (indice) |
+|---|---|---|
+| Interface : levier ADJ | `0x531a4d38`, `0x531a4d80` | disponibilité de fonctions ADJ (table `0x53b39a14` : 3, 4, 5, 10, 12 Image Control, 16 Crop, 18, 19) |
+| Interface : liste Fn | `0x531a6ecc` ← `0x531a6ef4` | `FnListController` |
+| Interface : mode de déclenchement | `0x531b307c` (8 appelants) | « does not DriveMode ID », `OnStart` |
+| Interface : ratio par touche | `0x5323a080`, `0x5323a1a4` | `ChangeAspectRatio` (`AppEventFunctionModel.cpp`) |
+| Interface : fonctions de commutation | `0x53296694` et 12 fonctions `0x53298024` à `0x53299314` | `CaptureReadySwitchFunctionModel` (`GetEventSwitchForAppControl`) |
+| Commandes distantes (app, câble) | `0x5328c25c`, `0x5328eca8`, `0x5328edd0`, `0x5328fc1c` | `RemoteCommandModel.cpp`, `DevelopmentCommandModel.cpp` |
+| Contrôle à distance (HT) | `0x533b70c8`, `0x533d702c`, `0x533d7054`, `0x533eea8c` | `HTPropertyFactory`, `HTCamEventMonitor`, `RemoteLvBuffer` ; surtout « état == 1 » (intervalle) |
+| Affichage | `0x532d5a84` | `LiveViewController::UpdateViewHistogram` |
+| Affichage | `0x532a328c` (état == 0) | `CaptureReadyModel` (`DispMediaFatalError`) |
+| **Prise de vue et traitement : ne pas toucher** | `0x5346a850` (calcul de l'état), `0x53515900`, `0x53515928`, `0x53517f0c` (`BEStillImageProcess`), `0x535a4ef0` (paramètres de fichier) | |
+
+### 2. Lectures directes `ldrb [x,#0x6c0]`
+
+- **Couche CommonProperty** (`0x53553a58` à `0x535545e0`) : une quarantaine de petites
+  fonctions « autorisé = état ≠ 2 », souvent pour certaines valeurs seulement (0, 1, parfois 2) :
+  disponibilité **valeur par valeur** d'options de réglages, par paires (réglage en cours / copie
+  en `+4`). Elles sont appelées par des fonctions rangées dans une table à `0x540927e8` (deux
+  tables de 265 entrées, entrée par défaut `0x5353ed9c` = toujours disponible) ; 65 entrées
+  dépendent de l'état. **Les réglages correspondants ne sont pas encore identifiés** (l'index n'est
+  pas l'ordre des champs de l'enregistrement ; le film et le ratio n'y figurent pas).
+- **Prise de vue et traitement : ne pas toucher** : `0x5342a690`, `0x5343ba60` et `0x5343e670`
+  (`LiveViewProcess`, `SelectSensorDriveMode`), `0x5346192c`, `0x5346b514` (28 appelants),
+  `0x535141fc` (`IsMaxFolderCheck`), `0x535168f4`, `0x536dc0f4`, `0x536dc860`.
+
+### Conséquence pour la phase 5
+
+Le verrou natif n'est pas un seul test mais **une vingtaine de points d'interface**, plus la
+couche CommonProperty. Étendre le verrou = faire voir « état 2 » à ces seuls points quand un
+rouleau est chargé, jamais au code de prise de vue.
+
+### Outil annexe
+
+`0x5334688c` et `0x53386230` : réglage par nom pour le débogage (« StillAspectRatio » appelle le
+setter du ratio `0x532525a4`, etc.). Permettra de nommer les champs de l'enregistrement.
