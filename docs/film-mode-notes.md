@@ -427,3 +427,22 @@ modèle (`0x5323a080`, avant l'encodage de l'image finale) le recopie pour l'aff
 des neuf). Émulé : chaque émetteur et la fin côté modèle exécutés depuis leur entrée réelle
 (registres intacts, numéro écrit, reprise normale) ; contre-épreuves : la sonde échoue si l'on
 inverse deux émetteurs ou les variantes. Les builds précédents ressortent identiques.
+
+## Phase 2.7 : compteur de vues restantes à l'écran (statique, 2026-10-27)
+
+Chaîne, du calcul à l'écran :
+
+| Étage | Adresse | Rôle |
+|---|---|---|
+| Calcul | `StillControl/src/AvailableCounter.cpp` (côté traitement) | nombre de vues restantes |
+| Message | `0x22080621` = `EVT_SHOOTING_UPDATE_AVAILABLE_COUNT_STILL` (index 32 de la table `0x540b4aa0`, octet bas = index + 1) | vers le modèle de prise de vue |
+| Réception | `0x5323a878` (répartiteur du modèle) → `0x53236838` | range le résultat (8 octets) à `+0x3c` du modèle (`0x5320b19c`) |
+| Getter | `0x53239e34` : `ldr r0,[r0,#0x3c]; bx lr` | **un seul appelant** |
+| Texte | `0x532aa1d4` → `0x532aa140` | « ----- » (texte `0x5407118c`) si `0x5354867c` ou (état du modèle `0x53236f28` == 2 et nombre 0) ; sinon `snprintf(%d)` du nombre plafonné à 99999, tampon de 6 caractères |
+| Écran | `LiveViewController` (`0x531714c8`, appel `0x531715b4`) | |
+
+**Point d'accroche pour la phase 7** : `0x532aa1f4`, juste après le getter (r0 = nombre de vues
+restantes) : y substituer le numéro de vue quand un rouleau est chargé. Ce chemin ne sert qu'à
+l'affichage ; le nombre réel (`+0x3c`) reste intact pour le reste du firmware (carte pleine,
+déclenchement). Le tampon de 6 caractères permet aussi « 12/36 ». Certitude : statique ; à
+vérifier par un build de test (afficher par exemple le nombre d'expositions).
