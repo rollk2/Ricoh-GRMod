@@ -536,5 +536,13 @@ F1), `107TESTT` (6825, 6826 : F2), `108TESTU` (6827, 6828 : F3), `109TESTV` (682
   l'enregistrement (E1 avait laissé penser le contraire).
 - Candidat brique 5 : incrustations de F1 `2099.04.01 19:00` (6823 : mot `+0x118` > 999, deux
   drapeaux levés) et `2001.01.01 19:46` (6824 : `+0x118` = 1, `+0x11c` % 60 = 46, alors que 6824 % 60
-  = 44). **Ce ne sont pas directement les numéros de dossier et de fichier.** En attente des
-  incrustations de F2 à F5.
+  = 44).
+- Incrustations de F2 à F5 (photo : YY, MM, mm) : 6825 (107, superposée) 01, 04, 46 ; 6826 (107)
+  01, 01, 47 ; 6827 (108, superposée) 01, 04, 47 ; 6828 (108) 01, 01, 48 ; 6829 (109, superposée)
+  01, 04, 48 ; 6830 (109) 01, 01, 49 ; 6831 (110, après extinction) 01, 04, 49.
+- **Brique 5, lecture : testée.** Le demi-mot `[0x53584c74() + 0x248] + 0x11c` est le **numéro du
+  dossier en cours** (106 % 60 = 46, etc.) ; il garde l'ancien dossier tant que la demande de
+  nouveau dossier est en attente, et change à l'enregistrement qui crée le nouveau dossier. Les
+  octets `+0x116` et `+0x117` sont la **demande de nouveau dossier en attente** (levés au moment de
+  l'image superposée, à 0 ensuite). Le mot `+0x118` vaut 1 (−1 juste après le flash, photo 6823) :
+  rôle à préciser. Reste à tester : **écrire** un ancien numéro pour y revenir.
