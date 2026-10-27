@@ -300,8 +300,9 @@ export function gr3xMonoTable(monoFilms: readonly boolean[]): Uint8Array {
 }
 
 /** The picture side: the module behind a stub at the start of Execute. Returns the stub, which
- * ends by carrying on with Execute; the halation (jpeg-stage.ts) goes in front of it. */
-export function installGr3xDateImprintStage(p: Gr3xDateProgram, look?: Gr3xDateLook) {
+ * ends by carrying on with Execute; the halation (jpeg-stage.ts) goes in front of it. `getTime`:
+ * the clock the module reads (the film probe's counters in its test builds, film-probe.ts). */
+export function installGr3xDateImprintStage(p: Gr3xDateProgram, look?: Gr3xDateLook, getTime = GET_TIME) {
   const guards: readonly (readonly [number, number])[] = [
     [GR3X_JPEG_EXECUTE, 0xe1a0c00d], [GR3X_JPEG_EXECUTE + 4, 0xe92ddff0], [GR3X_JPEG_EXECUTE + 0x18, 0xe5914008],
     [CACHE, 0xe30d01b4], [CACHE_FLUSH_FOR_READ, 0xe1a0c00d], [CACHE_CLEAN, 0xe1a00001], [PLATFORM, 0xe1a0c00d], [GET_TIME, 0xe5d0300c],
@@ -314,7 +315,7 @@ export function installGr3xDateImprintStage(p: Gr3xDateProgram, look?: Gr3xDateL
   const lookWords = look ? [look.stash, p.append(gr3xMonoTable(look.monoFilms)), p.code('mov r0,#0;bx lr;')] : [];
   const r10 = !!look?.r10;
   const r8Words = round8 ? [r10 ? GR3X_R10.orientWord : GR3X_ORIENT_BYTE, r10 ? GR3X_R10.frameLook : GR3X_FRAME_LOOK, gr3xLookNameTable(p, look!.names!)] : [];
-  const ctx = p.append(u32([CACHE, CACHE_FLUSH_FOR_READ, CACHE_CLEAN, PLATFORM, GET_TIME, GR3X_DATE_SETTINGS_POINTER, GR3X_DATE_OFFSET, ...lookWords, ...r8Words]));
+  const ctx = p.append(u32([CACHE, CACHE_FLUSH_FOR_READ, CACHE_CLEAN, PLATFORM, getTime, GR3X_DATE_SETTINGS_POINTER, GR3X_DATE_OFFSET, ...lookWords, ...r8Words]));
   if (r10 && !round8) fail('IIIx date imprint: round 10 builds on round 8');
   const exposure = round8 ? installGr3xExposureOrientation(p, look!.stash, r10) : {};
   const module = p.append(gr3xDateModule(r10 ? 10 : round8 ? 8 : look ? 7 : 6));

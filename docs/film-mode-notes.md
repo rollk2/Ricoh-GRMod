@@ -101,3 +101,43 @@ Le RTOS s'extrait avec `node tools/gr3x/inspect.mjs <firmware.bin> --rtos <sorti
 - Le garde-fou (`guard.ts`) ne touche pas ces octets. Il pourra valider l'état du rouleau (vue
   au plus égale à la longueur du rouleau, sinon rouleau déchargé).
 - Sauvegarde à l'extinction seulement : retirer la batterie fait perdre l'état depuis l'allumage.
+
+## Phase 2.2 : build de test des octets du rouleau (2026-10-27)
+
+But : confirmer sur le boîtier que 0x9b1 à 0x9b3 survivent à l'extinction, et observer ce que
+font les modes U et les BOX de réglages. Build de test uniquement, jamais une version publiée.
+
+- Module : `core/src/fw/gr3x/film-probe.ts` (option `filmProbe` de `buildGr3xAdjResearch`, round 10
+  avec date incrustée obligatoire, révision `T10-FILMPROBE`).
+- Construction : `node --experimental-transform-types tools/gr3x/build-film-probe.mjs <fwdc239b.bin officiel> <nouveau dossier>`
+  (round 10, date incrustée, sans film, un ratio ajouté XPan 65:24 car le constructeur en exige un).
+- Vérification : `core/test/gr3x-film-probe.test.ts` et `tools/gr3x/film_probe_check.py`.
+
+Fonctionnement, dans l'enregistrement en cours seulement :
+
+| Octet | Compteur | Incrémenté |
+|---|---|---|
+| 0x9b1 | démarrages | après le chargement des réglages (crochet sous le garde-fou) |
+| 0x9b2 | photos | chaque fois que l'incrustation demande l'heure (une fois par JPEG encodé) |
+| 0x9b3 | extinctions | juste avant la sauvegarde des réglages |
+
+L'incrustation affiche, au style long, `20SS.MM.01 OO:PP` : SS démarrages (modulo 100), MM numéro
+du mode actif + 1 (01 pour les réglages du boîtier, 02 à 07 pour un mode rappelé), OO extinctions
+(modulo 24), PP photos (modulo 60). L'horloge de remplacement est passée au module de date par son
+contexte (`get_time`) ; sans enregistrement chargé, c'est l'horloge du boîtier.
+
+Vérifié en émulateur (certitude : émulé) : le chargement et la sauvegarde passent par toute la
+chaîne de crochets du build (garde-fou à l'extérieur, sonde dessous, chargement et sauvegarde
+natifs remplacés), +1 au bon octet de l'enregistrement en cours, rien d'autre ne change, rien
+n'est écrit sans enregistrement ; la sauvegarde native voit bien le compteur déjà incrémenté.
+L'horloge : 2304 cas (toutes les valeurs d'octet, modes 0 à 200 et absent), valeurs toujours dans
+les bornes du module de date. Contre-épreuves : la sonde échoue si on attend le mauvais octet.
+Non vérifié : le module de date lui-même avec cette horloge (inchangé, testé sur boîtier), le
+démarrage réel, les menus.
+
+Questions que le test doit trancher sur le boîtier :
+1. Les trois octets survivent-ils à une extinction normale ? (attendu : oui)
+2. Le compteur de photos avance-t-il de 1 par déclenchement, ou plus (encodages multiples) ?
+   Avance-t-il au développement RAW intégré ? (utile pour la phase 3 : compter les captures)
+3. Que deviennent les compteurs en passant sur une BOX / un mode U, puis en revenant ?
+4. Retrait de la batterie sans éteindre : perte depuis l'allumage ? (attendu : oui)
