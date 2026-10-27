@@ -639,3 +639,24 @@ Dossiers au départ : `100RICOH`, `101RICOH`. Contenu à la fin (capture de l'ut
   processed » affiché sans fin, alors que les photos ont bien été supprimées
   (`DcfContentsDeleteService`, `0x535b3810`, touche aussi `+0x116` / `+0x117`). Lien avec le
   crochet non établi.
+
+### Effet de bord : d'où vient le nouveau dossier (statique, 2026-10-27)
+
+- `GetTargetDirectoryNumber` (`0x535b21c8`), dossier visé = le plus grand. Pour un dossier au nom
+  libre identique au nom en cours (`GetDirectoryType` `0x535b6a48` rend 1 ; 0 = dossier date du
+  jour, 2 = autre), il prend un **nouveau dossier** (numéro + 1, `0x535b2148`) si : la description
+  de nommage demande la forme date (octet `+0`), ou la demande `+0x116` est levée, ou (octet `+0x16`
+  de la description) le bit du dossier est mis dans la table de bits `[info + 0x248] + 0x14 +
+  emplacement * 0x80` (lecture `0x535853a4`, écriture `0x5358533c(info, emplacement, dossier, 0/1)`).
+- `0x535a83a4` (préparation, appelée par `0x535a84f8`) lève `+0x116` pour le dossier visé si
+  l'entrée a le drapeau `+0xe` bit 2, ou, au premier contrôle (bit 1 absent), si son bit est mis
+  dans la table ou si l'analyse du **dernier fichier** du dossier (`0x535a81b8` : lecture de ses
+  métadonnées, étiquettes `0x6b`, `0xc`, `0x86`, `0x55`) le demande.
+- **Piste principale** : à la fermeture d'un fichier créé (`EventCloseCreateContents`,
+  `0x535a6b28`), si l'octet `+0x21` de la requête est non nul, le firmware met le bit du **plus
+  grand dossier** (`0x535b7424`) et non du dossier où le fichier a été écrit. Une photo écrite dans
+  `100` avec ce drapeau marque donc `101`, et la photo suivante en P part dans un nouveau dossier.
+  Qui pose `+0x21` (RAW ? multi-exposition ?) : non trouvé (la requête est remise à zéro en
+  `0x5359c4e4`). Certitude : moyenne.
+- La suppression (`DcfContentsDeleteService`, `0x535b3810`) écrit aussi dans cette table et dans
+  `+0x116` / `+0x117`.
