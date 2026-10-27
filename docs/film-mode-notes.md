@@ -478,3 +478,42 @@ vérifier par un build de test (afficher par exemple le nombre d'expositions).
 Même structure (`[objet + 0x248]`) : `0x5358516c` lit un mot à `+0x118` et un demi-mot à
 `+0x11c` ; `0x53585188` les écrit ; `0x5358519c` les remet à (−1, 0). Probablement le numéro de
 dossier et le numéro de fichier en cours. Certitude : supposé ; à vérifier par un build de test.
+
+### Résultats sur le boîtier (build T10-FILMPROBE4, 2026-10-27)
+
+Certitude : **testé** (2 vues en multi-exposition avant chaque cas ; MM = émetteur + 1).
+
+| Cas | Relevé | Lecture |
+|---|---|---|
+| E1 « Complete » du dialogue | `2012.01.01 05:51` | MM 01 : la fin **ne passe pas** par la fin du modèle (`0x5323a080`) avant l'encodage ; autre chemin, à trouver |
+| E2 MENU | `2014.05.01 05:53` | MM 05 : émetteur 4, **`0x531cb5f4` (aperçu)** |
+| E3 Lecture | rien | la séquence continue, le dialogue reste |
+| E4 molette de mode | `2015.05.01 05:57` | MM 05 : émetteur 4 |
+| E5 Fn | rien | la séquence continue |
+| E6 levier ADJ | rien | la séquence continue |
+| E7 mode de déclenchement | non fait | |
+| E8 extinction | `2019.05.01 05:03` | MM 05 : émetteur 4 |
+| E9 retrait de la carte | photo non enregistrée | la surimpression est perdue |
+
+Conclusions : MENU, molette de mode et extinction terminent la séquence par l'aperçu
+(`0x531cb5f4` → événement 0xb8 → `0x5323a080`). Lecture, Fn et ADJ ne la terminent pas. « Complete »
+dans le dialogue la termine par un autre chemin.
+
+### Build de test T10-FILMPROBE5 (briques 3, 4, 5)
+
+`filmProbe: 'folders'` (`--folders`) :
+- compteur à l'écran = nombre d'expositions (crochet `0x532aa1f4`, juste après le getter) ;
+- à la fin du modèle (`0x5323a080` : MENU, molette, extinction), nom de dossier `TEST` + lettre
+  (`'A' + fins % 26`) par `0x5326caa0`, type « nom libre » (1) par `0x53258604`, drapeau de nouveau
+  dossier par `0x5358515c(0x53584c74(), 1)` ;
+- incrustation `20YY.MM.01 HH:mm` : YY numéro de dossier candidat (`+0x118`) % 100, MM 1 + drapeau
+  `+0x116` + 2 × drapeau `+0x117`, HH fins de séquence % 24, mm numéro de fichier candidat
+  (`+0x11c`) % 60.
+
+Émulé : chaque crochet exécuté depuis son site, avec bouchons pour les fonctions appelées (ordre et
+arguments vérifiés : nom, type 1, drapeau 1 ; rien sans réglages chargés), compteur à l'écran,
+400 cas d'horloge. Contre-épreuves : la sonde échoue si l'on inverse l'ordre des appels.
+
+Attention : le nom et le type de dossier sont des **réglages sauvegardés** ; après le test, les
+remettre depuis le menu (nom saisi au clavier virtuel, `SoftwareKeyboardController` `0x531dbce0` ;
+type dans la liste `0x531b76c4`).

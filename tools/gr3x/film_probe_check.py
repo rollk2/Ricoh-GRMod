@@ -23,6 +23,12 @@ Fourth form ('emitters', T10-FILMPROBE4): as the third, but each of the nine pos
 0xb8 leaves its number at 0x55804388 (registers kept, then its own first instruction), the model's
 end (0x5323a080) copies it to 0x55804389 (10 when none) and clears it, each exposure clears both,
 and the clock's month is that byte + 1.
+Fifth form ('folders', T10-FILMPROBE5): the multi-exposure end adds 1 to 0x9b1; the screen counter
+(0x532aa1f4) gives the exposures instead of the count when the settings are loaded; the model's
+end (0x5323a080) sets the folder name "TEST" + ('A' + ends % 26), the free name type (1) and the
+new folder flag (1), in that order, every register kept, nothing without settings; the clock shows
+the file information's folder number % 100 (99 above 999), its two flags, ends % 24 and the file
+number % 60; each exposure adds 1 to 0x9b2 only.
 This does not establish the camera's start, power off, menus or pictures.
 """
 import argparse,hashlib,json,random,struct
@@ -39,18 +45,89 @@ FRAME_LOOK,ORIENT,STASH,SINGLETON=0x55804384,0x55804380,0x55804378,0x553458b0
 MODEL=0x55063f30;POINTER=MODEL+4;GET_TIME=0x536b6510
 TIME=0x63030000;MODE=0x63031000
 
+APP,USER_DATA,NAME_SET,TYPE_SET,FILE_INFO,NEW_FOLDER=0x5320ad88,0x5320b31c,0x5326caa0,0x53258604,0x53584c74,0x5358515c
+COUNTER=0x532aa1f4;UDM,INFO,FI=0x63037000,0x63038000,0x63039000
+
 class Probe(GuardProbe):
     def __init__(self,data,manifest):
-        super().__init__(data,manifest);self.clock=0
+        super().__init__(data,manifest);self.clock=0;self.stubs_on=False;self.log=[]
         for at in (0x55060000,0x55340000):
             try:self.uc.mem_map(at,0x10000)
             except Exception:pass
     def _hook(self,cpu,at,size,user):
-        if at==GET_TIME:
+        if self.stubs_on and at in (APP,USER_DATA,NAME_SET,TYPE_SET,FILE_INFO,NEW_FOLDER):
+            r=lambda n:cpu.reg_read(getattr(reg,'UC_ARM_REG_R%d'%n))
+            ret={APP:0xa0a0,USER_DATA:UDM,FILE_INFO:INFO}.get(at,1)
+            if at==NAME_SET:self.log.append(('name',r(0),bytes(cpu.mem_read(r(1),6))))
+            elif at==TYPE_SET:self.log.append(('type',r(0),r(1)))
+            elif at==NEW_FOLDER:self.log.append(('new',r(0),r(1)))
+            elif at==USER_DATA:assert r(0)==0xa0a0
+            cpu.reg_write(reg.UC_ARM_REG_R0,ret);cpu.reg_write(reg.UC_ARM_REG_PC,cpu.reg_read(reg.UC_ARM_REG_LR))
+        elif at==GET_TIME:
             self.clock+=1;cpu.reg_write(reg.UC_ARM_REG_PC,cpu.reg_read(reg.UC_ARM_REG_LR))
         else:super()._hook(cpu,at,size,user)
 
+def verify_folders(data,manifest,seed=2610):
+    e=manifest['entries'];sites={s['address']:s for s in manifest['sites']}
+    p=Probe(data,manifest);cpu=p.uc;rng=random.Random(seed);calls=0
+    for at in (END,COUNTER,MODEL_END):assert 'film probe' in sites[at]['reason']
+    for at in (RETAKE,)+EMITTERS:assert at not in sites
+    def regs_kept(regs):
+        for r,val in regs.items():assert cpu.reg_read(getattr(reg,'UC_ARM_REG_R%d'%r))==val
+        assert cpu.reg_read(reg.UC_ARM_REG_LR)==STOP and cpu.reg_read(reg.UC_ARM_REG_IP)==cpu.reg_read(reg.UC_ARM_REG_SP)
+    # The end: + 1 to 0x9b1.
+    for v in (0,0xff):
+        for with_rec in (True,False):
+            rec=bytearray(rng.randrange(256) for _ in range(SIZE));rec[STARTS]=v;cpu.mem_write(RECS,bytes(rec))
+            cpu.mem_write(POINTER,struct.pack('<I',RECS if with_rec else 0))
+            regs={0:1,1:2,2:3,3:4};p.run(END,END+4,regs);calls+=1;regs_kept(regs)
+            after=bytearray(rec)
+            if with_rec:after[STARTS]=(v+1)&255
+            assert bytes(cpu.mem_read(RECS,SIZE))==bytes(after)
+    # The screen counter: r2 at the next instruction.
+    for count in (0,1,999,123456):
+        for pics in (0,7,255):
+            for with_rec in (True,False):
+                rec=bytearray(SIZE);rec[PICTURES]=pics;cpu.mem_write(RECS,bytes(rec));cpu.mem_write(POINTER,struct.pack('<I',RECS if with_rec else 0))
+                p.run(COUNTER,COUNTER+4,{0:count,4:0x44,5:0x55});calls+=1
+                assert cpu.reg_read(reg.UC_ARM_REG_R2)==(pics if with_rec else count)
+                assert cpu.reg_read(reg.UC_ARM_REG_R0)==count and cpu.reg_read(reg.UC_ARM_REG_R4)==0x44 and cpu.reg_read(reg.UC_ARM_REG_R5)==0x55
+    # The model's end: the folder actions, in order, then the function.
+    p.stubs_on=True
+    for ends in (0,1,25,26,27,255):
+        for with_rec in (True,False):
+            rec=bytearray(rng.randrange(256) for _ in range(SIZE));rec[STARTS]=ends;cpu.mem_write(RECS,bytes(rec))
+            cpu.mem_write(POINTER,struct.pack('<I',RECS if with_rec else 0));p.log=[]
+            regs={0:0xa1,1:0xb2,2:0xc3,3:0xd4};p.run(MODEL_END,MODEL_END+4,regs);calls+=1;regs_kept(regs)
+            assert bytes(cpu.mem_read(RECS,SIZE))==bytes(rec)
+            if with_rec:assert p.log==[('name',UDM,b'TEST'+bytes([0x41+ends%26,0])),('type',UDM,1),('new',INFO,1)],p.log
+            else:assert p.log==[]
+    # The clock.
+    cpu.mem_write(INFO+0x248,struct.pack('<I',FI));cases=0
+    for d in (100,101,999,1000,0xffffffff):
+        for f in (0,1,59,60,9999):
+            for f116,f117 in ((0,0),(1,0),(0,5),(3,1)):
+                for ends in (0,23,24,200):
+                    rec=bytearray(SIZE);rec[STARTS]=ends;cpu.mem_write(RECS,bytes(rec));cpu.mem_write(POINTER,struct.pack('<I',RECS))
+                    cpu.mem_write(FI+0x118,struct.pack('<I',d));cpu.mem_write(FI+0x11c,struct.pack('<H',f));cpu.mem_write(FI+0x116,bytes([f116,f117]))
+                    cpu.mem_write(TIME,bytes(16));p.call(e['filmProbeTime'],0x1234,TIME);calls+=1;cases+=1
+                    yy=99 if d>999 else d%100
+                    assert bytes(cpu.mem_read(TIME,16))==struct.pack('<H',2000+yy)+bytes([1+(f116!=0)+2*(f117!=0),1,ends%24,f%60])+bytes(10),(d,f,f116,f117,ends)
+    p.stubs_on=False
+    cpu.mem_write(POINTER,b'\0\0\0\0');p.clock=0;cpu.mem_write(TIME,bytes(16));p.call(e['filmProbeTime'],0x1234,TIME);assert p.clock==1
+    # The exposure hook: 0x9b2 + 1, the orientation code as before.
+    hook=e['exposureOrientation']
+    for v in (0,0xff):
+        rec=bytearray(rng.randrange(256) for _ in range(SIZE));rec[PICTURES]=v;cpu.mem_write(RECS,bytes(rec));cpu.mem_write(POINTER,struct.pack('<I',RECS))
+        cpu.mem_write(SINGLETON,bytes(4));cpu.mem_write(STATE,b'\xee\xee')
+        regs={0:5,1:6,2:7,3:8};p.run(hook,BEFORE_EXPOSE+4,regs);calls+=1;regs_kept(regs)
+        after=bytearray(rec);after[PICTURES]=(v+1)&255
+        assert bytes(cpu.mem_read(RECS,SIZE))==bytes(after) and cpu.mem_read(STATE,2)==b'\xee\xee'
+    return dict(schema=1,form='folders',rtos_sha256=hashlib.sha256(data).hexdigest(),calls=calls,clock_cases=cases,seed=seed,hardware_tested=False,
+        scope='Hooks run from their patched sites with the firmware functions they call substituted; clock called directly.')
+
 def verify(data,manifest,seed=2610,rounds=64):
+    if manifest.get('filmProbe')=='folders':return verify_folders(data,manifest,seed)
     e=manifest['entries'];assert manifest.get('filmProbe') and manifest.get('round10')
     form=manifest['filmProbe'];exposures=form in ('exposures','sequence','emitters');sequence=form in ('sequence','emitters');emitters=form=='emitters'
     sites={s['address']:s for s in manifest['sites']}

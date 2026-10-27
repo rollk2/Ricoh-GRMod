@@ -40,6 +40,19 @@
  * the command goes to the capture side, so before the final picture is encoded) copies it to the
  * byte at 0x55804389 (10 when none of the nine ran) and clears the first; each exposure clears
  * both. MM = that byte + 1 (01: the end did not go through the model's end).
+ *
+ * Fifth form, 'folders' (phase 2.8, revision T10-FILMPROBE5): exposures in 0x9b2 (as the second
+ * form), ends of a sequence in 0x9b1 (as the third), and:
+ *  - the remaining-shots counter on the screen shows the exposures instead (0x532aa1f4, right
+ *    after its only getter 0x53239e34; the count itself is untouched);
+ *  - at the model's end (0x5323a080, the UI task; MENU, the mode dial, power off), the folder name
+ *    becomes "TEST" + a letter ('A' + ends % 26; 0x5326caa0, all eight records and the live
+ *    shooting record), the folder name type the free name (0x53258604, 1 = "Any") and the new folder
+ *    flag is raised (0x5358515c(0x53584c74(), 1), as Create New Folder);
+ *  - the clock shows the candidate folder and file numbers of the file information ([0x53584c74()
+ *    + 0x248]: word + 0x118, halfword + 0x11c, flags + 0x116 / + 0x117): 20YY.MM.01 HH:mm with YY
+ *    folder number % 100 (99 above 999), MM 1 + flag 0x116 + 2 * flag 0x117 (as 0 / 1), HH ends % 24,
+ *    mm file number % 60.
  */
 import { branchWord } from '../aspect/arm';
 import { FirmwareError } from '../types';
@@ -61,6 +74,13 @@ export const GR3X_END_EMITTERS = [0x531a4d80, 0x531a6ef4, 0x531b3838, 0x531cb5f4
 /** The shooting model's end (UI event 0xb8 -> 0x532270f4 -> here; sends 0x42411c16 when the state is 2). */
 export const GR3X_MODEL_END = 0x5323a080;
 const EMITTER = GR3X_FILM_STATE, SHOWN = GR3X_FILM_STATE + 1;
+/** Phase 2.7: the remaining-shots text takes the count here (`mov r2,r0` after the getter 0x53239e34). */
+export const GR3X_REMAINING_SHOTS = 0x532aa1f4;
+/** Phase 2.8: folder name (0x5326caa0(UserDataModel, char[5])), its type (0x53258604(UserDataModel, 1 free name)),
+ * the file information (0x53584c74()) and its new folder flag (0x5358515c(information, 1)). */
+export const GR3X_FOLDER_NAME_SET = 0x5326caa0, GR3X_FOLDER_TYPE_SET = 0x53258604;
+export const GR3X_FILE_INFO = 0x53584c74, GR3X_NEW_FOLDER = 0x5358515c;
+const APP = 0x5320ad88, USER_DATA = 0x5320b31c;
 /** The camera's clock (the date imprint's get_time, datestamp.ts). */
 export const GR3X_GET_TIME = 0x536b6510;
 
@@ -78,8 +98,9 @@ const bump = (offset: number, label: string) => `push {r0,r1};movw r0,#${lo(POIN
   ldrb r1,[r0,#${offset}];add r1,r1,#1;strb r1,[r0,#${offset}];${label}:pop {r0,r1};`;
 
 /** The two settings hooks (the scaffold must be installed) and the clock stub for the date imprint. */
-export function installGr3xFilmProbe(p: Gr3xFilmProbeProgram, form: 'encodes' | 'exposures' | 'sequence' | 'emitters' = 'encodes') {
+export function installGr3xFilmProbe(p: Gr3xFilmProbeProgram, form: 'encodes' | 'exposures' | 'sequence' | 'emitters' | 'folders' = 'encodes') {
   if (form === 'sequence' || form === 'emitters') return installSequence(p, form === 'emitters');
+  if (form === 'folders') return installFolders(p);
   const priorLoad = gr3xSettingsPrior(p, 'load'), priorSave = gr3xSettingsPrior(p, 'save');
   // The load works from r0 (the settings object, record in use at +4), as every load hook.
   const load = p.code(`push {r4,r5,r6,lr};mov r4,r0;bl #${priorLoad};mov r5,r0;
@@ -148,5 +169,44 @@ function installSequence(p: Gr3xFilmProbeProgram, emitters = false) {
     movw r0,#${lo(SINGLETON)};movt r0,#${hi(SINGLETON)};ldr r0,[r0];${ram('r0', 'state')}
     ldr r0,[r0,#0x518];${ram('r0', 'state')}ldr r0,[r0];${ram('r0', 'state')}ldrb r1,[r0,#0x6c0];
     state:movw r0,#${lo(GR3X_FILM_STATE)};movt r0,#${hi(GR3X_FILM_STATE)};strb r1,[r0];pop {r0,r1};`;
+  return { entries: { ...entries, filmProbeTime: time }, exposure };
+}
+
+/** The fifth form: the screen counter, the folder actions at the model's end, the folder numbers. */
+function installFolders(p: Gr3xFilmProbeProgram) {
+  if (!p.patch) throw new FirmwareError('internal', 'IIIx film probe: the folder form patches');
+  const entries: Record<string, number> = {};
+  const free = (at: number) => { if (p.sites.some(s => s.address === at)) throw new FirmwareError('unexpected-instruction', `IIIx film probe: ${at.toString(16)} already patched`); };
+  // Ends of a sequence (as the third form).
+  free(GR3X_MULTI_END);
+  entries.filmProbeEnd = p.code(`${bump(GR3X_FILM_STARTS, 'done')}mov ip,sp;b #${GR3X_MULTI_END + 4};`);
+  p.patch(GR3X_MULTI_END, 0xe1a0c00d, branchWord(GR3X_MULTI_END, entries.filmProbeEnd), 'film probe: multi-exposure end + 1');
+  // The screen counter: r2 = exposures when the settings are loaded, else the count (r0).
+  free(GR3X_REMAINING_SHOTS);
+  entries.filmProbeCounter = p.code(`movw r2,#${lo(POINTER)};movt r2,#${hi(POINTER)};ldr r2,[r2];cmp r2,#0;moveq r2,r0;
+    ldrbne r2,[r2,#${GR3X_FILM_PICTURES}];b #${GR3X_REMAINING_SHOTS + 4};`);
+  p.patch(GR3X_REMAINING_SHOTS, 0xe1a02000, branchWord(GR3X_REMAINING_SHOTS, entries.filmProbeCounter), 'film probe: the screen counter shows the exposures');
+  // The model's end: folder name TEST + letter, free name type, new folder flag; then the function.
+  free(GR3X_MODEL_END);
+  entries.filmProbeFolder = p.code(`push {r0,r1,r2,r3,r4,lr};sub sp,sp,#8;
+    movw r4,#${lo(POINTER)};movt r4,#${hi(POINTER)};ldr r4,[r4];cmp r4,#0;beq out;
+    ldrb r0,[r4,#${GR3X_FILM_STARTS}];${mod('r0', 26, 'letter')}add r0,r0,#0x41;
+    movw r1,#0x4554;movt r1,#0x5453;str r1,[sp];strb r0,[sp,#4];mov r0,#0;strb r0,[sp,#5];
+    bl #${APP};bl #${USER_DATA};mov r4,r0;mov r1,sp;bl #${GR3X_FOLDER_NAME_SET};
+    mov r0,r4;mov r1,#1;bl #${GR3X_FOLDER_TYPE_SET};
+    bl #${GR3X_FILE_INFO};mov r1,#1;bl #${GR3X_NEW_FOLDER};
+    out:add sp,sp,#8;pop {r0,r1,r2,r3,r4,lr};mov ip,sp;b #${GR3X_MODEL_END + 4};`);
+  p.patch(GR3X_MODEL_END, 0xe1a0c00d, branchWord(GR3X_MODEL_END, entries.filmProbeFolder), 'film probe: folder name, type and new folder at the model\'s end');
+  // The clock: the file information's numbers (r1 = time; r0, r2, r3 free).
+  const time = p.code(`movw r3,#${lo(POINTER)};movt r3,#${hi(POINTER)};ldr r3,[r3];cmp r3,#0;beq clock;
+    push {r4,r5,r6,lr};mov r5,r1;mov r6,r3;bl #${GR3X_FILE_INFO};ldr r4,[r0,#0x248];mov r1,r5;
+    ldr r0,[r4,#0x118];movw r2,#999;cmp r0,r2;movhi r0,#99;${mod('r0', 100, 'year')}add r0,r0,#2000;strb r0,[r1];mov r0,r0,lsr #8;strb r0,[r1,#1];
+    ldrb r0,[r4,#0x116];cmp r0,#0;movne r0,#1;ldrb r2,[r4,#0x117];cmp r2,#0;movne r2,#2;add r0,r0,r2;add r0,r0,#1;strb r0,[r1,#2];
+    mov r0,#1;strb r0,[r1,#3];
+    ldrb r0,[r6,#${GR3X_FILM_STARTS}];${mod('r0', 24, 'hour')}strb r0,[r1,#4];
+    add r2,r4,#0x100;ldrh r0,[r2,#0x1c];${mod('r0', 60, 'minute')}strb r0,[r1,#5];
+    pop {r4,r5,r6,pc};
+    clock:b #${GR3X_GET_TIME};`);
+  const exposure = `${bump(GR3X_FILM_PICTURES, 'counted')}`;
   return { entries: { ...entries, filmProbeTime: time }, exposure };
 }
