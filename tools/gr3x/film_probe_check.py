@@ -19,6 +19,10 @@ Third form ('sequence', T10-FILMPROBE3): no settings hooks; the entries of the m
 instruction, every register kept; the exposure hook also leaves the state (byte 0x6c0 of the live
 shooting record, 0 when a pointer is missing) at 0x55804388; the clock shows { 2000 + ends % 100,
 state + 1 (at most 12), 1, retakes % 24, exposures % 60 }, nothing written.
+Fourth form ('emitters', T10-FILMPROBE4): as the third, but each of the nine posters of UI event
+0xb8 leaves its number at 0x55804388 (registers kept, then its own first instruction), the model's
+end (0x5323a080) copies it to 0x55804389 (10 when none) and clears it, each exposure clears both,
+and the clock's month is that byte + 1.
 This does not establish the camera's start, power off, menus or pictures.
 """
 import argparse,hashlib,json,random,struct
@@ -29,7 +33,8 @@ from native_probe import STOP
 
 if not __debug__:raise RuntimeError('Validation requires Python assertions')
 
-STARTS,PICTURES,OFFS=0x9b1,0x9b2,0x9b3;END,RETAKE,STATE=0x5346a910,0x5346a8d8,0x55804388;OBJ,HOLDER,LIVE=0x63034000,0x63035000,0x63036000;BEFORE_EXPOSE=0x534322d8
+STARTS,PICTURES,OFFS=0x9b1,0x9b2,0x9b3;END,RETAKE,STATE=0x5346a910,0x5346a8d8,0x55804388;SHOWN=0x55804389;MODEL_END=0x5323a080;
+EMITTERS=(0x531a4d80,0x531a6ef4,0x531b3838,0x531cb5f4,0x532a7c84,0x532a7cb0,0x532a7cdc,0x532a7d08,0x532a7f6c);OBJ,HOLDER,LIVE=0x63034000,0x63035000,0x63036000;BEFORE_EXPOSE=0x534322d8
 FRAME_LOOK,ORIENT,STASH,SINGLETON=0x55804384,0x55804380,0x55804378,0x553458b0
 MODEL=0x55063f30;POINTER=MODEL+4;GET_TIME=0x536b6510
 TIME=0x63030000;MODE=0x63031000
@@ -47,7 +52,7 @@ class Probe(GuardProbe):
 
 def verify(data,manifest,seed=2610,rounds=64):
     e=manifest['entries'];assert manifest.get('filmProbe') and manifest.get('round10')
-    form=manifest['filmProbe'];exposures=form in ('exposures','sequence');sequence=form=='sequence'
+    form=manifest['filmProbe'];exposures=form in ('exposures','sequence','emitters');sequence=form in ('sequence','emitters');emitters=form=='emitters'
     sites={s['address']:s for s in manifest['sites']}
     max_ratio=max(r['id'] for r in manifest['menu'])
     want=lambda rec:guarded(rec,0,max_ratio)
@@ -86,7 +91,7 @@ def verify(data,manifest,seed=2610,rounds=64):
             rec=bytearray(rng.randrange(256) for _ in range(SIZE));rec[STARTS]=v;rec[PICTURES]=(v*7+mode if mode else v*3)&255;rec[OFFS]=(255-v)
             cpu.mem_write(RECS,bytes(rec))
             if mode is not None:cpu.mem_write(MODE,bytes([mode]))
-            if sequence:cpu.mem_write(STATE,bytes([mode or 0]))
+            if sequence:cpu.mem_write(SHOWN if emitters else STATE,bytes([mode or 0]))
             got=clock(RECS,MODE if mode is not None else 0);calls+=1;cases+=1
             pics=rec[PICTURES] if exposures else (rec[PICTURES]+1)&255
             after=bytearray(rec);after[PICTURES]=pics
@@ -107,11 +112,12 @@ def verify(data,manifest,seed=2610,rounds=64):
     for v in (0,1,0x7f,0xfe,0xff):
         for with_rec in (True,False):
           for chain in ((None,0),(0,0),(2,1),(1,3),(0,7)) if sequence else ((None,0),):
+           for pre in ((0xee,0xee),(3,7)) if emitters else ((0xee,0xee),):
             for stash in (0,0x1000b,0x10040|0x200):
                 rec=bytearray(rng.randrange(256) for _ in range(SIZE));rec[PICTURES]=v;cpu.mem_write(RECS,bytes(rec))
                 cpu.mem_write(POINTER,struct.pack('<I',RECS if with_rec else 0))
                 cpu.mem_write(STASH,struct.pack('<I',stash));cpu.mem_write(FRAME_LOOK,bytes(4));cpu.mem_write(ORIENT,bytes(4))
-                cpu.mem_write(SINGLETON,bytes(4));cpu.mem_write(STATE,b'\xee')
+                cpu.mem_write(SINGLETON,bytes(4));cpu.mem_write(STATE,bytes(pre))
                 state,direction=chain
                 if state is not None:
                     cpu.mem_write(SINGLETON,struct.pack('<I',OBJ));cpu.mem_write(OBJ+0x518,struct.pack('<I',HOLDER))
@@ -126,7 +132,8 @@ def verify(data,manifest,seed=2610,rounds=64):
                 assert struct.unpack('<I',cpu.mem_read(FRAME_LOOK,4))[0]==stash
                 if state is None:assert cpu.mem_read(ORIENT,4)==bytes(4)
                 else:assert struct.unpack('<I',cpu.mem_read(ORIENT,4))[0]==((direction if direction<=3 else 0)|0x100)
-                if sequence:assert cpu.mem_read(STATE,1)[0]==(state or 0)
+                if emitters:assert cpu.mem_read(STATE,2)==bytes(2)
+                elif sequence:assert cpu.mem_read(STATE,1)[0]==(state or 0)
                 else:assert cpu.mem_read(STATE,1)[0]==0xee
     # 6. Third form: the multi-exposure end and retake, from the patched entries.
     seq_cases=0
@@ -146,6 +153,25 @@ def verify(data,manifest,seed=2610,rounds=64):
                     assert bytes(cpu.mem_read(RECS,SIZE))==bytes(after),(hex(at),v,with_rec)
     else:
         for at in (END,RETAKE):assert at not in sites
+    # 7. Fourth form: the posters and the model's end.
+    if emitters:
+        for k,at in enumerate(EMITTERS,1):
+            assert 'film probe' in sites[at]['reason']
+            cpu.mem_write(STATE,b'\x00\x55')
+            regs={0:0x1010,1:0x2020,2:0x3030,3:0x4040}
+            p.run(at,at+4,regs);calls+=1;seq_cases+=1
+            for r,val in regs.items():assert cpu.reg_read(getattr(reg,'UC_ARM_REG_R%d'%r))==val
+            assert cpu.reg_read(reg.UC_ARM_REG_LR)==STOP and cpu.reg_read(reg.UC_ARM_REG_IP)==cpu.reg_read(reg.UC_ARM_REG_SP)
+            assert cpu.mem_read(STATE,2)==bytes([k,0x55]),k
+        assert 'film probe' in sites[MODEL_END]['reason']
+        for e in (0,1,5,9):
+            cpu.mem_write(STATE,bytes([e,0x77]))
+            regs={0:0x5050,1:0x6060,2:0x7070,3:0x8080}
+            p.run(MODEL_END,MODEL_END+4,regs);calls+=1;seq_cases+=1
+            for r,val in regs.items():assert cpu.reg_read(getattr(reg,'UC_ARM_REG_R%d'%r))==val
+            assert cpu.mem_read(STATE,2)==bytes([0,e or 10]),e
+    else:
+        for at in EMITTERS+(MODEL_END,):assert at not in sites
     return dict(schema=1,sequence_cases=seq_cases,rtos_sha256=hashlib.sha256(data).hexdigest(),form='encodes' if form is True else form,calls=calls,clock_cases=cases,exposure_cases=exposure_cases,seed=seed,hardware_tested=False,
         scope='Load and save entries run natively (firmware load/save substituted); clock stub called directly.')
 

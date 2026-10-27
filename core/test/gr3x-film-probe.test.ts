@@ -7,7 +7,7 @@ import { buildGr3xAdjResearch } from '../src/fw/gr3x/adj';
 import { planGr3xMenu } from '../src/fw/gr3x/geometry';
 import { buildGr3xTestFirmware } from '../src/fw/gr3x/research-package';
 import { GR3X_SETTINGS_LOAD, GR3X_SETTINGS_SAVE } from '../src/fw/gr3x/round10';
-import { GR3X_GET_TIME, GR3X_MULTI_END, GR3X_MULTI_RETAKE } from '../src/fw/gr3x/film-probe';
+import { GR3X_END_EMITTERS, GR3X_GET_TIME, GR3X_MODEL_END, GR3X_MULTI_END, GR3X_MULTI_RETAKE } from '../src/fw/gr3x/film-probe';
 import { GR3X_BEFORE_EXPOSE } from '../src/fw/gr3x/datestamp';
 
 const input = process.env.GRMOD_GR3_FIRMWARE;
@@ -61,5 +61,17 @@ describe.skipIf(!input)('GR III film probe (film mode test build)', () => {
     expect(seq.sites.length).toBe(plain.sites.length + 2);
     const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmProbe: 'sequence' });
     expect(built.report.revision).toBe('T10-FILMPROBE3');
+  }, 240000);
+  it('marks which poster of the end ran (fourth form)', async () => {
+    const seq = await buildGr3xAdjResearch(raw, menu, { ...r10, filmProbe: 'sequence' });
+    const em = await buildGr3xAdjResearch(raw, menu, { ...r10, filmProbe: 'emitters' });
+    expect(em).toMatchObject({ filmProbe: 'emitters' });
+    for (const at of [...GR3X_END_EMITTERS, GR3X_MODEL_END]) {
+      expect(seq.sites.some(s => s.address === at)).toBe(false);
+      expect(em.sites.find(s => s.address === at)!).toMatchObject({ expected: '0dc0a0e1', reason: expect.stringMatching(/^film probe/) });
+    }
+    expect(em.sites.length).toBe(seq.sites.length + GR3X_END_EMITTERS.length + 1);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmProbe: 'emitters' });
+    expect(built.report.revision).toBe('T10-FILMPROBE4');
   }, 240000);
 });

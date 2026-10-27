@@ -397,3 +397,33 @@ bloquée) ; l'hypothèse « étendre la condition native » du cahier des charge
   (menu, lecture, levier ADJ, mode de déclenchement...). À identifier une par une.
 - **Pour la phase 6** : avancer le film = publier l'événement 0xb8 (ou appeler `0x5323a080`) ;
   surimpression = ne rien faire (le déclencheur reste en multi-exposition).
+
+### Les choix du dialogue (statique)
+
+Table de `QuickViewController` à `0x53b41344` : trois lignes, désignées par leurs **identifiants
+de texte** (vérifiés dans la table des textes anglais `0x55002bac`) :
+
+| Texte | Ligne | Fonction | Effet |
+|---|---|---|---|
+| 0x2b4 | « Next shot » | `0x531ca804` | ferme l'aperçu, rien d'autre |
+| 0x2b5 | « Retake shot » | `0x531ca7d8` | publie l'événement 0xb7 |
+| 0x2b6 | « Complete » | `0x531cb6a0` | `0x531cb5f4` (drapeau `+0x182`, publie 0xb8), puis ferme |
+
+La table voisine `0x53b41324` (0x2c5 « Cancel », 0x2c6 « Delete ») est le dialogue de suppression.
+Publier l'événement 0xb8 : `0x532288b0(0x5320aefc(0x5320ad88()), 0xb8, 0, 0)`.
+
+### Les émetteurs de l'événement 0xb8 (statique, à identifier sur le boîtier)
+
+| N° | Fonction | Indice |
+|---|---|---|
+| 1 | `0x531a4d80` | si `0x531a4d38` (état 2) ; près des fonctions ADJ |
+| 2 | `0x531a6ef4` | liste Fn (`FnListController`) |
+| 3 | `0x531b3838` | si `0x531b307c` (état 2) ; mode de déclenchement |
+| 4 | `0x531cb5f4` | « Complete » de l'aperçu |
+| 5 à 9 | `0x532a7c84`, `0x532a7cb0`, `0x532a7cdc`, `0x532a7d08`, `0x532a7f6c` | `CaptureReadyModel`, notifications 0xaa, 0x89, 0x8b à 0x8d, 0x35, 0x19a (méthode `0x532a8c4c`, table de sauts `0x532a8c70`) |
+
+Build de test `T10-FILMPROBE4` (`--emitters`) : chaque émetteur note son numéro ; la fin côté
+modèle (`0x5323a080`, avant l'encodage de l'image finale) le recopie pour l'affichage (10 si aucun
+des neuf). Émulé : chaque émetteur et la fin côté modèle exécutés depuis leur entrée réelle
+(registres intacts, numéro écrit, reprise normale) ; contre-épreuves : la sonde échoue si l'on
+inverse deux émetteurs ou les variantes. Les builds précédents ressortent identiques.
