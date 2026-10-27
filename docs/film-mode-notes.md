@@ -300,3 +300,26 @@ Petite classe (compteur de phase à `+4`), appelée par la machine à états de 
   sans enregistrement, registres intacts, reprise à la deuxième instruction) ; le crochet
   d'exposition avec une chaîne de pointeurs simulée (état et orientation lus, 0 si un pointeur
   manque). Contre-épreuves : la sonde échoue si l'on inverse fin et Retake, ou les variantes.
+
+### Résultats sur le boîtier (GR III 2.10, build T10-FILMPROBE3, 2026-10-27)
+
+Certitude : **testé**, relevés de l'utilisateur (`20SS.MM.01 OO:PP`, SS fins de séquence, MM état
++ 1, OO Retake, PP expositions).
+
+| Cas | Relevé | Lecture |
+|---|---|---|
+| S1 photo normale | `2005.01.01 04:34` | référence ; MM 01 (état 0) |
+| S2 multi-exposition 2 vues + Complete | `2005.03.01 04:36` | PP +2 ; **MM 03 (état 2)** ; SS inchangé sur l'image finale |
+| S3 1 vue, Retake, 1 vue, Complete | `2006.03.01 05:38` | **OO +1** ; PP +2 ; SS +1 = la fin de S2, comptée **après** l'encodage de son image finale |
+| S4 2 vues puis extinction ; après rallumage, photo normale | `2008.03.01 05:40` puis `2008.01.01 05:41` | l'image superposée est enregistrée à l'extinction ; SS +2 = la fin de S3, puis la fin par extinction (comptée avant l'encodage de l'image) ; rien de plus au rallumage |
+| S5 2 vues puis changement de mode ; photo normale | `2009.01.01 05:44` | SS +1 : **le changement de mode termine aussi la séquence** ; PP +3 |
+| S6 bracketing, intervalle | non fait | facultatif |
+
+Conclusions :
+- **État de la multi-exposition validé** : 2 pendant une multi-exposition (MM 03), 0 sinon.
+- **`0x5346a910` = une fois par fin de séquence**, quelle qu'en soit la cause : Complete,
+  extinction, changement de mode. Pour Complete, il passe après l'encodage de l'image finale.
+  C'est l'événement « avance du film » du cahier des charges (l'extinction compte comme une
+  avance, comportement voulu).
+- **`0x5346a8d8` = Retake** (une fois par Retake).
+- Le verrou lui-même (grisé des menus) n'a pas été testé : le build ne le modifie pas.
