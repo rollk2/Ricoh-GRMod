@@ -110,7 +110,7 @@ export interface Gr3xRollProgram {
   patch(address: number, expected: number, replacement: number, reason: string): void;
 }
 
-export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuRatio[], folders = false, diag = false, filmMenu = false) {
+export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuRatio[], folders = false, diag = false, filmMenu = false, keys = false) {
   const rec = (label: string) => records(label, filmMenu);
   const free = (at: number) => { if (p.sites.some(s => s.address === at)) throw new FirmwareError('unexpected-instruction', `IIIx film roll: ${at.toString(16)} already patched`); };
   const entries: Record<string, number> = {};
@@ -176,6 +176,7 @@ export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuR
     mov r1,#0;strb r1,[r0,#${GR3X_INTERIM}];mov r1,#${GR3X_DRIVE_MULTI};strb r1,[r0,#${GR3X_DRIVE}];none:bx lr;`);
   if (folders) installFolders(p, free, entries, diag, filmMenu);
   if (filmMenu) installMenu(p, entries);
+  if (keys) installKeys(p, free, entries);
   return { entries, exposure };
 }
 
@@ -239,9 +240,9 @@ const APP = 0x5320ad88, USER_DATA = 0x5320b31c, INTERIM_SET = 0x53262990, DRIVE_
  *    menu controller is built each time the menu opens, its builder asks each line's visibility);
  *  - set(this, value): in a U mode only, value 1 sets bit 0 of 0x9b1 in the record in use and sets
  *    Save Interim Images to Off and the drive mode to multi-exposure through the camera's setters
- *    (which apply them); value 0 clears it and rewinds: the roll of the record in use and of the
- *    active BOX's stored record ends (started bit, folder, frame cleared). The BOX keeps its own
- *    Film Roll Mode until Save Settings;
+ *    (which apply them); value 0 clears it in the record in use only: film mode is suspended in
+ *    this U mode, the roll is kept (decision of 2026-10-28) and goes on when the BOX is recalled
+ *    again (the BOX keeps its own Film Roll Mode until Save Settings, which rewinds);
  *  - isCurrent(this, value): bit 0 == value (0 outside a U mode).
  */
 function installMenu(p: Gr3xRollProgram, entries: Record<string, number>) {
@@ -253,8 +254,38 @@ function installMenu(p: Gr3xRollProgram, entries: Record<string, number>) {
     ldrb r0,[r2,#${GR3X_ROLL_FLAGS}];cmp r4,#0;beq off;
     orr r0,r0,#${GR3X_FILM_ON};strb r0,[r2,#${GR3X_ROLL_FLAGS}];
     bl #${APP};bl #${USER_DATA};mov r5,r0;mov r1,#0;bl #${INTERIM_SET};mov r0,r5;mov r1,#${GR3X_DRIVE_MULTI};bl #${DRIVE_SET};b done;
-    off:bic r0,r0,#${GR3X_FILM_ON | GR3X_ROLL_STARTED | FOLDER_HIGH};strb r0,[r2,#${GR3X_ROLL_FLAGS}];
-    ldrb r0,[r3,#${GR3X_ROLL_FLAGS}];bic r0,r0,#${GR3X_ROLL_STARTED | FOLDER_HIGH};strb r0,[r3,#${GR3X_ROLL_FLAGS}];
-    mov r0,#0;strb r0,[r2,#${GR3X_ROLL_FRAME}];strb r0,[r3,#${GR3X_ROLL_FRAME}];strb r0,[r2,#${GR3X_ROLL_FOLDER}];strb r0,[r3,#${GR3X_ROLL_FOLDER}];
+    off:bic r0,r0,#${GR3X_FILM_ON};strb r0,[r2,#${GR3X_ROLL_FLAGS}];
     done:pop {r4,r5,r6,pc};`);
+}
+
+/** ActionModel::OnEvent (key code in r1, 1..0x40, translated for the current controller) and the
+ * UI event poster 0x532288b0(model, event, ...). */
+export const GR3X_KEY_EVENT = 0x53221a1c, GR3X_POST_EVENT = 0x532288b0;
+/** Key probe words (T12-KEYS): round 10's zero-filled sbrk area (the folders' diagnostic words). */
+const KEY_LAST = GR3X_ROLL_DIAG;
+
+/**
+ * Form 'keys' (T12-KEYS, test builds only): which key and UI event the ADJ lever gives. At
+ * ActionModel::OnEvent's entry, a key other than 1..4 (the shutter's: 0x35, 0xaa) is kept in the
+ * byte at 0x55804390 and a flag raised (+ 1); the next UI event posted after it is kept in the
+ * halfword + 2 and the flag cleared; + 4 counts the keys kept. The date imprint shows them instead of
+ * the date: 20YY.MM.DD HH:mm, YY key % 100, MM 1 + keys kept % 12, DD 1, HH event / 60, mm event % 60.
+ */
+function installKeys(p: Gr3xRollProgram, free: (at: number) => void, entries: Record<string, number>) {
+  const at = `movw ip,#${lo(KEY_LAST)};movt ip,#${hi(KEY_LAST)};`;
+  free(GR3X_KEY_EVENT);
+  entries.filmKeyEvent = p.code(`push {r0};cmp r1,#4;bls skip;${at}strb r1,[ip];mov r0,#1;strb r0,[ip,#1];ldrb r0,[ip,#4];add r0,r0,#1;strb r0,[ip,#4];
+    skip:pop {r0};mov ip,sp;b #${GR3X_KEY_EVENT + 4};`);
+  p.patch(GR3X_KEY_EVENT, 0xe1a0c00d, branchWord(GR3X_KEY_EVENT, entries.filmKeyEvent), 'film roll key probe: the key');
+  free(GR3X_POST_EVENT);
+  entries.filmPostEvent = p.code(`push {r0};${at}ldrb r0,[ip,#1];cmp r0,#0;beq none;strh r1,[ip,#2];mov r0,#0;strb r0,[ip,#1];
+    none:pop {r0};mov ip,sp;b #${GR3X_POST_EVENT + 4};`);
+  p.patch(GR3X_POST_EVENT, 0xe1a0c00d, branchWord(GR3X_POST_EVENT, entries.filmPostEvent), 'film roll key probe: the event after it');
+  entries.filmProbeTime = p.code(`movw r3,#${lo(POINTER)};movt r3,#${hi(POINTER)};ldr r3,[r3];cmp r3,#0;beq clock;
+    push {r4,lr};movw r4,#${lo(KEY_LAST)};movt r4,#${hi(KEY_LAST)};
+    ldrb r0,[r4];${mod('r0', 100, 'year')}add r0,r0,#2000;strb r0,[r1];mov r0,r0,lsr #8;strb r0,[r1,#1];
+    ldrb r0,[r4,#4];${mod('r0', 12, 'month')}add r0,r0,#1;strb r0,[r1,#2];mov r0,#1;strb r0,[r1,#3];
+    ldrh r0,[r4,#2];mov r2,#0;hour:cmp r0,#60;subhs r0,r0,#60;addhs r2,r2,#1;bhs hour;strb r2,[r1,#4];strb r0,[r1,#5];
+    pop {r4,pc};
+    clock:b #${GR3X_GET_TIME};`);
 }

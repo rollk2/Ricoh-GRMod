@@ -46,13 +46,15 @@ LENGTHS={0:36,3:12,4:21}
 
 class RollProbe(Probe):
     def __init__(self,data,manifest):
-        super().__init__(data,manifest);self.writes=[];self.box_native=0;self.next=0;self.next_calls=0;self.sfp_ret=None;self.sfp_calls=0;self.entry_sp=None;self.prints=[];self.setters=[];self.ui=[]
+        super().__init__(data,manifest);self.writes=[];self.box_native=0;self.next=0;self.next_calls=0;self.sfp_ret=None;self.sfp_calls=0;self.entry_sp=None;self.prints=[];self.setters=[];self.ui=[];self.real_post=False
         for at in range(0x63040000,0x63058000,0x1000):
             try:self.uc.mem_map(at,0x1000)
             except Exception:pass
     def _hook(self,cpu,at,size,user):
         r=lambda n:cpu.reg_read(getattr(reg,'UC_ARM_REG_R%d'%n))
         ret=lambda v:(cpu.reg_write(reg.UC_ARM_REG_R0,v),cpu.reg_write(reg.UC_ARM_REG_PC,cpu.reg_read(reg.UC_ARM_REG_LR)))
+        # rear_dial_probe stubs the UI event poster (0x532288b0); the key probe's hook there must run.
+        if at==0x532288b0 and self.real_post:return
         if at==APP_DATA:ret(OBJ)
         elif at==APP_WRITE:self.writes.append((r(0),r(1),r(2),r(3)));ret(1)
         elif at==SET_FILE_PATH+4 and self.sfp_ret is not None:
@@ -80,7 +82,7 @@ def verify(data,manifest,seed=3101):
     p=RollProbe(data,manifest);cpu=p.uc;rng=random.Random(seed);cases={}
     count=lambda k:cases.__setitem__(k,cases.get(k,0)+1)
     cpu.mem_write(OBJ+8,struct.pack('<I',STORE))
-    menu_form=manifest['filmRoll']=='menu'
+    menu_form=manifest['filmRoll'] in ('menu','keys');keys_form=manifest['filmRoll']=='keys'
     def setup(mode,cur=None,box=None,model=True,pointer=True,state=2,film=True):
         cur=bytearray(rng.randrange(256) for _ in range(SIZE)) if cur is None else bytearray(cur)
         # Form 'menu': the record in use's Film Roll Mode (bit 0 of 0x9b1) on unless asked off.
@@ -191,7 +193,7 @@ def verify(data,manifest,seed=3101):
             assert got[DRIVE]==(3 if forced else src[DRIVE]),(mode,got[DRIVE])
             assert bytes(cpu.mem_read(RECS+(1+mode)*0x1000,SIZE))==src
     # 6. Form 'folders': the roll's folder at SetFilePath's entry.
-    folders=manifest['filmRoll'] in ('folders','folders-diag','menu');diag=manifest['filmRoll']=='folders-diag'
+    folders=manifest['filmRoll'] in ('folders','folders-diag','menu','keys');diag=manifest['filmRoll']=='folders-diag'
     D=0x55804390
     def diag_check(given,code_want,next_want,ret,calls_before):
         d=bytes(cpu.mem_read(D,8))
@@ -328,9 +330,8 @@ def verify(data,manifest,seed=3101):
                             want_c[FLAGS]|=1
                             assert p.setters==[('interim',UDM,0),('drive',UDM,3)],p.setters
                         else:assert p.setters==[],p.setters
-                        if u and v==0:
-                            want_c[FLAGS]&=~(1|2|0xc);want_c[FRAME]=0;want_c[FOLDER]=0
-                            want_b[mode][FLAGS]&=~(2|0xc);want_b[mode][FRAME]=0;want_b[mode][FOLDER]=0
+                        # Off suspends: only the record in use's bit 0, the roll is kept.
+                        if u and v==0:want_c[FLAGS]&=~1
                         assert state()==(bytes(want_c),[bytes(b) for b in want_b]),(mode,film,started,v)
         p.stubs_on=False
         # The line (this, row): value icon (boxed OFF 296 / ON 297), then the title (r1 = r2).
@@ -344,7 +345,30 @@ def verify(data,manifest,seed=3101):
         for v in (0,1):
             p.ui=[];p.run(e['filmDraw'],STOP,{0:0x1234,1:ROW,2:v});count('menu list')
             assert p.ui==[('item',ROW,296 if v==0 else 297,2 if v==0 else 1)],p.ui
-    return dict(schema=1,revision='T12-MENU1' if menu_form else 'T11-ROLL2D' if diag else 'T11-ROLL3' if folders else 'T11-ROLL1',rtos_sha256=hashlib.sha256(data).hexdigest(),cases=cases,seed=seed,hardware_tested=False,
+    # 8. Form 'keys': the key probe.
+    if keys_form:
+        K=0x55804390;KEY_EVENT,POST_EVENT=0x53221a1c,0x532288b0
+        cpu.mem_write(K,bytes(8))
+        for key,armed_after in ((1,0),(4,0),(5,1),(0x21,1),(0x40,1)):
+            cpu.mem_write(K,bytes([0x77,0,0,0,3,0]));regs={0:0x1111,1:key,2:0x22,3:0x33}
+            p.run(KEY_EVENT,KEY_EVENT+4,regs);count('key');kept(regs,True)
+            d=bytes(cpu.mem_read(K,6))
+            assert d==(bytes([key,1,0,0,4,0]) if armed_after else bytes([0x77,0,0,0,3,0])),(key,d.hex())
+        p.real_post=True
+        for armed in (0,1):
+            for ev in (0xb8,0x1a4):
+                cpu.mem_write(K,bytes([0x21,armed])+struct.pack('<H',0x5555)+bytes([7,0]));regs={0:0x1111,1:ev,2:0x22,3:0x33}
+                p.run(POST_EVENT,POST_EVENT+4,regs);count('event');kept(regs,True)
+                d=bytes(cpu.mem_read(K,6))
+                assert d==(bytes([0x21,0])+struct.pack('<H',ev)+bytes([7,0]) if armed else bytes([0x21,0])+struct.pack('<H',0x5555)+bytes([7,0])),(armed,ev,d.hex())
+        p.real_post=False
+        for key in (0,33,99,100):
+            for ev in (0,0xd4,0x1a4):
+                for n in (0,11,12):
+                    cur,boxes=setup(3);cpu.mem_write(K,bytes([key,0])+struct.pack('<H',ev)+bytes([n,0]))
+                    cpu.mem_write(TIME,bytes(16));p.call(e['filmProbeTime'],0x1234,TIME);count('key clock')
+                    assert bytes(cpu.mem_read(TIME,16))==struct.pack('<H',2000+key%100)+bytes([1+n%12,1,ev//60,ev%60])+bytes(10),(key,ev,n)
+    return dict(schema=1,revision='T12-KEYS' if keys_form else 'T12-MENU2' if menu_form else 'T11-ROLL2D' if diag else 'T11-ROLL3' if folders else 'T11-ROLL1',rtos_sha256=hashlib.sha256(data).hexdigest(),cases=cases,seed=seed,hardware_tested=False,
         scope='Hooks run from their patched sites (firmware storage and the native BOX save body substituted); the recall runs natively.')
 
 if __name__=='__main__':

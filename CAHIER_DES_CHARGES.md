@@ -24,7 +24,8 @@ Retrouver la discipline de l'argentique sur un GR : on charge une pellicule (un 
    - Déclencheur : prend la photo. Si la vue n'a pas été avancée, la photo se superpose à la précédente (équivaut à « Next shot »).
    - ADJ vers la droite : avance le film (équivaut à « Complete »). La vue est enregistrée, le compteur passe à la vue suivante.
 4. **Fin du rouleau** : à la dernière vue avancée, le rouleau est terminé. Idéal visé : un **message de fin de rouleau** qui propose de changer de pellicule (réglages de la BOX). À défaut, la vue suivante démarre **automatiquement un nouveau rouleau** (nouveau dossier, compteur à 1), avec les mêmes réglages de BOX.
-5. **Rembobiner** : mettre « Film Roll Mode » sur Off termine le rouleau en cours. Faire Save Settings par-dessus la BOX d'un rouleau entamé a le même effet : le rouleau est terminé, et si la nouvelle BOX a le mode pellicule sur On, un nouveau rouleau démarre à la première vue.
+5. **Suspendre** : mettre « Film Roll Mode » sur Off sans Save Settings suspend le mode pellicule dans ce mode U ; le rouleau est gardé et reprend quand la BOX (toujours sur On) est rappelée (décision du 2026-10-28).
+6. **Rembobiner** : Save Settings par-dessus la BOX d'un rouleau entamé termine le rouleau ; si la nouvelle BOX a le mode pellicule sur On, un nouveau rouleau démarre à la première vue. Un moyen de rembobiner à la main reste à définir.
 
 Pour des photos normales, on passe en P, Av, Tv ou M, jamais touchés par le mod.
 

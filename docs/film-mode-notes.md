@@ -1001,3 +1001,31 @@ Plus grand dossier au départ : `109`.
 - K9 : nom affiché correctement en français, en chinois simplifié (底片模式) et en allemand.
 - **Phase 4 : testée sur le boîtier.** Reste : griser la ligne au lieu de la masquer (mécanisme à
   trouver).
+
+### Décision : Off suspend, il ne rembobine plus (2026-10-28)
+
+- Off sans Save Settings ne fait qu'effacer le bit 0 de l'enregistrement en cours : le mode
+  pellicule est suspendu dans ce mode U, le rouleau est gardé ; au retour sur la BOX (toujours sur
+  On), le même rouleau reprend. Save Settings rembobine toujours. Il faut un moyen de rembobiner à
+  la main (proposition à faire). Build `T12-MENU2` (forme 'menu').
+
+## Phase 6 : avance du film par le levier ADJ (statique, 2026-10-28)
+
+- Avancer = l'émetteur 1 (`0x531a4d80`) : si l'état de multi-exposition est 2 (une vue prise), il
+  publie l'événement 0xb8 (fin de séquence, comme Complete) ; sinon rien. Pas d'avance sans vue.
+- Menu ADJ : `AdjModeController` (table de méthodes `0x53b394e0`, `OnEvent` `0x531a4db8`) ; les
+  événements 0x35, 0x89, 0xaa (déclencheur, etc.) y terminent la séquence par l'émetteur 1 ;
+  0xce à 0xd8 y font la sélection (`0x531a2a14(this, 0/1)`, `0x531a3bcc(this, 0/1)`, ...).
+- `LiveViewController` : table de méthodes `0x53b2f9e8`, `OnEvent` `0x531771c0` (traite quelques
+  événements puis transmet aux modèles `0x5320b61c` et `0x5320b25c`, méthode `+8`).
+- Touches : `ActionModel::OnEvent` (`0x53221a1c`) reçoit un code de touche (1 à 0x40) et le
+  traduit selon l'identifiant du contrôleur courant (`0x53228c4c`) : branchement sur 67
+  identifiants vers une fonction de traduction par contrôleur (exemple : `0x53212c38`, touche 4 vers
+  l'événement 0xaa, 0x40 vers 0x8f ; table de 64 touches de `0x53212c9c` : 1 à 3 vers 0x35, 4 vers
+  0xaa, 5, 7, 0x13 vers 0x86, 0xe, 0x32, 0x39 vers 0xa2, 0x3e vers 0x34, 0x40 vers 0x8f).
+  Publier un événement : `0x532288b0(modèle, événement, 0, 0)`.
+- Code de la touche du levier ADJ et événement produit en visée : non trouvés statiquement. Build de
+  sonde `T12-KEYS` : touche (hors 1 à 4) et événement suivant, affichés par la date incrustée
+  (YY touche % 100, MM 1 + touches comptées % 12, HH:mm événement en minutes).
+- Émulation : `rear_dial_probe.py` remplace `0x532288b0` par un bouchon ; la sonde du rouleau le
+  laisse passer pour vérifier le crochet. 3047 cas, deux contre-épreuves détectées.

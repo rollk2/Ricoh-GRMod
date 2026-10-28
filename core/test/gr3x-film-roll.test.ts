@@ -82,6 +82,18 @@ describe.skipIf(!input)('GR III film roll (film mode phase 3.1)', () => {
     for (const k of ['filmMenuSet', 'filmMenuIsCurrent', 'filmDraw', 'filmCount']) expect(e[k]).toBeGreaterThan(0x53000000);
     expect(GR3X_CUSTOM_MENU).toBe(0x53b3649c);
     const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'menu' });
-    expect(built.report.revision).toBe('T12-MENU1');
+    expect(built.report.revision).toBe('T12-MENU2');
+  }, 240000);
+  it('the key probe adds two hooks and its clock to the menu form', async () => {
+    const film = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'menu' });
+    const keys = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'keys' });
+    for (const at of [0x53221a1c, 0x532288b0]) {
+      expect(film.sites.some(s => s.address === at)).toBe(false);
+      expect(keys.sites.find(s => s.address === at)!).toMatchObject({ expected: '0dc0a0e1', reason: expect.stringMatching(/^film roll key probe/) });
+    }
+    expect(keys.sites.length).toBe(film.sites.length + 2);
+    expect((keys.entries as Record<string, number>).filmProbeTime).toBeGreaterThan(0x53000000);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'keys' });
+    expect(built.report.revision).toBe('T12-KEYS');
   }, 240000);
 });
