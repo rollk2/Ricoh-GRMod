@@ -947,3 +947,44 @@ Plus grand dossier au départ : `109`.
 - J6 : le texte `vue/total` tient à l'écran, « calé entre RAW et SD ».
 - **Phase 3 (cœur du rouleau sans menu) : testée sur le boîtier.** Demande de l'utilisateur pour la
   suite : l'option « mode pellicule » par BOX (phase 4).
+
+## Phase 4 : ligne de menu « Film Roll Mode » (2026-10-28)
+
+### Emplacement (statique)
+
+- Le constructeur du menu (`0x5319a778`) recopie chaque onglet dans un emplacement fixe de l'objet
+  du menu (`0x384` octets, 38 lignes au plus par onglet). L'onglet Still Image Settings
+  (`0x53b36dec`) a 38 lignes ; seules ND (13) et HDF (25) dépendent du modèle, et GR Mod a déjà pris
+  la place de celle qui manque pour Date Imprint : **plus aucune place**. Onglets : vidéo 18 lignes,
+  lecture 16, **Customize Settings (C) 22** (`0x53b3649c`, Save Settings `0x020000e1` en premier,
+  pages `[0, 4, 13]`), Setup 30.
+- Décision de l'utilisateur : **sous Save Settings, dans Customize Settings**.
+- Le contrôleur du menu est construit à chaque ouverture (la fabrique `0x5316f3bc` appelle son
+  constructeur `0x5319aa68`) : la fonction de visibilité d'une ligne (comme ND / HDF, appelée par
+  `0x5319a720`) est réévaluée à chaque ouverture.
+- Griser une ligne : mécanisme non trouvé (les identifiants servent d'index dans des tables). La
+  ligne est **masquée** en P, Av, Tv, M par sa fonction de visibilité ; griser reste à étudier.
+
+### Mise en œuvre (`film-roll.ts`, forme 'menu' ; `datestamp.ts`)
+
+- Bit 0 de `0x9b1` = Film Roll Mode de la BOX. Tout le mode pellicule (démarrage, avance, compteur
+  `vue/total`, dossier, multi-exposition et Save Interim Images au rappel) ne s'applique qu'aux
+  modes U dont l'enregistrement en cours a ce bit.
+- Menu C recopié avec la ligne en position 1 (23 lignes, pages `[0, 5, 14]`) ; l'entrée du menu C
+  dans la table des onglets (`0x55001ec4`, initialisée depuis `0x5407d404`) pointe la copie.
+  Identifiant `0x020001b0` (contrôleur de liste de Horizon Correction, comme les listes de GR Mod).
+- Liste Off / On (textes et icônes encadrées du boîtier). Choisir On (en mode U) : bit 0 dans
+  l'enregistrement en cours, puis Save Interim Images à Off et multi-exposition par les setters du
+  boîtier (`0x53262990`, `0x5327b744`). Choisir Off : bit 0 effacé et rembobinage (rouleau terminé
+  dans l'enregistrement en cours et dans la BOX active). La BOX garde sa propre valeur jusqu'à Save
+  Settings (qui rembobine aussi).
+- Nom en 21 langues ; chaque caractère existe dans les textes du boîtier pour la langue, sauf le
+  chinois simplifié : 胶卷 n'existe dans aucun texte, remplacé par 底片模式 (底 et 片 existent dans
+  les textes en chinois traditionnel) ; à vérifier à l'écran.
+
+### Build de test T12-MENU1
+
+- Vérifié en émulateur (`tools/gr3x/film_roll_check.py`) : 2900 cas, dont 12 avec Film Roll Mode
+  à Off, 16 de visibilité, 32 de valeur courante, 96 de choix de valeur, la ligne et la liste ;
+  quatre contre-épreuves détectées ; sonde du garde-fou adaptée et repassée ; menu C recopié vérifié
+  (21 lignes officielles dans l'ordre, en-tête inchangé) ; T11-ROLL3 reconstruit identique.

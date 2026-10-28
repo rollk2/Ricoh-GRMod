@@ -9,6 +9,7 @@ import { buildGr3xTestFirmware } from '../src/fw/gr3x/research-package';
 import { GR3X_BOX_SAVE, GR3X_ROLL_COUNTER, GR3X_ROLL_MODEL_END } from '../src/fw/gr3x/film-roll';
 import { GR3X_RECALL_COPY } from '../src/fw/gr3x/guard';
 import { GR3X_FOLDER_MARK, GR3X_SET_FILE_PATH } from '../src/fw/gr3x/film-probe';
+import { GR3X_CUSTOM_ENTRY_IMAGE, GR3X_CUSTOM_MENU, GR3X_FILM_MENU_ID } from '../src/fw/gr3x/datestamp';
 
 const input = process.env.GRMOD_GR3_FIRMWARE;
 const menu = planGr3xMenu([{ ratio: '65:24', name: 'XPan' }]);
@@ -58,5 +59,29 @@ describe.skipIf(!input)('GR III film roll (film mode phase 3.1)', () => {
     expect((diag.entries as Record<string, number>).filmProbeTime).toBeGreaterThan(0x53000000);
     const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'folders-diag' });
     expect(built.report.revision).toBe('T11-ROLL2D');
+  }, 240000);
+  it('puts Film Roll Mode under Save Settings in Customize Settings (phase 4)', async () => {
+    const folders = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'folders' });
+    const film = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'menu' });
+    const e = film.entries as Record<string, number>;
+    expect(film).toMatchObject({ filmRoll: 'menu' });
+    const site = film.sites.find(s => s.address === GR3X_CUSTOM_ENTRY_IMAGE)!;
+    expect(site).toMatchObject({ expected: '9c64b353', reason: expect.stringMatching(/^film roll/) });
+    expect(folders.sites.some(s => s.address === GR3X_CUSTOM_ENTRY_IMAGE)).toBe(false);
+    const copy = new DataView(Uint8Array.from(Buffer.from(site.replacement, 'hex')).buffer).getUint32(0, true);
+    const bytes = Uint8Array.from(Buffer.from(film.append.bytes, 'hex'));
+    const d = new DataView(bytes.buffer, copy - film.append.address, 0x384);
+    expect(d.getUint8(0x8b)).toBe(23);
+    expect([d.getUint8(0x80), d.getUint8(0x81), d.getUint8(0x82)]).toEqual([0, 5, 14]);
+    expect(d.getUint32(0x1bc, true)).toBe(0x020000e1);
+    expect(d.getUint32(0x1bc + 4, true)).toBe(GR3X_FILM_MENU_ID);
+    expect(d.getUint32(0x8c + 8, true)).toBe(e.filmLine);
+    expect(d.getUint32(0x254 + 8, true)).toBe(e.filmMenuVisible);
+    expect(d.getUint32(0x1bc + 22 * 4, true)).not.toBe(0x10000000);
+    expect(d.getUint32(0x1bc + 23 * 4, true)).toBe(0x10000000);
+    for (const k of ['filmMenuSet', 'filmMenuIsCurrent', 'filmDraw', 'filmCount']) expect(e[k]).toBeGreaterThan(0x53000000);
+    expect(GR3X_CUSTOM_MENU).toBe(0x53b3649c);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'menu' });
+    expect(built.report.revision).toBe('T12-MENU1');
   }, 240000);
 });

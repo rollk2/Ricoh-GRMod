@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 // Film mode phase 2: the test build of the roll's bytes 0x9b1..0x9b3 (core/src/fw/gr3x/film-probe.ts).
-// --exposures: pictures counted at each still exposure (T10-FILMPROBE2); --sequence: the multi-exposure sequence (T10-FILMPROBE3); --emitters: which poster ended it (T10-FILMPROBE4); --folders: screen counter and folders (T10-FILMPROBE5); --return: the lowest folder in a recalled mode (T10-FILMPROBE6); --return2: and the multi-exposure folder mark on the written folder (T10-FILMPROBE7); --return3: and the pending new folder request cancelled (T10-FILMPROBE8); --roll: phase 3.1, the roll's state and frame counter (T11-ROLL1); --roll-folders: and the roll's folder (T11-ROLL2); --roll-diag: and what the folder hook sees, on the date imprint (T11-ROLL2D). Round 10 with the date imprint, no films, one added ratio (XPan 65:24, the build needs one). Never discovers or writes a camera or card.
+// --exposures: pictures counted at each still exposure (T10-FILMPROBE2); --sequence: the multi-exposure sequence (T10-FILMPROBE3); --emitters: which poster ended it (T10-FILMPROBE4); --folders: screen counter and folders (T10-FILMPROBE5); --return: the lowest folder in a recalled mode (T10-FILMPROBE6); --return2: and the multi-exposure folder mark on the written folder (T10-FILMPROBE7); --return3: and the pending new folder request cancelled (T10-FILMPROBE8); --roll: phase 3.1, the roll's state and frame counter (T11-ROLL1); --roll-folders: and the roll's folder (T11-ROLL2); --roll-diag: and what the folder hook sees, on the date imprint (T11-ROLL2D); --roll-menu: phase 4, the Film Roll Mode line in Customize Settings (T12-MENU1). Round 10 with the date imprint, no films, one added ratio (XPan 65:24, the build needs one). Never discovers or writes a camera or card.
 import { registerHooks } from 'node:module';
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
@@ -15,15 +15,15 @@ registerHooks({ resolve(specifier, context, next) {
   }
 } });
 const [input, directory, ...extra] = process.argv.slice(2);
-if (!input || !directory || extra.length > 1 || (extra.length && !['--exposures', '--sequence', '--emitters', '--folders', '--return', '--return2', '--return3', '--roll', '--roll-folders', '--roll-diag'].includes(extra[0]))) {
-  console.error('Usage: node tools/gr3x/build-film-probe.mjs OFFICIAL.bin NEW-directory [--exposures | --sequence | --emitters | --folders | --return | --return2 | --return3 | --roll | --roll-folders | --roll-diag]');
+if (!input || !directory || extra.length > 1 || (extra.length && !['--exposures', '--sequence', '--emitters', '--folders', '--return', '--return2', '--return3', '--roll', '--roll-folders', '--roll-diag', '--roll-menu'].includes(extra[0]))) {
+  console.error('Usage: node tools/gr3x/build-film-probe.mjs OFFICIAL.bin NEW-directory [--exposures | --sequence | --emitters | --folders | --return | --return2 | --return3 | --roll | --roll-folders | --roll-diag | --roll-menu]');
   process.exit(2);
 }
 const { buildGr3xTestFirmware } = await import('../../core/src/fw/gr3x/research-package.ts');
 const { planGr3xMenu } = await import('../../core/src/fw/gr3x/geometry.ts');
 const raw = new Uint8Array(await readFile(input));
 const result = await buildGr3xTestFirmware(raw, [], undefined, planGr3xMenu([{ ratio: '65:24', name: 'XPan' }]),
-  { dateImprint: true, dateMenu: 'submenu', round7: true, round8: true, round9: true, round10: true, ...(extra[0] === '--roll' ? { filmRoll: true } : extra[0] === '--roll-folders' ? { filmRoll: 'folders' } : extra[0] === '--roll-diag' ? { filmRoll: 'folders-diag' } : { filmProbe: extra.length ? extra[0].slice(2) : true }) });
+  { dateImprint: true, dateMenu: 'submenu', round7: true, round8: true, round9: true, round10: true, ...(extra[0] === '--roll' ? { filmRoll: true } : extra[0] === '--roll-folders' ? { filmRoll: 'folders' } : extra[0] === '--roll-diag' ? { filmRoll: 'folders-diag' } : extra[0] === '--roll-menu' ? { filmRoll: 'menu' } : { filmProbe: extra.length ? extra[0].slice(2) : true }) });
 const target = resolve(directory);
 await mkdir(target); // Never overwrite an earlier build or the official input.
 await writeFile(join(target, result.report.filename), result.bytes, { flag: 'wx' });

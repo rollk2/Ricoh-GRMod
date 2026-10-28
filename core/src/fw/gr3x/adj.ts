@@ -36,7 +36,7 @@ import { installGr3xLiveView } from './liveview';
 import { installGr3xRawDevelopment } from './raw-development';
 import { installGr3xShading } from './shading';
 import { installGr3xFullFrameRaw } from './raw-full-frame';
-import { installGr3xFilmRoll } from './film-roll';
+import { GR3X_FILM_ROLL_MODE_NAMES, installGr3xFilmRoll } from './film-roll';
 
 export const GR3X_ADJ = {
   order: 0x53b5a520,
@@ -107,7 +107,7 @@ export interface Gr3xAdjFeatures {
   filmProbe?: boolean | 'exposures' | 'sequence' | 'emitters' | 'folders' | 'return' | 'return2' | 'return3';
   /** Film mode phase 3.1 (film-roll.ts): the roll's state and frame counter in U1..U3. Round 10
    * with the date imprint, without the film probe. */
-  filmRoll?: boolean | 'folders' | 'folders-diag';
+  filmRoll?: boolean | 'folders' | 'folders-diag' | 'menu';
   /** Round 8: the Image Control order and hidden looks (look-layout.ts; the camera's order with
    * nothing hidden is the same as none). */
   lookLayout?: Gr3xLookLayout;
@@ -132,7 +132,9 @@ export async function buildGr3xAdjResearch(raw: Uint8Array, ratioMenu: readonly 
   if (round10 && !round9) fail('IIIx round 10 builds on round 9');
   const filmProbe = features.filmProbe === true || features.filmProbe === 'exposures' || features.filmProbe === 'sequence' || features.filmProbe === 'emitters' || features.filmProbe === 'folders' || features.filmProbe === 'return' || features.filmProbe === 'return2' || features.filmProbe === 'return3';
   if (filmProbe && !(round10 && dateImprint)) fail('IIIx film probe: round 10 with the date imprint');
-  const filmRoll = features.filmRoll === true || features.filmRoll === 'folders' || features.filmRoll === 'folders-diag';
+  const filmRoll = features.filmRoll === true || features.filmRoll === 'folders' || features.filmRoll === 'folders-diag' || features.filmRoll === 'menu';
+  // Phase 4: the Film Roll Mode line (Customize Settings) and its text.
+  const filmMenu = features.filmRoll === 'menu';
   if (filmRoll && (!(round10 && dateImprint) || filmProbe)) fail('IIIx film roll: round 10 with the date imprint, without the film probe');
   if (features.lookLayout && !round8) fail('IIIx look layout: round 8');
   if (round7 && dateImprint && features.dateMenu !== 'submenu') fail('IIIx round 7: the date imprint submenu');
@@ -209,7 +211,7 @@ export async function buildGr3xAdjResearch(raw: Uint8Array, ratioMenu: readonly 
   const scaffold = round10 ? installGr3xSettingsScaffold({ code, sites, u32: word }) : {};
   // Film mode test builds: hooked first, so every later hook (films, End Screen, guard) runs around it.
   const probe = filmProbe ? installGr3xFilmProbe({ code, sites, patch }, features.filmProbe === true ? 'encodes' : features.filmProbe as 'exposures' | 'sequence' | 'emitters' | 'folders' | 'return' | 'return2' | 'return3') : undefined;
-  const roll = filmRoll ? installGr3xFilmRoll({ code, sites, patch }, menu, features.filmRoll === 'folders' || features.filmRoll === 'folders-diag', features.filmRoll === 'folders-diag') : undefined;
+  const roll = filmRoll ? installGr3xFilmRoll({ code, sites, patch }, menu, features.filmRoll !== true, features.filmRoll === 'folders-diag', filmMenu) : undefined;
   const probeEntries = probe?.entries ?? roll?.entries;
   if (round10) patch(GR3X_ZERO_FILL_LITERAL, GR3X_FILL_OFFICIAL, GR3X_FILL_R10, 'start-up zero fill over the 76 bytes before the heap (round 10\'s RAM words)');
   const order = append(Uint8Array.from(geometry.ratios.map(r => r.id)));
@@ -221,7 +223,7 @@ export async function buildGr3xAdjResearch(raw: Uint8Array, ratioMenu: readonly 
   const iconIds = new Map([[0, 257], [3, 256]]);
   // Pictures: round 5 line name, Original, names; round 6 Type, Picture, Original, names.
   const pictureTexts = pictureCount ? (pictureSub ? 3 : 2) + pictureCount : 0;
-  const columns = m.textCount + additions.length + (softFocus ? 1 : 0) + dateTexts + pictureTexts;
+  const columns = m.textCount + additions.length + (softFocus ? 1 : 0) + dateTexts + pictureTexts + (filmMenu ? 1 : 0);
   const softText = m.textCount + additions.length, softIcon = m.iconCount + additions.length;
   // Date imprint: name, the two style names; two style icons (after the soft-focus ones).
   const dateText = softText + (softFocus ? 1 : 0), dateIcon = softIcon + (softFocus ? 1 : 0);
@@ -273,6 +275,14 @@ export async function buildGr3xAdjResearch(raw: Uint8Array, ratioMenu: readonly 
       names.forEach((record, k) => new DataView(row.buffer).setUint32((pictureText + head + k) * 4, record, true));
     });
   }
+  // Film Roll Mode's name, after the pictures' texts.
+  const filmText = pictureText + pictureTexts;
+  if (filmMenu) GR3X_SOFT_FOCUS_ROWS.forEach((lang, row) => {
+    const name = GR3X_FILM_ROLL_MODE_NAMES[lang];
+    const text = append(utf16z(name));
+    const record = append(Uint8Array.from([name.length + 1, 1, 0, 0, ...words([text])]));
+    new DataView(rows[row].buffer).setUint32(filmText * 4, record, true);
+  });
   const textRoots = append(words(rows.map(row => append(row))));
   for (const [low, high] of m.textRootSites) pair(low, high, 3, m.textRoots, textRoots, 'extended IIIx language directory');
   for (const at of m.textBounds) patch(at, movWord(3, m.textCount - 1), movWord(3, columns - 1), 'extended IIIx text bound');
@@ -365,7 +375,8 @@ export async function buildGr3xAdjResearch(raw: Uint8Array, ratioMenu: readonly 
     ...installGr3xMenuAdditions({ code, append, patch, word, read }, { ...(dateImprint ? { date: dateIds, dateForm } : {}),
       ...(pictureCount && !pictureSub ? { picture: pictureIds } : {}),
       ...(endScreen ? { endScreen: { typeText: endIds.typeText, pictureText: endIds.pictureText, lineType: endScreen.endScreenLineType, linePicture: endScreen.endScreenLinePicture } } : {}),
-      ...(round7 ? { onOffText: true } : {}), ...(date8 ? { round8: true } : {}), ...(round10 ? { zeroFillDone: true } : {}) }),
+      ...(round7 ? { onOffText: true } : {}), ...(date8 ? { round8: true } : {}), ...(round10 ? { zeroFillDone: true } : {}),
+      ...(roll && filmMenu ? { film: { text: filmText, set: roll.entries.filmMenuSet, isCurrent: roll.entries.filmMenuIsCurrent, visible: roll.entries.filmMenuVisible } } : {}) }),
     ...(dateImprint ? installGr3xDateImprintStage({ code, append, patch, word, read },
       round7 ? { stash: GR3X_HALATION_STASH, monoFilms: layer.monoFilms ?? [], ...(lookNames ? { names: lookNames } : {}), ...(round10 ? { r10: true } : {}) } : undefined,
       probeEntries?.filmProbeTime, probe?.exposure ?? roll?.exposure) : {}),

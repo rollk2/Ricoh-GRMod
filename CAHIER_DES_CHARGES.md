@@ -11,20 +11,20 @@ Retrouver la discipline de l'argentique sur un GR : on charge une pellicule (un 
 
 - Réutiliser au maximum les fonctions natives du GR plutôt que de créer de nouvelles interfaces.
 - Le choix du film et du format se fait avec les menus normaux, puis s'enregistre dans une BOX avec Save Settings (natif).
-- **Une BOX = un rouleau.** Une ligne de menu « Mode pellicule : On / Off » est enregistrée dans la BOX avec les autres réglages.
+- **Une BOX = un rouleau.** Une ligne de menu « Film Roll Mode : On / Off » (Customize Settings, sous Save Settings ; nom traduit dans les 21 langues du boîtier) est enregistrée dans la BOX avec les autres réglages.
 - Le verrou s'appuie sur celui que le GR applique déjà pendant une multi-exposition.
 - Chaque mode U (U1, U2, U3) rappelle sa BOX : si elle a le mode pellicule sur On, c'est un boîtier indépendant avec sa propre pellicule ; sinon, une BOX normale.
 - P, Av, Tv, M (et les autres positions de la molette) restent toujours en mode libre : jamais de pellicule, aucun effet du mod sur leurs dossiers.
 
 ## Cycle de vie d'un rouleau
 
-1. **Préparer** : régler l'Image Control (le film), le ratio (le format) et le reste avec les menus natifs, mettre « Mode pellicule » sur On, puis faire Save Settings dans une BOX. La ligne est grisée en P, Av, Tv, M.
+1. **Préparer** : régler l'Image Control (le film), le ratio (le format) et le reste avec les menus natifs, mettre « Film Roll Mode » sur On (menu Customize Settings, sous Save Settings), puis faire Save Settings dans une BOX. La ligne n'apparaît pas en P, Av, Tv, M (masquée ; grisée si le mécanisme est trouvé).
 2. **Démarrer** : le rouleau démarre à la **première vue** prise dans un mode U dont la BOX a le mode pellicule sur On. Aucune action de menu. Le firmware crée alors le dossier du rouleau, force Save Interim Images à Off et le mode d'entraînement en multi-exposition (au rappel du mode U), et verrouille les réglages.
 3. **Photographier** : le GR reste en multi-exposition pendant tout le rouleau.
    - Déclencheur : prend la photo. Si la vue n'a pas été avancée, la photo se superpose à la précédente (équivaut à « Next shot »).
    - ADJ vers la droite : avance le film (équivaut à « Complete »). La vue est enregistrée, le compteur passe à la vue suivante.
 4. **Fin du rouleau** : à la dernière vue avancée, le rouleau est terminé. Idéal visé : un **message de fin de rouleau** qui propose de changer de pellicule (réglages de la BOX). À défaut, la vue suivante démarre **automatiquement un nouveau rouleau** (nouveau dossier, compteur à 1), avec les mêmes réglages de BOX.
-5. **Rembobiner** : mettre « Mode pellicule » sur Off termine le rouleau en cours. Faire Save Settings par-dessus la BOX d'un rouleau entamé a le même effet : le rouleau est terminé, et si la nouvelle BOX a le mode pellicule sur On, un nouveau rouleau démarre à la première vue.
+5. **Rembobiner** : mettre « Film Roll Mode » sur Off termine le rouleau en cours. Faire Save Settings par-dessus la BOX d'un rouleau entamé a le même effet : le rouleau est terminé, et si la nouvelle BOX a le mode pellicule sur On, un nouveau rouleau démarre à la première vue.
 
 Pour des photos normales, on passe en P, Av, Tv ou M, jamais touchés par le mod.
 

@@ -74,6 +74,12 @@ import type { Gr3xPictureIds } from './shutdown';
 export const GR3X_DATE_SETTINGS_POINTER = 0x55063f34;
 export const GR3X_DATE_OFFSET = 0x9a2;
 export const GR3X_DATE_MENU_ID = 0x020001a0;
+/** Film mode phase 4 (film-roll.ts): the Film Roll Mode line and list (unused id; GR III's end at 0x02000140). */
+export const GR3X_FILM_MENU_ID = 0x020001b0;
+/** Customize Settings (C): its descriptor (22 items, Save Settings first) and the menu table's entry
+ * for it (0x55001ec4, initialised from 0x5407d404; read only by the builder 0x5319a778). */
+export const GR3X_CUSTOM_MENU = 0x53b3649c, GR3X_CUSTOM_ENTRY_IMAGE = 0x5407d404, GR3X_CUSTOM_ENTRY_RAM = 0x55001ec4;
+const CUSTOM_ITEMS = 22, CUSTOM_FIRSTS = [0, 4, 13], SAVE_SETTINGS_ID = 0x020000e1, NO_ITEM = 0x10000000;
 const HORIZON_ID = 0x0200007d;
 
 const BUILDER = 0x5319a778, MENU_TABLE = 0x55001eb8, STILL_MENU = 0x53b36dec;
@@ -348,7 +354,10 @@ export function installGr3xMenuAdditions(p: Gr3xDateProgram, o: { date?: Gr3xDat
    * the Style values' labels as wide as the row allows. Needs `onOffText` and the submenu. */
   round8?: boolean;
   /** Round 10: the start-up fill is already extended (round10.ts). */
-  zeroFillDone?: boolean }) {
+  zeroFillDone?: boolean;
+  /** Film mode phase 4: the Film Roll Mode line under Save Settings in Customize Settings, a list
+   * Off / On; its text and the list's handlers (film-roll.ts: set, is current, the line's visibility). */
+  film?: { text: number; set: number; isCurrent: number; visible: number } }) {
   const iconOff = o.onOffText ? TEXT_ICON_OFF : ICON_OFF, iconOn = o.onOffText ? TEXT_ICON_ON : ICON_ON;
   const ids = o.date;
   if (o.picture && o.endScreen) fail('IIIx pictures: list or submenu');
@@ -357,7 +366,7 @@ export function installGr3xMenuAdditions(p: Gr3xDateProgram, o: { date?: Gr3xDat
   const r8 = o.round8 === true;
   if (r8 && (!sub || !o.onOffText || [ids!.orient, ids!.shortName, ids!.longName, ids!.iconShortName, ids!.iconLongName].some(v => v === undefined)))
     fail('IIIx round 8 date imprint: the submenu, OFF / ON texts and the texts and icons of the third line and the two styles');
-  if (!ids && !o.picture && !o.endScreen) fail('no IIIx menu additions');
+  if (!ids && !o.picture && !o.endScreen && !o.film) fail('no IIIx menu additions');
   // --- Checks of the official code and data this relies on.
   const guards: readonly (readonly [number, number])[] = [
     ...(ids ? [[BUILDER, 0xe1a0c00d], [BUILDER + 4, movWord(3, lo(MENU_TABLE))], [BUILDER + 0x10, movWord(3, hi(MENU_TABLE), true)]] as const : []),
@@ -529,6 +538,40 @@ export function installGr3xMenuAdditions(p: Gr3xDateProgram, o: { date?: Gr3xDat
     rv.setUint32(0x14, END_SCREEN_ID, true); rv.setUint32(0x18, GR3X_PICTURE_LIST_ID, true);
     rv.setUint32(0x3c, E.lineType, true); rv.setUint32(0x40, 0, true); rv.setUint32(0x44, E.linePicture, true); rv.setUint32(0x48, 0, true);
     submenus.push({ id: GR3X_PICTURE_MENU_ID, record });
+  }
+  if (o.film) {
+    // The Film Roll Mode list: Off / On drawn as the date imprint's On/Off (the camera's boxed texts).
+    const F = o.film;
+    const filmCount = p.code('mov r0,#2;bx lr;');
+    const filmDraw = p.code(`mov r0,r1;cmp r2,#0;movweq r1,#${iconOff};moveq r2,#${TEXT_OFF};movwne r1,#${iconOn};movne r2,#${TEXT_ON};b #${LIST_SET_ITEM};`);
+    lists.push({ id: GR3X_FILM_MENU_ID, title: F.text, count: filmCount, draw: filmDraw, set: F.set, isCurrent: F.isCurrent });
+    // The line (this r0, row r1): the current value's icon and the name.
+    const filmLine = p.code(`push {r4,lr};mov r4,r1;mov r1,#1;bl #${F.isCurrent};cmp r0,#0;movweq r1,#${iconOff};movwne r1,#${iconOn};
+      mov r0,r4;bl #${LINE_VALUE_ICON};mov r0,r4;movw r1,#${F.text};mov r2,r1;pop {r4,lr};b #${TOP_SET_TITLE};`);
+    // Customize Settings with the line after Save Settings (item 0): items 1.. move one on, the
+    // later pages start one item later (page 1 holds 5 lines).
+    if (p.word(GR3X_CUSTOM_ENTRY_IMAGE) !== GR3X_CUSTOM_MENU) fail('IIIx Customize Settings menu entry');
+    const custom = p.read(GR3X_CUSTOM_MENU, DESCRIPTOR), cv = new DataView(custom.buffer);
+    if (custom[D_PAGES] !== 3 || [...custom.subarray(D_FIRST, D_FIRST + 3)].join() !== CUSTOM_FIRSTS.join() || custom[D_COUNT] !== CUSTOM_ITEMS ||
+      cv.getUint32(D_ID, true) !== SAVE_SETTINGS_ID) fail('IIIx Customize Settings menu is not the official one');
+    for (let i = CUSTOM_ITEMS; i < MAX_ITEMS; i++)
+      if (cv.getUint32(D_DRAW + i * 8, true) || cv.getUint32(D_DRAW + i * 8 + 4, true) || cv.getUint32(D_ID + i * 4, true) !== NO_ITEM ||
+        cv.getUint32(D_VISIBLE + i * 8, true) || cv.getUint32(D_VISIBLE + i * 8 + 4, true)) fail('IIIx Customize Settings spare items');
+    for (let i = 0; i < CUSTOM_ITEMS; i++) if (cv.getUint32(D_ID + i * 4, true) === GR3X_FILM_MENU_ID) fail('IIIx Film Roll Mode id in use');
+    const d = custom.slice(), dv2 = new DataView(d.buffer);
+    for (let i = CUSTOM_ITEMS; i > 1; i--) {
+      d.set(custom.subarray(D_DRAW + (i - 1) * 8, D_DRAW + i * 8), D_DRAW + i * 8);
+      d.set(custom.subarray(D_ID + (i - 1) * 4, D_ID + i * 4), D_ID + i * 4);
+      d.set(custom.subarray(D_VISIBLE + (i - 1) * 8, D_VISIBLE + i * 8), D_VISIBLE + i * 8);
+    }
+    dv2.setUint32(D_DRAW + 8, filmLine, true); dv2.setUint32(D_DRAW + 12, 0, true);
+    dv2.setUint32(D_ID + 4, GR3X_FILM_MENU_ID, true);
+    dv2.setUint32(D_VISIBLE + 8, F.visible, true); dv2.setUint32(D_VISIBLE + 12, 0, true);
+    d.set(CUSTOM_FIRSTS.map((f, k) => k ? f + 1 : f), D_FIRST);
+    d[D_COUNT] = CUSTOM_ITEMS + 1;
+    const customCopy = p.append(d);
+    p.patch(GR3X_CUSTOM_ENTRY_IMAGE, GR3X_CUSTOM_MENU, customCopy, 'film roll: Customize Settings with Film Roll Mode under Save Settings');
+    Object.assign(entries, { filmCount, filmDraw, filmLine, filmCustomMenu: customCopy });
   }
   if (o.picture) {
     const pe = installGr3xPictureList(p, o.picture);

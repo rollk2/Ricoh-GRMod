@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /**
  * GR III 2.10 / IIIx 1.60, film mode phase 3.1: the roll's state and its frame counter
- * (CAHIER_DES_CHARGES.md, docs/film-mode-notes.md). Test builds only for now: the film mode's menu
- * line comes in phase 4, so here every BOX recalled by U1..U3 is in film mode (mode byte 1..6).
+ * (CAHIER_DES_CHARGES.md, docs/film-mode-notes.md). Test builds only for now. Without the menu line
+ * every BOX recalled by U1..U3 is in film mode (mode byte 1..6); with it (form 'menu', phase 4) only
+ * a U mode whose record in use has Film Roll Mode on (bit 0 of 0x9b1, see installMenu).
  *
  * The roll's state lives in padding bytes of the settings record (tested to persist, one per BOX):
  *  - 0x9b1: bit 0 the film mode (the coming menu line; unused here), bit 1 a roll is started,
@@ -61,6 +62,8 @@ import { GR3X_FOLDER_MARK, GR3X_GET_TIME, GR3X_SET_FILE_PATH } from './film-prob
 
 export const GR3X_ROLL_FLAGS = 0x9b1, GR3X_ROLL_FRAME = 0x9b2, GR3X_ROLL_FOLDER = 0x9b3;
 export const GR3X_ROLL_STARTED = 2;
+/** Bit 0 of 0x9b1: the BOX's Film Roll Mode (the menu line, form 'menu'). */
+export const GR3X_FILM_ON = 1;
 /** Save Interim Images (0 Off, 1 Unblended, 2 Blended, 3 Unblended + Blended). */
 export const GR3X_INTERIM = 0x482;
 export const GR3X_DRIVE = 0x472, GR3X_DRIVE_MULTI = 3;
@@ -81,14 +84,25 @@ const mod = (r: string, n: number, label: string) => `${label}:cmp ${r},#${n};su
 const MODEL = 0x55063f30, POINTER = MODEL + 4, STORED = MODEL + 8, RECORD = 0xb26;
 const SINGLETON = 0x553458b0;
 
+/** The menu line's name, in `LANGS` order (cs da en fi fr de el hu it ja ko nl pl pt ru zh-CN es sv
+ * th zh-TW tr; ../aspect/datestamp-menu.ts). Every character is in the camera's own texts of that
+ * language, except zh-CN's 底 (in zh-TW's texts; 胶卷 is in no text of the firmware). */
+export const GR3X_FILM_ROLL_MODE_NAMES: readonly string[] = [
+  'Režim kinofilmu', 'Filmrulle-tilstand', 'Film Roll Mode', 'Filmirullatila', 'Mode pellicule', 'Filmrollen-Modus', 'Λειτουργία φιλμ',
+  'Filmtekercs mód', 'Modalità rullino', 'フィルムロールモード', '필름 롤 모드', 'Filmrolmodus', 'Tryb kliszy', 'Modo rolo de filme',
+  'Режим плёнки', '底片模式', 'Modo carrete', 'Filmrullsläge', 'โหมดม้วนฟิล์ม', '底片模式', 'Film rulosu modu',
+];
+
 /** Frames of a roll by ratio (CAHIER_DES_CHARGES.md); 36 for any other. */
 export const GR3X_ROLL_LENGTHS: Record<string, number> = { '3:2': 36, '3:4': 72, '65:24': 21, '4:3': 15, '1:1': 12 };
 
 const lo = (v: number) => v & 0xffff, hi = (v: number) => v >>> 16;
 const ram = (r: string, label: string) => `cmp ${r},#0x40000000;blo ${label};cmp ${r},#0xc0000000;bhs ${label};tst ${r},#3;bne ${label};`;
-/** r1 = mode 1..6 (else to `label`), r2 = record in use, r3 = the BOX's stored record (r0 free). */
-const records = (label: string) => `movw r0,#${lo(MODEL)};movt r0,#${hi(MODEL)};ldr r1,[r0];${ram('r1', label)}ldrb r1,[r1];
-  cmp r1,#0;beq ${label};cmp r1,#6;bhi ${label};ldr r2,[r0,#4];${ram('r2', label)}add r3,r0,#8;ldr r3,[r3,r1,lsl #2];${ram('r3', label)}`;
+/** r1 = mode 1..6 (else to `label`), r2 = record in use, r3 = the BOX's stored record (r0 free).
+ * `film`: also the record in use's Film Roll Mode (bit 0 of 0x9b1, the menu line), else to `label`. */
+const records = (label: string, film = false) => `movw r0,#${lo(MODEL)};movt r0,#${hi(MODEL)};ldr r1,[r0];${ram('r1', label)}ldrb r1,[r1];
+  cmp r1,#0;beq ${label};cmp r1,#6;bhi ${label};ldr r2,[r0,#4];${ram('r2', label)}add r3,r0,#8;ldr r3,[r3,r1,lsl #2];${ram('r3', label)}` +
+  (film ? `ldrb r0,[r2,#${GR3X_ROLL_FLAGS}];tst r0,#${GR3X_FILM_ON};beq ${label};` : '');
 
 export interface Gr3xRollProgram {
   code(source: string): number;
@@ -96,7 +110,8 @@ export interface Gr3xRollProgram {
   patch(address: number, expected: number, replacement: number, reason: string): void;
 }
 
-export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuRatio[], folders = false, diag = false) {
+export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuRatio[], folders = false, diag = false, filmMenu = false) {
+  const rec = (label: string) => records(label, filmMenu);
   const free = (at: number) => { if (p.sites.some(s => s.address === at)) throw new FirmwareError('unexpected-instruction', `IIIx film roll: ${at.toString(16)} already patched`); };
   const entries: Record<string, number> = {};
   // The roll's length from the ratio identity in r0 (r0 = length).
@@ -104,7 +119,7 @@ export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuR
   const length = `${lengths}mov r0,#36;len:`;
 
   // The first exposure: every register kept (the flags are free at a function's entry).
-  const exposure = `push {r0,r1,r2,r3};${records('rollkept')}
+  const exposure = `push {r0,r1,r2,r3};${rec('rollkept')}
     ldrb r0,[r2,#${GR3X_ROLL_FLAGS}];tst r0,#${GR3X_ROLL_STARTED};bne rollkept;
     orr r0,r0,#${GR3X_ROLL_STARTED};bic r0,r0,#${FOLDER_HIGH};strb r0,[r2,#${GR3X_ROLL_FLAGS}];
     ldrb r0,[r3,#${GR3X_ROLL_FLAGS}];orr r0,r0,#${GR3X_ROLL_STARTED};bic r0,r0,#${FOLDER_HIGH};strb r0,[r3,#${GR3X_ROLL_FLAGS}];
@@ -114,7 +129,7 @@ export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuR
 
   // The model's end: advance, then save both records; every register kept.
   free(GR3X_ROLL_MODEL_END);
-  entries.filmRollEnd = p.code(`push {r0,r1,r2,r3,r4,r5,r6,lr};${records('out')}
+  entries.filmRollEnd = p.code(`push {r0,r1,r2,r3,r4,r5,r6,lr};${rec('out')}
     ldrb r0,[r2,#${GR3X_ROLL_FLAGS}];tst r0,#${GR3X_ROLL_STARTED};beq out;
     movw r0,#${lo(SINGLETON)};movt r0,#${hi(SINGLETON)};ldr r0,[r0];${ram('r0', 'out')}
     ldr r0,[r0,#0x518];${ram('r0', 'out')}ldr r0,[r0];${ram('r0', 'out')}ldrb r0,[r0,#0x6c0];cmp r0,#2;bne out;
@@ -133,7 +148,7 @@ export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuR
   // U mode "frame/length" written here, then that function's return (its `ldm sp, {r4, r5, fp, sp,
   // pc}` from fp - 0x14, spelled out); else the count (r0) as before.
   free(GR3X_ROLL_COUNTER);
-  entries.filmRollCounter = p.code(`push {r0,r1,r3};${records('count')}
+  entries.filmRollCounter = p.code(`push {r0,r1,r3};${rec('count')}
     ldrb r0,[r2,#${GR3X_RATIO}];${length}mov r3,r0;
     ldrb r1,[r2,#${GR3X_ROLL_FLAGS}];tst r1,#${GR3X_ROLL_STARTED};moveq r1,#1;ldrbne r1,[r2,#${GR3X_ROLL_FRAME}];
     add sp,sp,#12;push {r3};mov r3,r1;mov r0,r4;mov r1,#6;movw r2,#${lo(GR3X_FRAME_FORMAT)};movt r2,#${hi(GR3X_FRAME_FORMAT)};
@@ -157,14 +172,15 @@ export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuR
   p.patch(GR3X_BOX_SAVE, 0xe3510007, branchWord(GR3X_BOX_SAVE, entries.filmRollBoxSave), 'film roll: Save Settings into a BOX rewinds its roll');
 
   // The mode recall (called by the guard's recall hook): r0 the record in use, r1 the mode recalled.
-  entries.filmRollRecall = p.code(`sub r1,r1,#1;cmp r1,#5;bxhi lr;${ram('r0', 'none')}
+  entries.filmRollRecall = p.code(`sub r1,r1,#1;cmp r1,#5;bxhi lr;${ram('r0', 'none')}${filmMenu ? `ldrb r1,[r0,#${GR3X_ROLL_FLAGS}];tst r1,#${GR3X_FILM_ON};bxeq lr;` : ''}
     mov r1,#0;strb r1,[r0,#${GR3X_INTERIM}];mov r1,#${GR3X_DRIVE_MULTI};strb r1,[r0,#${GR3X_DRIVE}];none:bx lr;`);
-  if (folders) installFolders(p, free, entries, diag);
+  if (folders) installFolders(p, free, entries, diag, filmMenu);
+  if (filmMenu) installMenu(p, entries);
   return { entries, exposure };
 }
 
 /** The roll's folder at SetFilePath's entry (r0 service, r2 path); every register kept. */
-function installFolders(p: Gr3xRollProgram, free: (at: number) => void, entries: Record<string, number>, diag: boolean) {
+function installFolders(p: Gr3xRollProgram, free: (at: number) => void, entries: Record<string, number>, diag: boolean, film: boolean) {
   free(GR3X_SET_FILE_PATH);
   const D = GR3X_ROLL_DIAG, at = `movw ip,#${lo(D)};movt ip,#${hi(D)};`;
   const code = (n: number) => diag ? `${at}mov lr,#${n};strb lr,[ip,#2];` : '';
@@ -181,13 +197,13 @@ function installFolders(p: Gr3xRollProgram, free: (at: number) => void, entries:
   const folderOf = (rec: string) => `ldrb r1,[${rec},#${GR3X_ROLL_FLAGS}];mov r1,r1,lsr #2;and r1,r1,#3;ldrb r0,[${rec},#${GR3X_ROLL_FOLDER}];orr r0,r0,r1,lsl #8;`;
   entries.filmRollFolder = p.code(`push {r0,r1,r2,r3,r4,r5,r6,lr};mov r4,r2;mov r5,r0;${enter}
     ldrh r0,[r4,#4];cmp r0,#0;bne given;
-    ${records('free')}ldrb r0,[r2,#${GR3X_ROLL_FLAGS}];tst r0,#${GR3X_ROLL_STARTED};beq free;
+    ${records('free', film)}ldrb r0,[r2,#${GR3X_ROLL_FLAGS}];tst r0,#${GR3X_ROLL_STARTED};beq free;
     ${folderOf('r2')}cmp r0,#100;blo new;movw r1,#999;cmp r0,r1;bhi new;
     ldr r1,[r5,#8];${ram('r1', 'new')}ldr r1,[r1,#8];${ram('r1', 'new')}ldr r1,[r1,#0x10];${ram('r1', 'new')}
     sub r6,r0,#100;ldr r1,[r1,r6,lsl #2];cmp r1,#0;beq new;
     strh r0,[r4,#4];${code(2)}b native;
     new:ldr r0,[r5,#8];bl #${GR3X_NEXT_FOLDER};${next('r0')}movs r6,r0;beq nonext;strh r6,[r4,#4];${code(3)}
-    ${records('native')}
+    ${records('native', film)}
     ldrb r0,[r2,#${GR3X_ROLL_FLAGS}];bic r0,r0,#${FOLDER_HIGH};mov r1,r6,lsr #8;orr r0,r0,r1,lsl #2;strb r0,[r2,#${GR3X_ROLL_FLAGS}];
     ldrb r0,[r3,#${GR3X_ROLL_FLAGS}];bic r0,r0,#${FOLDER_HIGH};orr r0,r0,r1,lsl #2;strb r0,[r3,#${GR3X_ROLL_FLAGS}];
     strb r6,[r2,#${GR3X_ROLL_FOLDER}];strb r6,[r3,#${GR3X_ROLL_FOLDER}];b native;
@@ -211,4 +227,34 @@ function installFolders(p: Gr3xRollProgram, free: (at: number) => void, entries:
     clock:b #${GR3X_GET_TIME};`);
   free(GR3X_FOLDER_MARK);
   p.patch(GR3X_FOLDER_MARK, 0xe1a02007, 0xe1d621b0, 'film roll: the folder mark goes to the written folder');
+}
+
+/** UserDataModel (0x5320b31c(0x5320ad88())), Save Interim Images' and the drive mode's setters. */
+const APP = 0x5320ad88, USER_DATA = 0x5320b31c, INTERIM_SET = 0x53262990, DRIVE_SET = 0x5327b744;
+
+/**
+ * Form 'menu' (phase 4): the Film Roll Mode list's handlers (datestamp.ts adds the line under Save
+ * Settings in Customize Settings, the list record, controller and key map):
+ *  - visible(this): 1 in a U mode (mode byte 1..6), else 0: the line is hidden in P, Av, Tv, M (the
+ *    menu controller is built each time the menu opens, its builder asks each line's visibility);
+ *  - set(this, value): in a U mode only, value 1 sets bit 0 of 0x9b1 in the record in use and sets
+ *    Save Interim Images to Off and the drive mode to multi-exposure through the camera's setters
+ *    (which apply them); value 0 clears it and rewinds: the roll of the record in use and of the
+ *    active BOX's stored record ends (started bit, folder, frame cleared). The BOX keeps its own
+ *    Film Roll Mode until Save Settings;
+ *  - isCurrent(this, value): bit 0 == value (0 outside a U mode).
+ */
+function installMenu(p: Gr3xRollProgram, entries: Record<string, number>) {
+  const mode = (label: string) => `movw r3,#${lo(MODEL)};movt r3,#${hi(MODEL)};ldr r2,[r3];${ram('r2', label)}ldrb r2,[r2];sub r2,r2,#1;cmp r2,#5;bhi ${label};`;
+  entries.filmMenuVisible = p.code(`${mode('hidden')}mov r0,#1;bx lr;hidden:mov r0,#0;bx lr;`);
+  entries.filmMenuIsCurrent = p.code(`${mode('none')}ldr r2,[r3,#4];${ram('r2', 'none')}ldrb r2,[r2,#${GR3X_ROLL_FLAGS}];and r2,r2,#${GR3X_FILM_ON};
+    cmp r2,r1;moveq r0,#1;movne r0,#0;bx lr;none:mov r0,#0;bx lr;`);
+  entries.filmMenuSet = p.code(`cmp r1,#1;bxhi lr;push {r4,r5,r6,lr};mov r4,r1;${records('done')}
+    ldrb r0,[r2,#${GR3X_ROLL_FLAGS}];cmp r4,#0;beq off;
+    orr r0,r0,#${GR3X_FILM_ON};strb r0,[r2,#${GR3X_ROLL_FLAGS}];
+    bl #${APP};bl #${USER_DATA};mov r5,r0;mov r1,#0;bl #${INTERIM_SET};mov r0,r5;mov r1,#${GR3X_DRIVE_MULTI};bl #${DRIVE_SET};b done;
+    off:bic r0,r0,#${GR3X_FILM_ON | GR3X_ROLL_STARTED | FOLDER_HIGH};strb r0,[r2,#${GR3X_ROLL_FLAGS}];
+    ldrb r0,[r3,#${GR3X_ROLL_FLAGS}];bic r0,r0,#${GR3X_ROLL_STARTED | FOLDER_HIGH};strb r0,[r3,#${GR3X_ROLL_FLAGS}];
+    mov r0,#0;strb r0,[r2,#${GR3X_ROLL_FRAME}];strb r0,[r3,#${GR3X_ROLL_FRAME}];strb r0,[r2,#${GR3X_ROLL_FOLDER}];strb r0,[r3,#${GR3X_ROLL_FOLDER}];
+    done:pop {r4,r5,r6,pc};`);
 }

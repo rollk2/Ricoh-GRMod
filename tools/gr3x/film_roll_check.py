@@ -27,13 +27,15 @@ This does not establish the camera's storage, menus or pictures.
 import argparse,hashlib,json,random,struct
 from pathlib import Path
 from unicorn import arm_const as reg
-from film_probe_check import Probe,TIME
+from film_probe_check import Probe,TIME,UDM
 from guard_probe import RECALL_FROM,RECALL_TO,UD,RECS,SIZE
 from native_probe import STOP,STACK
 
 if not __debug__:raise RuntimeError('Validation requires Python assertions')
 
 FLAGS,FRAME,FOLDER,INTERIM,RATIO=0x9b1,0x9b2,0x9b3,0x482,0x4c2
+INTERIM_SET,DRIVE_SET=0x53262990,0x5327b744
+LINE_VALUE_ICON,TOP_SET_TITLE,LIST_SET_ITEM,ROW=0x5339de20,0x5339dc70,0x5339e8b0,0x6304a800
 SNPRINTF,FORMAT,BUF,DRIVE=0x53141100,0x53c0ca59,0x63049000,0x472
 SET_FILE_PATH,NEXT_FOLDER,FOLDER_MARK=0x535b2e8c,0x535b742c,0x535a6dac;SVC,WRAP,DIRS,TABLE,PATH=0x63050000,0x63051000,0x63052000,0x63053000,0x63054000
 MODEL=0x55063f30;POINTER=MODEL+4;STORED=MODEL+8;SINGLETON=0x553458b0
@@ -44,7 +46,7 @@ LENGTHS={0:36,3:12,4:21}
 
 class RollProbe(Probe):
     def __init__(self,data,manifest):
-        super().__init__(data,manifest);self.writes=[];self.box_native=0;self.next=0;self.next_calls=0;self.sfp_ret=None;self.sfp_calls=0;self.entry_sp=None;self.prints=[]
+        super().__init__(data,manifest);self.writes=[];self.box_native=0;self.next=0;self.next_calls=0;self.sfp_ret=None;self.sfp_calls=0;self.entry_sp=None;self.prints=[];self.setters=[];self.ui=[]
         for at in range(0x63040000,0x63058000,0x1000):
             try:self.uc.mem_map(at,0x1000)
             except Exception:pass
@@ -57,6 +59,11 @@ class RollProbe(Probe):
             # The diagnostic's call of the function: entry stack, ip = sp, return address its own.
             assert cpu.reg_read(reg.UC_ARM_REG_SP)==self.entry_sp and cpu.reg_read(reg.UC_ARM_REG_IP)==self.entry_sp
             self.sfp_calls+=1;ret(self.sfp_ret)
+        elif at==LINE_VALUE_ICON:self.ui.append(('icon',r(0),r(1)));ret(0)
+        elif at==TOP_SET_TITLE:self.ui.append(('title',r(0),r(1),r(2)));ret(0)
+        elif at==LIST_SET_ITEM:self.ui.append(('item',r(0),r(1),r(2)));ret(0)
+        elif at in (INTERIM_SET,DRIVE_SET) and self.stubs_on:
+            self.setters.append(('interim' if at==INTERIM_SET else 'drive',r(0),r(1)));ret(1)
         elif at==SNPRINTF:
             self.prints.append((r(0),r(1),r(2),r(3),struct.unpack('<I',bytes(cpu.mem_read(cpu.reg_read(reg.UC_ARM_REG_SP),4)))[0]));ret(5)
         elif at==NEXT_FOLDER:
@@ -73,8 +80,11 @@ def verify(data,manifest,seed=3101):
     p=RollProbe(data,manifest);cpu=p.uc;rng=random.Random(seed);cases={}
     count=lambda k:cases.__setitem__(k,cases.get(k,0)+1)
     cpu.mem_write(OBJ+8,struct.pack('<I',STORE))
-    def setup(mode,cur=None,box=None,model=True,pointer=True,state=2):
+    menu_form=manifest['filmRoll']=='menu'
+    def setup(mode,cur=None,box=None,model=True,pointer=True,state=2,film=True):
         cur=bytearray(rng.randrange(256) for _ in range(SIZE)) if cur is None else bytearray(cur)
+        # Form 'menu': the record in use's Film Roll Mode (bit 0 of 0x9b1) on unless asked off.
+        if menu_form:cur[FLAGS]=(cur[FLAGS]|1) if film else (cur[FLAGS]&~1)
         boxes=[bytearray(rng.randrange(256) for _ in range(SIZE)) for _ in range(8)]
         if box is not None:boxes[mode]=bytearray(box)
         cpu.mem_write(CUR,bytes(cur))
@@ -176,11 +186,12 @@ def verify(data,manifest,seed=3101):
             recs,ud=p.records(rng)
             p.run(RECALL_FROM,RECALL_TO,{5:UD,6:mode});count('recall')
             got=bytes(cpu.mem_read(RECS,0xb26));src=recs[1+mode]
-            assert got[INTERIM]==(0 if mode else src[INTERIM]),(mode,got[INTERIM],src[INTERIM])
-            assert got[DRIVE]==(3 if mode else src[DRIVE]),(mode,got[DRIVE])
+            forced=mode and (not menu_form or src[FLAGS]&1)
+            assert got[INTERIM]==(0 if forced else src[INTERIM]),(mode,got[INTERIM],src[INTERIM])
+            assert got[DRIVE]==(3 if forced else src[DRIVE]),(mode,got[DRIVE])
             assert bytes(cpu.mem_read(RECS+(1+mode)*0x1000,SIZE))==src
     # 6. Form 'folders': the roll's folder at SetFilePath's entry.
-    folders=manifest['filmRoll'] in ('folders','folders-diag');diag=manifest['filmRoll']=='folders-diag'
+    folders=manifest['filmRoll'] in ('folders','folders-diag','menu');diag=manifest['filmRoll']=='folders-diag'
     D=0x55804390
     def diag_check(given,code_want,next_want,ret,calls_before):
         d=bytes(cpu.mem_read(D,8))
@@ -271,7 +282,69 @@ def verify(data,manifest,seed=3101):
                                     want=struct.pack('<H',2000+entry_f%100)+bytes([min(mm,12),1+calls%28,folder%24,nxt%60])+bytes(10)
                                     assert bytes(cpu.mem_read(TIME,16))==want,(entry_f,code_v,ok,calls,folder,nxt)
             cpu.mem_write(POINTER,b'\0\0\0\0');p.clock=0;p.call(e['filmProbeTime'],0x1234,TIME);assert p.clock==1
-    return dict(schema=1,revision='T11-ROLL2D' if diag else 'T11-ROLL3' if folders else 'T11-ROLL1',rtos_sha256=hashlib.sha256(data).hexdigest(),cases=cases,seed=seed,hardware_tested=False,
+    # 7. Form 'menu': Film Roll Mode off, and the menu line's handlers.
+    if menu_form:
+        dirs([100,105,112],112)
+        for mode in range(1,7):
+            for started in (False,True):
+                cur,boxes=setup(mode,film=False)
+                for b in [cur]+boxes:b[FLAGS]=(b[FLAGS]&~2)|(2 if started else 0);enc(b,105)
+                for i in range(1,7):
+                    if dec(boxes[i])==112:enc(boxes[i],0)
+                cpu.mem_write(CUR,bytes(cur))
+                for i,b in enumerate(boxes):cpu.mem_write(BOXES+i*0x1000,bytes(b))
+                before=state()
+                cpu.mem_write(SINGLETON,bytes(4));p.run(e['exposureOrientation'],BEFORE_EXPOSE+4,{0:5,1:6,2:7,3:8});assert state()==before
+                cpu.mem_write(SINGLETON,struct.pack('<I',LIVE1));p.writes=[];p.run(MODEL_END,MODEL_END+4,{});assert p.writes==[] and state()==before
+                p.prints=[];p.run(COUNTER,COUNTER+4,{0:77,4:BUF});assert p.prints==[] and cpu.reg_read(reg.UC_ARM_REG_R2)==77
+                path,got,raw=run(0);assert got==0 and state()==before,(mode,started,got)
+                count('film off')
+        V,IC,SET=e['filmMenuVisible'],e['filmMenuIsCurrent'],e['filmMenuSet']
+        for mode in range(8):
+            for model in (True,False):
+                cur,boxes=setup(mode,model=model);p.call(V,0x1234);count('menu visible')
+                assert cpu.reg_read(reg.UC_ARM_REG_R0)==(1 if model and 1<=mode<=6 else 0),(mode,model)
+        for mode in range(8):
+            for film in (False,True):
+                for v in (0,1):
+                    cur,boxes=setup(mode,film=film);p.call(IC,0x1234,v);count('menu current')
+                    want=(1 if (film and menu_form)==bool(v) else 0) if 1<=mode<=6 else 0
+                    assert cpu.reg_read(reg.UC_ARM_REG_R0)==want,(mode,film,v)
+        p.stubs_on=True
+        for mode in range(8):
+            for film in (False,True):
+                for started in (False,True):
+                    for v in (0,1,2):
+                        cur,boxes=setup(mode,film=film)
+                        for b in [cur]+boxes:b[FLAGS]=(b[FLAGS]&~2)|(2 if started else 0);enc(b,333);b[FRAME]=9
+                        cpu.mem_write(CUR,bytes(cur))
+                        for i,b in enumerate(boxes):cpu.mem_write(BOXES+i*0x1000,bytes(b))
+                        p.setters=[];p.log=[]
+                        regs={0:0x1234,1:v,4:0x44,5:0x55,6:0x66};p.run(SET,STOP,regs);count('menu set')
+                        for k in (4,5,6):assert cpu.reg_read(getattr(reg,'UC_ARM_REG_R%d'%k))==regs[k]
+                        want_c,want_b=bytearray(cur),[bytearray(b) for b in boxes]
+                        u=1<=mode<=6
+                        if u and v==1:
+                            want_c[FLAGS]|=1
+                            assert p.setters==[('interim',UDM,0),('drive',UDM,3)],p.setters
+                        else:assert p.setters==[],p.setters
+                        if u and v==0:
+                            want_c[FLAGS]&=~(1|2|0xc);want_c[FRAME]=0;want_c[FOLDER]=0
+                            want_b[mode][FLAGS]&=~(2|0xc);want_b[mode][FRAME]=0;want_b[mode][FOLDER]=0
+                        assert state()==(bytes(want_c),[bytes(b) for b in want_b]),(mode,film,started,v)
+        p.stubs_on=False
+        # The line (this, row): value icon (boxed OFF 296 / ON 297), then the title (r1 = r2).
+        for mode in (0,3,7):
+            for film in (False,True):
+                cur,boxes=setup(mode,film=film);p.ui=[]
+                p.run(e['filmLine'],STOP,{0:0x1234,1:ROW});count('menu line')
+                on=film and 1<=mode<=6
+                assert p.ui[0]==('icon',ROW,297 if on else 296) and p.ui[1][0]=='title' and p.ui[1][1]==ROW and p.ui[1][2]==p.ui[1][3] and len(p.ui)==2,p.ui
+        # The list's values: Off (296, text 2), On (297, text 1).
+        for v in (0,1):
+            p.ui=[];p.run(e['filmDraw'],STOP,{0:0x1234,1:ROW,2:v});count('menu list')
+            assert p.ui==[('item',ROW,296 if v==0 else 297,2 if v==0 else 1)],p.ui
+    return dict(schema=1,revision='T12-MENU1' if menu_form else 'T11-ROLL2D' if diag else 'T11-ROLL3' if folders else 'T11-ROLL1',rtos_sha256=hashlib.sha256(data).hexdigest(),cases=cases,seed=seed,hardware_tested=False,
         scope='Hooks run from their patched sites (firmware storage and the native BOX save body substituted); the recall runs natively.')
 
 if __name__=='__main__':
