@@ -22,8 +22,10 @@
  *    record in use and the BOX's record are saved to the camera's own storage at once (0x53826c54,
  *    files APData01 and APData(mode + 2), as the power-off save 0x5323f274 does for every record):
  *    the camera saves its settings only at power off;
- *  - the remaining-shots counter on the screen (0x532aa1f4, tested): the frame to take in a U mode
- *    (1 before the roll starts), the count elsewhere;
+ *  - the remaining-shots counter on the screen (0x532aa1f4, tested; text made by 0x532aa140,
+ *    snprintf(buffer, 6, "%d", count)): in a U mode the hook writes "frame/length" itself
+ *    (snprintf 0x53141100 with the firmware's own "%d/%d", 0x53c0ca59; frame 1 before the roll
+ *    starts; at most "72/72", 5 characters) and returns from the text function; the count elsewhere;
  *  - Save Settings into BOX n (0x5324b760(object, n), memcpy of the record in use then the merge):
  *    then BOX n's roll is ended (bit 1 and the frame cleared), and the record in use's too when n is
  *    the active mode: saving over a started roll rewinds it;
@@ -41,12 +43,14 @@
  *    at the entry, + 2 the path taken (1 free mode unchanged, 2 the roll's folder, 3 a new folder
  *    given, 4 no next number, 5 a folder already given, 6 a free mode moved off a roll's folder),
  *    + 3 SetFilePath's result (1 when not 0: the hook then runs the function as a call, its return
- *    address kept at 0x5580438c), + 4 calls, + 6 halfword the next number asked; the date imprint
+ *    address kept at 0x5580438c, as in every folders form), + 4 calls, + 6 halfword the next number asked; the date imprint
  *    shows them instead of the date: 20YY.MM.DD HH:mm, YY entry folder % 100, MM path + 6 when the
  *    function succeeded, DD 1 + calls % 28, HH the record in use's roll folder % 24, mm next % 60;
  *  - the mode recall (through the settings guard's recall hook, guard.ts): recalling U1..U3 sets
- *    Save Interim Images (+0x482, StillMultiExposureSaveProcess) to Off (0) in the record in use,
- *    before the record goes to the live values. With interim images the camera puts the sequence in
+ *    Save Interim Images (+0x482, StillMultiExposureSaveProcess) to Off (0) and the drive mode
+ *    (+0x472, StillDriveMode: 0 single, 1 continuous, 2 bracket, 3 multi-exposure, 4 interval,
+ *    5 interval multi-exposure; setter 0x5327b744) to multi-exposure (3) in the record in use,
+ *    before the record goes to the live values (0x532750f8, which the setter also calls). With interim images the camera puts the sequence in
  *    a folder of its own (tested), which a roll's folder must not get.
  */
 import { branchWord } from '../aspect/arm';
@@ -59,6 +63,9 @@ export const GR3X_ROLL_FLAGS = 0x9b1, GR3X_ROLL_FRAME = 0x9b2, GR3X_ROLL_FOLDER 
 export const GR3X_ROLL_STARTED = 2;
 /** Save Interim Images (0 Off, 1 Unblended, 2 Blended, 3 Unblended + Blended). */
 export const GR3X_INTERIM = 0x482;
+export const GR3X_DRIVE = 0x472, GR3X_DRIVE_MULTI = 3;
+/** snprintf(buffer, size, format, ...) and the firmware's "%d/%d" (the end of "%f, %d/%d"). */
+export const GR3X_SNPRINTF = 0x53141100, GR3X_FRAME_FORMAT = 0x53c0ca59;
 export const GR3X_RATIO = 0x4c2;
 /** The shooting model's end, the screen counter, Save Settings into a BOX. */
 export const GR3X_ROLL_MODEL_END = 0x5323a080, GR3X_ROLL_COUNTER = 0x532aa1f4, GR3X_BOX_SAVE = 0x5324b760;
@@ -122,11 +129,16 @@ export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuR
     out:pop {r0,r1,r2,r3,r4,r5,r6,lr};mov ip,sp;b #${GR3X_ROLL_MODEL_END + 4};`);
   p.patch(GR3X_ROLL_MODEL_END, 0xe1a0c00d, branchWord(GR3X_ROLL_MODEL_END, entries.filmRollEnd), 'film roll: the frame advances at the model\'s end, settings saved');
 
-  // The screen counter: r2 = the frame to take in a U mode (1 before the roll starts), else r0.
+  // The screen counter, inside 0x532aa1d4 (r4 the buffer, frame of {r4, r5, fp, ip, lr, pc}): in a
+  // U mode "frame/length" written here, then that function's return (its `ldm sp, {r4, r5, fp, sp,
+  // pc}` from fp - 0x14, spelled out); else the count (r0) as before.
   free(GR3X_ROLL_COUNTER);
   entries.filmRollCounter = p.code(`push {r0,r1,r3};${records('count')}
-    ldrb r0,[r2,#${GR3X_ROLL_FLAGS}];tst r0,#${GR3X_ROLL_STARTED};moveq r0,#1;ldrbne r0,[r2,#${GR3X_ROLL_FRAME}];
-    mov r2,r0;pop {r0,r1,r3};b #${GR3X_ROLL_COUNTER + 4};
+    ldrb r0,[r2,#${GR3X_RATIO}];${length}mov r3,r0;
+    ldrb r1,[r2,#${GR3X_ROLL_FLAGS}];tst r1,#${GR3X_ROLL_STARTED};moveq r1,#1;ldrbne r1,[r2,#${GR3X_ROLL_FRAME}];
+    add sp,sp,#12;push {r3};mov r3,r1;mov r0,r4;mov r1,#6;movw r2,#${lo(GR3X_FRAME_FORMAT)};movt r2,#${hi(GR3X_FRAME_FORMAT)};
+    bl #${GR3X_SNPRINTF};add sp,sp,#4;
+    sub ip,fp,#0x14;ldr r4,[ip];ldr r5,[ip,#4];ldr lr,[ip,#0x10];ldr fp,[ip,#8];ldr sp,[ip,#0xc];bx lr;
     count:pop {r0,r1,r3};mov r2,r0;b #${GR3X_ROLL_COUNTER + 4};`);
   p.patch(GR3X_ROLL_COUNTER, 0xe1a02000, branchWord(GR3X_ROLL_COUNTER, entries.filmRollCounter), 'film roll: the screen counter shows the frame to take');
 
@@ -146,7 +158,7 @@ export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuR
 
   // The mode recall (called by the guard's recall hook): r0 the record in use, r1 the mode recalled.
   entries.filmRollRecall = p.code(`sub r1,r1,#1;cmp r1,#5;bxhi lr;${ram('r0', 'none')}
-    mov r1,#0;strb r1,[r0,#${GR3X_INTERIM}];none:bx lr;`);
+    mov r1,#0;strb r1,[r0,#${GR3X_INTERIM}];mov r1,#${GR3X_DRIVE_MULTI};strb r1,[r0,#${GR3X_DRIVE}];none:bx lr;`);
   if (folders) installFolders(p, free, entries, diag);
   return { entries, exposure };
 }
@@ -160,9 +172,11 @@ function installFolders(p: Gr3xRollProgram, free: (at: number) => void, entries:
   const enter = diag ? `${at}ldrb r0,[ip,#4];add r0,r0,#1;strb r0,[ip,#4];ldrh r0,[r4,#4];strh r0,[ip];mov r0,#0;strb r0,[ip,#2];strb r0,[ip,#3];strh r0,[ip,#6];` : '';
   // The diagnostic runs the function as a call to see its result; stack arguments stay in place
   // (everything is popped first), the return address waits in a RAM word.
-  const tramp = diag ? p.code(`mov ip,sp;b #${GR3X_SET_FILE_PATH + 4};`) : 0;
-  const exit = diag ? `movw ip,#${lo(D - 4)};movt ip,#${hi(D - 4)};str lr,[ip];bl #${tramp};
-    movw ip,#${lo(D - 4)};movt ip,#${hi(D - 4)};cmp r0,#0;movne lr,#1;moveq lr,#0;strb lr,[ip,#7];ldr lr,[ip];bx lr;` : `mov ip,sp;b #${GR3X_SET_FILE_PATH + 4};`;
+  // Every folders form runs the function as a call (as the diagnostic build tested on the camera).
+  const tramp = p.code(`mov ip,sp;b #${GR3X_SET_FILE_PATH + 4};`);
+  const result = diag ? `cmp r0,#0;movne lr,#1;moveq lr,#0;strb lr,[ip,#7];` : '';
+  const exit = `movw ip,#${lo(D - 4)};movt ip,#${hi(D - 4)};str lr,[ip];bl #${tramp};
+    movw ip,#${lo(D - 4)};movt ip,#${hi(D - 4)};${result}ldr lr,[ip];bx lr;`;
   // r0 = the folder of the record or copy in r0 (0x9b3 | (0x9b1 bits 2..3) << 8); r1 used.
   const folderOf = (rec: string) => `ldrb r1,[${rec},#${GR3X_ROLL_FLAGS}];mov r1,r1,lsr #2;and r1,r1,#3;ldrb r0,[${rec},#${GR3X_ROLL_FOLDER}];orr r0,r0,r1,lsl #8;`;
   entries.filmRollFolder = p.code(`push {r0,r1,r2,r3,r4,r5,r6,lr};mov r4,r2;mov r5,r0;${enter}

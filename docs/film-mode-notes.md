@@ -905,3 +905,33 @@ Plus grand dossier au départ : `109`.
 - Pourquoi T11-ROLL2 n'a rien créé : non établi. Le code du dossier est identique dans les deux
   builds (le diagnostic ajoute l'enregistrement et l'appel de la fonction) ; à vérifier que la mise
   à jour T11-ROLL2 a bien été appliquée.
+
+## Phase 3.2.2 : compteur « vue/total » et multi-exposition imposée (2026-10-28)
+
+### Décisions
+
+- Rien n'est incrusté sur la photo. À l'écran, à la place du compteur de vues restantes (en haut à
+  droite) : `12/36`, le total selon le format.
+- Au rappel d'un mode U, le mode d'entraînement est mis en multi-exposition (comme Save Interim
+  Images à Off) : chaque vue passe par une fin de séquence, la prise de vue simple n'a pas à être
+  comptée à part.
+
+### Briques (statique)
+
+- Texte du compteur : `0x532aa140(objet, tampon, valeur)` = `snprintf(tampon, 6, "%d", min(valeur,
+  99999))` (`0x53141100`, format `0x53d52d54`), ou `-----` dans certains états. « 72/72 » tient en
+  5 caractères. Le firmware contient `"%d/%d"` (fin de `"%f, %d/%d"`, `0x53c0ca59`).
+- Mode d'entraînement : octet **`+0x472`** (`StillDriveMode`, getter `0x53245190`) : 0 Single,
+  1 Continuous, 2 Bracket, **3 MultiExposure**, 4 Interval, 5 IntervalMultiExposure. Setter
+  `0x5327b744(UserDataModel, mode)` : écrit l'octet puis applique l'enregistrement
+  (`0x532750f8`, comme le rappel) et publie l'événement `0x17b`.
+
+### Build de test T11-ROLL3
+
+- T11-ROLL2 + compteur `vue/total` (le crochet écrit le texte par `snprintf` puis rend la main à
+  l'appelant de `0x532aa1d4` ; hors mode U, compte normal) + multi-exposition au rappel ; le
+  crochet de `SetFilePath` appelle la fonction comme dans le diagnostic qui a marché (adresse de
+  retour en `0x5580438c`).
+- Limite : en mode U, le compteur ne montre plus `-----` (carte absente ou pleine).
+- Vérifié en émulateur : 2700 cas (dont 768 du compteur), quatre contre-épreuves détectées ;
+  sonde du garde-fou adaptée (multi-exposition au rappel) et repassée.

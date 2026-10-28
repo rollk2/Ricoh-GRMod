@@ -19,7 +19,7 @@ Retrouver la discipline de l'argentique sur un GR : on charge une pellicule (un 
 ## Cycle de vie d'un rouleau
 
 1. **Préparer** : régler l'Image Control (le film), le ratio (le format) et le reste avec les menus natifs, mettre « Mode pellicule » sur On, puis faire Save Settings dans une BOX. La ligne est grisée en P, Av, Tv, M.
-2. **Démarrer** : le rouleau démarre à la **première vue** prise dans un mode U dont la BOX a le mode pellicule sur On. Aucune action de menu. Le firmware crée alors le dossier du rouleau, force Save Interim Images à Off et verrouille les réglages.
+2. **Démarrer** : le rouleau démarre à la **première vue** prise dans un mode U dont la BOX a le mode pellicule sur On. Aucune action de menu. Le firmware crée alors le dossier du rouleau, force Save Interim Images à Off et le mode d'entraînement en multi-exposition (au rappel du mode U), et verrouille les réglages.
 3. **Photographier** : le GR reste en multi-exposition pendant tout le rouleau.
    - Déclencheur : prend la photo. Si la vue n'a pas été avancée, la photo se superpose à la précédente (équivaut à « Next shot »).
    - ADJ vers la droite : avance le film (équivaut à « Complete »). La vue est enregistrée, le compteur passe à la vue suivante.
@@ -34,8 +34,8 @@ Pour des photos normales, on passe en P, Av, Tv ou M, jamais touchés par le mod
 - Il affiche le numéro de la vue à prendre, comme sur un argentique : 1 après le chargement, puis 2, 3...
 - Il s'incrémente à chaque avance du film (« Complete »), pas au déclenchement.
 - Éteindre l'appareil en cours de surimpression enregistre la vue (comportement natif) : cela compte comme une avance.
-- Affichage à l'écran : on réutilise le compteur de vues restantes de la carte, qui affiche le numéro de vue pendant un rouleau.
-- Le numéro de vue est aussi incrusté sur la photo, à côté de la date (style dos dateur).
+- Affichage à l'écran : on réutilise le compteur de vues restantes de la carte (en haut à droite), qui affiche **vue / total** pendant un rouleau (exemple : `12/36`), le total selon le format.
+- Rien n'est incrusté sur la photo (décision du 2026-10-28).
 
 ### Longueur du rouleau selon le format
 | Ratio | Équivalent | Vues |

@@ -48,7 +48,7 @@ describe.skipIf(!input)('GR III film roll (film mode phase 3.1)', () => {
     expect(folders.sites.find(s => s.address === GR3X_FOLDER_MARK)!).toMatchObject({ expected: '0720a0e1', replacement: 'b021d6e1' });
     expect(folders.sites.length).toBe(roll.sites.length + 2);
     const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'folders' });
-    expect(built.report.revision).toBe('T11-ROLL2');
+    expect(built.report.revision).toBe('T11-ROLL3');
   }, 240000);
   it('the diagnostic form adds only its clock to the second form', async () => {
     const folders = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'folders' });

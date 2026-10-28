@@ -7,7 +7,7 @@ a ratio above the build's largest identity becomes 3:2, and no other byte change
 recall runs natively from the copy of the stored record to just before the record goes to the live
 values; the settings load and save hooks run natively with the firmware's load and save
 substituted (the save must see guarded records). In a film roll build (film-roll.ts) a recall of
-modes 1..6 also leaves Save Interim Images (+0x482) at 0. This does not establish the camera's menus.
+modes 1..6 also leaves Save Interim Images (+0x482) at 0 and the drive mode (+0x472) at 3. This does not establish the camera's menus.
 """
 import argparse,hashlib,json,random,struct
 from pathlib import Path
@@ -137,7 +137,7 @@ def verify(data,manifest,seed=1107,rounds=400):
         src=recs[1+mode]
         expect=bytearray(want(src,films,max_ratio)[:0xb26])
         # Film mode (film-roll.ts): recalling U1..U3 sets Save Interim Images (+0x482) to Off.
-        if manifest.get('filmRoll') and 1<=mode<=6:expect[0x482]=0
+        if manifest.get('filmRoll') and 1<=mode<=6:expect[0x482]=0;expect[0x472]=3
         assert bytes(cpu.mem_read(RECS,0xb26))==bytes(expect)
         assert bytes(cpu.mem_read(RECS+(1+mode)*0x1000,SIZE))==src
     # 3. Load and save (without films; with films slots_probe runs them with the films' table).
