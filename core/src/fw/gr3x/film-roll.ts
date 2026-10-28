@@ -27,6 +27,15 @@
  *  - Save Settings into BOX n (0x5324b760(object, n), memcpy of the record in use then the merge):
  *    then BOX n's roll is ended (bit 1 and the frame cleared), and the record in use's too when n is
  *    the active mode: saving over a started roll rewinds it;
+ *  - (form 'folders', T11-ROLL2) the DCF service's SetFilePath (0x535b2e8c, folder number at path
+ *    + 4: when not 0 it is used as given, and created when it does not exist; docs/film-mode-notes.md):
+ *    in a U mode with a roll started, the roll's folder (0x9b3 | (0x9b1 bits 2..3) << 8) when it
+ *    exists; else the camera's next new folder number (0x535b742c, max(highest, reserved) + 1, 0 past
+ *    999), which SetFilePath creates as it creates a new folder, and which becomes the roll's folder.
+ *    Elsewhere (free modes), when the highest folder (the one the camera would use) is a started
+ *    roll's folder of any BOX, the next new folder number is given instead: free pictures never go
+ *    into a roll's folder. The roll's folder is cleared when a roll starts, ends or is rewound;
+ *    the multi-exposure folder mark goes to the folder written (0x535a6dac, as T10-FILMPROBE7);
  *  - the mode recall (through the settings guard's recall hook, guard.ts): recalling U1..U3 sets
  *    Save Interim Images (+0x482, StillMultiExposureSaveProcess) to Off (0) in the record in use,
  *    before the record goes to the live values. With interim images the camera puts the sequence in
@@ -36,6 +45,7 @@ import { branchWord } from '../aspect/arm';
 import { FirmwareError } from '../types';
 import type { Gr3xSite } from './round10';
 import type { Gr3xMenuRatio } from './geometry';
+import { GR3X_FOLDER_MARK, GR3X_SET_FILE_PATH } from './film-probe';
 
 export const GR3X_ROLL_FLAGS = 0x9b1, GR3X_ROLL_FRAME = 0x9b2, GR3X_ROLL_FOLDER = 0x9b3;
 export const GR3X_ROLL_STARTED = 2;
@@ -46,6 +56,10 @@ export const GR3X_RATIO = 0x4c2;
 export const GR3X_ROLL_MODEL_END = 0x5323a080, GR3X_ROLL_COUNTER = 0x532aa1f4, GR3X_BOX_SAVE = 0x5324b760;
 /** The settings storage (0x53828014() + 8) and its write (store, file index, size, data). */
 export const GR3X_APP_DATA = 0x53828014, GR3X_APP_DATA_WRITE = 0x53826c54;
+/** The directory list's next new folder number (directory service [service + 8]). */
+export const GR3X_NEXT_FOLDER = 0x535b742c;
+/** Bits of 0x9b1 holding the folder number's high bits. */
+const FOLDER_HIGH = 0xc;
 const MODEL = 0x55063f30, POINTER = MODEL + 4, STORED = MODEL + 8, RECORD = 0xb26;
 const SINGLETON = 0x553458b0;
 
@@ -64,7 +78,7 @@ export interface Gr3xRollProgram {
   patch(address: number, expected: number, replacement: number, reason: string): void;
 }
 
-export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuRatio[]) {
+export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuRatio[], folders = false) {
   const free = (at: number) => { if (p.sites.some(s => s.address === at)) throw new FirmwareError('unexpected-instruction', `IIIx film roll: ${at.toString(16)} already patched`); };
   const entries: Record<string, number> = {};
   // The roll's length from the ratio identity in r0 (r0 = length).
@@ -74,9 +88,10 @@ export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuR
   // The first exposure: every register kept (the flags are free at a function's entry).
   const exposure = `push {r0,r1,r2,r3};${records('rollkept')}
     ldrb r0,[r2,#${GR3X_ROLL_FLAGS}];tst r0,#${GR3X_ROLL_STARTED};bne rollkept;
-    orr r0,r0,#${GR3X_ROLL_STARTED};strb r0,[r2,#${GR3X_ROLL_FLAGS}];
-    ldrb r0,[r3,#${GR3X_ROLL_FLAGS}];orr r0,r0,#${GR3X_ROLL_STARTED};strb r0,[r3,#${GR3X_ROLL_FLAGS}];
+    orr r0,r0,#${GR3X_ROLL_STARTED};bic r0,r0,#${FOLDER_HIGH};strb r0,[r2,#${GR3X_ROLL_FLAGS}];
+    ldrb r0,[r3,#${GR3X_ROLL_FLAGS}];orr r0,r0,#${GR3X_ROLL_STARTED};bic r0,r0,#${FOLDER_HIGH};strb r0,[r3,#${GR3X_ROLL_FLAGS}];
     mov r0,#1;strb r0,[r2,#${GR3X_ROLL_FRAME}];strb r0,[r3,#${GR3X_ROLL_FRAME}];
+    mov r0,#0;strb r0,[r2,#${GR3X_ROLL_FOLDER}];strb r0,[r3,#${GR3X_ROLL_FOLDER}];
     rollkept:pop {r0,r1,r2,r3};`;
 
   // The model's end: advance, then save both records; every register kept.
@@ -88,9 +103,9 @@ export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuR
     mov r4,r1;mov r5,r2;mov r6,r3;
     ldrb r0,[r5,#${GR3X_RATIO}];${length}
     ldrb r1,[r5,#${GR3X_ROLL_FRAME}];add r1,r1,#1;cmp r1,r0;movhi r1,#0;
-    strb r1,[r5,#${GR3X_ROLL_FRAME}];strb r1,[r6,#${GR3X_ROLL_FRAME}];
-    ldrb r2,[r5,#${GR3X_ROLL_FLAGS}];bichi r2,r2,#${GR3X_ROLL_STARTED};strb r2,[r5,#${GR3X_ROLL_FLAGS}];
-    ldrb r2,[r6,#${GR3X_ROLL_FLAGS}];bichi r2,r2,#${GR3X_ROLL_STARTED};strb r2,[r6,#${GR3X_ROLL_FLAGS}];
+    strb r1,[r5,#${GR3X_ROLL_FRAME}];strb r1,[r6,#${GR3X_ROLL_FRAME}];strbhi r1,[r5,#${GR3X_ROLL_FOLDER}];strbhi r1,[r6,#${GR3X_ROLL_FOLDER}];
+    ldrb r2,[r5,#${GR3X_ROLL_FLAGS}];bichi r2,r2,#${GR3X_ROLL_STARTED | FOLDER_HIGH};strb r2,[r5,#${GR3X_ROLL_FLAGS}];
+    ldrb r2,[r6,#${GR3X_ROLL_FLAGS}];bichi r2,r2,#${GR3X_ROLL_STARTED | FOLDER_HIGH};strb r2,[r6,#${GR3X_ROLL_FLAGS}];
     bl #${GR3X_APP_DATA};ldr r0,[r0,#8];mov r1,#1;movw r2,#${RECORD};mov r3,r5;bl #${GR3X_APP_DATA_WRITE};
     bl #${GR3X_APP_DATA};ldr r0,[r0,#8];add r1,r4,#2;movw r2,#${RECORD};mov r3,r6;bl #${GR3X_APP_DATA_WRITE};
     out:pop {r0,r1,r2,r3,r4,r5,r6,lr};mov ip,sp;b #${GR3X_ROLL_MODEL_END + 4};`);
@@ -111,15 +126,44 @@ export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuR
   entries.filmRollBoxSave = p.code(`push {r4,r5,r6,lr};mov r4,r0;mov r5,r1;bl #${native};mov r6,r0;
     sub r0,r5,#1;cmp r0,#5;bhi saved;
     movw r0,#${lo(STORED)};movt r0,#${hi(STORED)};ldr r1,[r0,r5,lsl #2];${ram('r1', 'saved')}
-    ldrb r2,[r1,#${GR3X_ROLL_FLAGS}];bic r2,r2,#${GR3X_ROLL_STARTED};strb r2,[r1,#${GR3X_ROLL_FLAGS}];mov r2,#0;strb r2,[r1,#${GR3X_ROLL_FRAME}];
+    ldrb r2,[r1,#${GR3X_ROLL_FLAGS}];bic r2,r2,#${GR3X_ROLL_STARTED | FOLDER_HIGH};strb r2,[r1,#${GR3X_ROLL_FLAGS}];mov r2,#0;strb r2,[r1,#${GR3X_ROLL_FRAME}];strb r2,[r1,#${GR3X_ROLL_FOLDER}];
     movw r0,#${lo(MODEL)};movt r0,#${hi(MODEL)};ldr r1,[r0];${ram('r1', 'saved')}ldrb r1,[r1];cmp r1,r5;bne saved;
     ldr r1,[r0,#4];${ram('r1', 'saved')}
-    ldrb r2,[r1,#${GR3X_ROLL_FLAGS}];bic r2,r2,#${GR3X_ROLL_STARTED};strb r2,[r1,#${GR3X_ROLL_FLAGS}];mov r2,#0;strb r2,[r1,#${GR3X_ROLL_FRAME}];
+    ldrb r2,[r1,#${GR3X_ROLL_FLAGS}];bic r2,r2,#${GR3X_ROLL_STARTED | FOLDER_HIGH};strb r2,[r1,#${GR3X_ROLL_FLAGS}];mov r2,#0;strb r2,[r1,#${GR3X_ROLL_FRAME}];strb r2,[r1,#${GR3X_ROLL_FOLDER}];
     saved:mov r0,r6;pop {r4,r5,r6,pc};`);
   p.patch(GR3X_BOX_SAVE, 0xe3510007, branchWord(GR3X_BOX_SAVE, entries.filmRollBoxSave), 'film roll: Save Settings into a BOX rewinds its roll');
 
   // The mode recall (called by the guard's recall hook): r0 the record in use, r1 the mode recalled.
   entries.filmRollRecall = p.code(`sub r1,r1,#1;cmp r1,#5;bxhi lr;${ram('r0', 'none')}
     mov r1,#0;strb r1,[r0,#${GR3X_INTERIM}];none:bx lr;`);
+  if (folders) installFolders(p, free, entries);
   return { entries, exposure };
+}
+
+/** The roll's folder at SetFilePath's entry (r0 service, r2 path); every register kept. */
+function installFolders(p: Gr3xRollProgram, free: (at: number) => void, entries: Record<string, number>) {
+  free(GR3X_SET_FILE_PATH);
+  // r0 = the folder of the record or copy in r0 (0x9b3 | (0x9b1 bits 2..3) << 8); r1 used.
+  const folderOf = (rec: string) => `ldrb r1,[${rec},#${GR3X_ROLL_FLAGS}];mov r1,r1,lsr #2;and r1,r1,#3;ldrb r0,[${rec},#${GR3X_ROLL_FOLDER}];orr r0,r0,r1,lsl #8;`;
+  entries.filmRollFolder = p.code(`push {r0,r1,r2,r3,r4,r5,r6,lr};mov r4,r2;mov r5,r0;
+    ldrh r0,[r4,#4];cmp r0,#0;bne native;
+    ${records('free')}ldrb r0,[r2,#${GR3X_ROLL_FLAGS}];tst r0,#${GR3X_ROLL_STARTED};beq free;
+    ${folderOf('r2')}cmp r0,#100;blo new;movw r1,#999;cmp r0,r1;bhi new;
+    ldr r1,[r5,#8];${ram('r1', 'new')}ldr r1,[r1,#8];${ram('r1', 'new')}ldr r1,[r1,#0x10];${ram('r1', 'new')}
+    sub r6,r0,#100;ldr r1,[r1,r6,lsl #2];cmp r1,#0;beq new;
+    strh r0,[r4,#4];b native;
+    new:ldr r0,[r5,#8];bl #${GR3X_NEXT_FOLDER};movs r6,r0;beq native;strh r6,[r4,#4];
+    ${records('native')}
+    ldrb r0,[r2,#${GR3X_ROLL_FLAGS}];bic r0,r0,#${FOLDER_HIGH};mov r1,r6,lsr #8;orr r0,r0,r1,lsl #2;strb r0,[r2,#${GR3X_ROLL_FLAGS}];
+    ldrb r0,[r3,#${GR3X_ROLL_FLAGS}];bic r0,r0,#${FOLDER_HIGH};orr r0,r0,r1,lsl #2;strb r0,[r3,#${GR3X_ROLL_FLAGS}];
+    strb r6,[r2,#${GR3X_ROLL_FOLDER}];strb r6,[r3,#${GR3X_ROLL_FOLDER}];b native;
+    free:ldr r2,[r5,#8];${ram('r2', 'native')}ldr r2,[r2,#8];${ram('r2', 'native')}ldrh r2,[r2,#0x2a];add r2,r2,#100;mov r3,#1;
+    loop:movw r6,#${lo(STORED)};movt r6,#${hi(STORED)};ldr r6,[r6,r3,lsl #2];${ram('r6', 'next')}
+    ldrb r0,[r6,#${GR3X_ROLL_FLAGS}];tst r0,#${GR3X_ROLL_STARTED};beq next;${folderOf('r6')}cmp r0,r2;beq fresh;
+    next:add r3,r3,#1;cmp r3,#6;bls loop;b native;
+    fresh:ldr r0,[r5,#8];bl #${GR3X_NEXT_FOLDER};cmp r0,#0;strhne r0,[r4,#4];
+    native:pop {r0,r1,r2,r3,r4,r5,r6,lr};mov ip,sp;b #${GR3X_SET_FILE_PATH + 4};`);
+  p.patch(GR3X_SET_FILE_PATH, 0xe1a0c00d, branchWord(GR3X_SET_FILE_PATH, entries.filmRollFolder), 'film roll: the roll\'s folder at SetFilePath');
+  free(GR3X_FOLDER_MARK);
+  p.patch(GR3X_FOLDER_MARK, 0xe1a02007, 0xe1d621b0, 'film roll: the folder mark goes to the written folder');
 }

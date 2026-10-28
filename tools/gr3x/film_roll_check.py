@@ -30,7 +30,8 @@ from native_probe import STOP
 
 if not __debug__:raise RuntimeError('Validation requires Python assertions')
 
-FLAGS,FRAME,INTERIM,RATIO=0x9b1,0x9b2,0x482,0x4c2
+FLAGS,FRAME,FOLDER,INTERIM,RATIO=0x9b1,0x9b2,0x9b3,0x482,0x4c2
+SET_FILE_PATH,NEXT_FOLDER,FOLDER_MARK=0x535b2e8c,0x535b742c,0x535a6dac;SVC,WRAP,DIRS,TABLE,PATH=0x63050000,0x63051000,0x63052000,0x63053000,0x63054000
 MODEL=0x55063f30;POINTER=MODEL+4;STORED=MODEL+8;SINGLETON=0x553458b0
 BEFORE_EXPOSE,MODEL_END,COUNTER,BOX_SAVE=0x534322d8,0x5323a080,0x532aa1f4,0x5324b760
 APP_DATA,APP_WRITE=0x53828014,0x53826c54
@@ -39,8 +40,8 @@ LENGTHS={0:36,3:12,4:21}
 
 class RollProbe(Probe):
     def __init__(self,data,manifest):
-        super().__init__(data,manifest);self.writes=[];self.box_native=0
-        for at in range(0x63040000,0x63050000,0x1000):
+        super().__init__(data,manifest);self.writes=[];self.box_native=0;self.next=0;self.next_calls=0
+        for at in range(0x63040000,0x63058000,0x1000):
             try:self.uc.mem_map(at,0x1000)
             except Exception:pass
     def _hook(self,cpu,at,size,user):
@@ -48,6 +49,8 @@ class RollProbe(Probe):
         ret=lambda v:(cpu.reg_write(reg.UC_ARM_REG_R0,v),cpu.reg_write(reg.UC_ARM_REG_PC,cpu.reg_read(reg.UC_ARM_REG_LR)))
         if at==APP_DATA:ret(OBJ)
         elif at==APP_WRITE:self.writes.append((r(0),r(1),r(2),r(3)));ret(1)
+        elif at==NEXT_FOLDER:
+            assert r(0)==WRAP;self.next_calls+=1;ret(self.next)
         elif at==BOX_SAVE+4:
             assert r(1)==self.box_n;self.box_native+=1;ret(0x66)
         else:super()._hook(cpu,at,size,user)
@@ -92,7 +95,7 @@ def verify(data,manifest,seed=3101):
                 c2,b2=state()
                 want_c,want_b=bytearray(cur),[bytearray(b) for b in boxes]
                 if 1<=mode<=6 and not started and model and pointer:
-                    for b in (want_c,want_b[mode]):b[FLAGS]|=2;b[FRAME]=1
+                    for b in (want_c,want_b[mode]):b[FLAGS]=(b[FLAGS]|2)&~0xc;b[FRAME]=1;b[FOLDER]=0
                 assert c2==bytes(want_c) and b2==[bytes(b) for b in want_b],(mode,started,model,pointer)
     # 2. The model's end.
     for mode in range(8):
@@ -111,7 +114,7 @@ def verify(data,manifest,seed=3101):
                     if advance:
                         nf=frame+1
                         for b in (want_c,want_b[mode]):
-                            if nf>L:b[FLAGS]&=~2;b[FRAME]=0
+                            if nf>L:b[FLAGS]&=~0xe;b[FRAME]=0;b[FOLDER]=0
                             else:b[FRAME]=nf&255
                         assert p.writes==[(STORE,1,0xb26,CUR),(STORE,mode+2,0xb26,BOXES+mode*0x1000)],p.writes
                         count('advance' if nf<=L else 'roll end')
@@ -144,8 +147,8 @@ def verify(data,manifest,seed=3101):
             assert p.box_native==1 and cpu.reg_read(reg.UC_ARM_REG_R0)==0x66
             c2,b2=state();want_c,want_b=bytearray(cur),[bytearray(b) for b in boxes]
             if 1<=n<=6:
-                want_b[n][FLAGS]&=~2;want_b[n][FRAME]=0
-                if active==n:want_c[FLAGS]&=~2;want_c[FRAME]=0
+                want_b[n][FLAGS]&=~0xe;want_b[n][FRAME]=0;want_b[n][FOLDER]=0
+                if active==n:want_c[FLAGS]&=~0xe;want_c[FRAME]=0;want_c[FOLDER]=0
             assert c2==bytes(want_c) and b2==[bytes(b) for b in want_b],(active,n)
     # 5. The mode recall (guard_probe's layout: object UD, records at RECS + i * 0x1000).
     for mode in range(7):
@@ -155,7 +158,68 @@ def verify(data,manifest,seed=3101):
             got=bytes(cpu.mem_read(RECS,0xb26));src=recs[1+mode]
             assert got[INTERIM]==(0 if mode else src[INTERIM]),(mode,got[INTERIM],src[INTERIM])
             assert bytes(cpu.mem_read(RECS+(1+mode)*0x1000,SIZE))==src
-    return dict(schema=1,revision='T11-ROLL1',rtos_sha256=hashlib.sha256(data).hexdigest(),cases=cases,seed=seed,hardware_tested=False,
+    # 6. Form 'folders': the roll's folder at SetFilePath's entry.
+    folders=manifest['filmRoll']=='folders'
+    assert (SET_FILE_PATH in sites)==folders and (FOLDER_MARK in sites)==folders
+    if folders:
+        enc=lambda b,f:(b.__setitem__(FLAGS,(b[FLAGS]&~0xc)|((f>>8)&3)<<2),b.__setitem__(FOLDER,f&255))
+        dec=lambda b:b[FOLDER]|((b[FLAGS]>>2)&3)<<8
+        def dirs(existing,highest):
+            cpu.mem_write(SVC+8,struct.pack('<I',WRAP));cpu.mem_write(WRAP+8,struct.pack('<I',DIRS))
+            cpu.mem_write(DIRS+0x10,struct.pack('<I',TABLE));cpu.mem_write(DIRS+0x2a,struct.pack('<H',highest-100))
+            t=bytearray(0x1000)
+            for f in existing:struct.pack_into('<I',t,(f-100)*4,0x7000+f)
+            cpu.mem_write(TABLE,bytes(t))
+        def run(given):
+            path=bytearray(rng.randrange(256) for _ in range(16));path[4:6]=struct.pack('<H',given);cpu.mem_write(PATH,bytes(path))
+            regs={0:SVC,1:0x1111,2:PATH,3:0x3333,4:0x44,5:0x55,6:0x66};p.next_calls=0
+            p.run(SET_FILE_PATH,SET_FILE_PATH+4,regs);count('folder');kept(regs,True)
+            return path,struct.unpack_from('<H',bytes(cpu.mem_read(PATH,16)),4)[0],bytes(cpu.mem_read(PATH,16))
+        for mode in range(8):
+            for started in (False,True):
+                for folder in (0,99,100,105,512,999,1000,1023):
+                    for nxt in (0,113):
+                        for given in (0,107):
+                            dirs([100,105,107,512,999],112);p.next=nxt
+                            cur,boxes=setup(mode)
+                            for b in [cur]+boxes:b[FLAGS]=(b[FLAGS]&~2)|(2 if started else 0);enc(b,folder)
+                            # Free modes: no other BOX's roll in folder 112 (the highest).
+                            for i in range(1,7):
+                                if i!=mode and dec(boxes[i])==112:enc(boxes[i],0)
+                            cpu.mem_write(CUR,bytes(cur))
+                            for i,b in enumerate(boxes):cpu.mem_write(BOXES+i*0x1000,bytes(b))
+                            path,got,raw=run(given)
+                            want_c,want_b=bytearray(cur),[bytearray(b) for b in boxes]
+                            roll=1<=mode<=6 and started
+                            if given:want=given
+                            elif roll and folder in (100,105,512,999):want=folder
+                            elif roll:
+                                want=nxt or 0
+                                if nxt:
+                                    for b in (want_c,want_b[mode]):enc(b,nxt)
+                            else:want=0
+                            assert got==want and raw[:4]==bytes(path[:4]) and raw[6:]==bytes(path[6:]),(mode,started,folder,nxt,given,got,want)
+                            assert state()==(bytes(want_c),[bytes(b) for b in want_b]),(mode,started,folder,nxt,given)
+        # Free modes: the highest folder is a started roll's folder of a BOX.
+        for mode in (0,2,7):
+            for owner in range(1,7):
+                for owner_started in (True,False):
+                    for nxt in (0,113):
+                        dirs([100,112],112);p.next=nxt
+                        cur,boxes=setup(mode)
+                        cur[FLAGS]&=~2
+                        for i in range(1,7):
+                            boxes[i][FLAGS]&=~2;enc(boxes[i],0)
+                        boxes[owner][FLAGS]|=2 if owner_started else 0;enc(boxes[owner],112)
+                        if mode==owner:cur=bytearray(boxes[owner]);cur[FLAGS]&=~2
+                        cpu.mem_write(CUR,bytes(cur))
+                        for i,b in enumerate(boxes):cpu.mem_write(BOXES+i*0x1000,bytes(b))
+                        path,got,raw=run(0)
+                        want=nxt if owner_started else 0
+                        assert got==want,(mode,owner,owner_started,nxt,got)
+                        assert state()==(bytes(cur),[bytes(b) for b in boxes])
+                        count('free mode, roll folder highest' if owner_started else 'free mode')
+    return dict(schema=1,revision='T11-ROLL2' if folders else 'T11-ROLL1',rtos_sha256=hashlib.sha256(data).hexdigest(),cases=cases,seed=seed,hardware_tested=False,
         scope='Hooks run from their patched sites (firmware storage and the native BOX save body substituted); the recall runs natively.')
 
 if __name__=='__main__':

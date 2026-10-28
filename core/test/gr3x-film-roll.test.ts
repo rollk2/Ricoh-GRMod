@@ -8,6 +8,7 @@ import { planGr3xMenu } from '../src/fw/gr3x/geometry';
 import { buildGr3xTestFirmware } from '../src/fw/gr3x/research-package';
 import { GR3X_BOX_SAVE, GR3X_ROLL_COUNTER, GR3X_ROLL_MODEL_END } from '../src/fw/gr3x/film-roll';
 import { GR3X_RECALL_COPY } from '../src/fw/gr3x/guard';
+import { GR3X_FOLDER_MARK, GR3X_SET_FILE_PATH } from '../src/fw/gr3x/film-probe';
 
 const input = process.env.GRMOD_GR3_FIRMWARE;
 const menu = planGr3xMenu([{ ratio: '65:24', name: 'XPan' }]);
@@ -37,5 +38,16 @@ describe.skipIf(!input)('GR III film roll (film mode phase 3.1)', () => {
     const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: true });
     expect(built.report.revision).toBe('T11-ROLL1');
     expect(built.report.filename).toBe('fwdc239b.bin');
+  }, 240000);
+  it('also gives SetFilePath the roll\'s folder and moves the folder mark (second form)', async () => {
+    const roll = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: true });
+    const folders = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'folders' });
+    expect(folders).toMatchObject({ filmRoll: 'folders' });
+    expect(roll.sites.some(s => s.address === GR3X_SET_FILE_PATH)).toBe(false);
+    expect(folders.sites.find(s => s.address === GR3X_SET_FILE_PATH)!).toMatchObject({ expected: '0dc0a0e1', reason: expect.stringMatching(/^film roll/) });
+    expect(folders.sites.find(s => s.address === GR3X_FOLDER_MARK)!).toMatchObject({ expected: '0720a0e1', replacement: 'b021d6e1' });
+    expect(folders.sites.length).toBe(roll.sites.length + 2);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'folders' });
+    expect(built.report.revision).toBe('T11-ROLL2');
   }, 240000);
 });

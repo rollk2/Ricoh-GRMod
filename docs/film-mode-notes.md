@@ -823,3 +823,35 @@ Plus grand dossier au départ : `106`.
   pas un effet du mod. La consigne de test était ambiguë ; l'utilisateur a perdu le monochrome de
   la BOX2.
 - G8 : aucun message inhabituel ; les autres BOX intactes.
+
+## Phase 3.2.1 : dossier du rouleau (2026-10-28)
+
+### Conception
+
+- Numéro du dossier du rouleau : `0x9b3` (bits bas) + bits 2 et 3 de `0x9b1` (bits hauts), 10 bits.
+  Effacé au démarrage d'un rouleau, à sa fin et au rembobinage.
+- Crochet à l'entrée de `SetFilePath` (`0x535b2e8c`), quand le chemin n'a pas déjà un numéro :
+  - mode U avec rouleau entamé : le dossier du rouleau s'il existe dans la base des dossiers ; sinon
+    le numéro du prochain nouveau dossier donné par le boîtier (`0x535b742c` →
+    `max(plus grand, réservé) + 1`, 100 au minimum, 0 au-delà de 999), aussitôt mémorisé comme
+    dossier du rouleau (enregistrement en cours et BOX). `SetFilePath` crée un dossier imposé
+    absent par le même appel que pour un nouveau dossier natif (`0x535b2ac4(service, numéro,
+    nommage, 0)`, en `0x535b3060` au lieu de `0x535b2f2c`) : aucune demande de nouveau dossier
+    (`+0x116` / `+0x117`) n'est utilisée. Certitude : forte pour le chemin (lecture du code), non
+    testé sur le boîtier ;
+  - modes libres (et tout autre cas) : si le plus grand dossier (celui que le boîtier viserait) est
+    le dossier d'un rouleau entamé d'une BOX 1 à 6, le prochain nouveau dossier est imposé : les
+    photos libres ne vont jamais dans le dossier d'un rouleau (elles ouvrent leur propre dossier,
+    qui redevient le plus grand). Sinon rien ne change.
+- La marque de dossier de la multi-exposition va sur le dossier écrit (`0x535a6dac`, comme
+  T10-FILMPROBE7).
+- Le dossier est mémorisé en RAM tout de suite et écrit dans les fichiers à la fin de séquence
+  suivante ; un retrait de batterie avant la première fin de séquence d'un rouleau en perd le
+  dossier : la photo suivante en ouvre un autre.
+
+### Build de test T11-ROLL2
+
+- T11-ROLL1 + le dossier du rouleau. Vérifié en émulateur (`tools/gr3x/film_roll_check.py`) : 2028
+  cas, dont 584 sur `SetFilePath` (modes 0 à 7, rouleau entamé ou non, dossier mémorisé absent,
+  hors plage ou existant, prochain numéro 0 ou non, numéro déjà fourni) et 72 sur les modes libres
+  face au dossier d'un rouleau ; quatre contre-épreuves détectées ; sonde du garde-fou repassée.
