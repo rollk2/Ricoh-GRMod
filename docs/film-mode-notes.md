@@ -855,3 +855,17 @@ Plus grand dossier au départ : `106`.
   cas, dont 584 sur `SetFilePath` (modes 0 à 7, rouleau entamé ou non, dossier mémorisé absent,
   hors plage ou existant, prochain numéro 0 ou non, numéro déjà fourni) et 72 sur les modes libres
   face au dossier d'un rouleau ; quatre contre-épreuves détectées ; sonde du garde-fou repassée.
+
+### Résultats sur le boîtier (build T11-ROLL2, 2026-10-28)
+
+Plus grand dossier au départ : `109RICOH`. Toutes les photos de H1 à H9 (6884 à 6893 : P en JPEG
+`R00`, U1 en DNG `_R`, U2 en JPEG) sont dans **`109RICOH`** : **aucun dossier créé**, ni pour les
+rouleaux (H2, H6, H9) ni pour P (H4). Compteur conforme (H9 : rembobinage puis 2).
+
+- Le code présent dans le build est conforme (désassemblé). Le crochet de `SetFilePath` n'a donc pas
+  pris le chemin prévu, ou `SetFilePath` n'a pas utilisé le numéro imposé. Hypothèses : numéro déjà
+  fourni à l'entrée pour ces photos, prochain numéro (`0x535b742c`) à 0, ou création refusée puis
+  repli. Non tranché statiquement : build de diagnostic proposé (T11-ROLL2D).
+- Remarque : les rouleaux de U1 et U2 démarrés sous T11-ROLL1 gardaient dans `0x9b3` et `0x9b1`
+  des restes des builds de sonde (compteurs) : leur « dossier » pouvait valoir n'importe quoi. Le
+  rouleau de U2 redémarré en H9 avait, lui, un dossier effacé.
