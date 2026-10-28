@@ -101,6 +101,7 @@ Sources : code de GR Mod (`core/src/fw/gr3x`) et réponse de son auteur, Maxwooo
 | État du rouleau, compteur, sauvegarde immédiate | Testés sur le boîtier (`T11-ROLL1`) | `film-roll.ts` : démarrage à la première vue en U, avance à chaque fin de séquence, écriture immédiate des fichiers `APData` (`0x53826c54`, index 1 et mode + 2 ; survit au retrait de la batterie), Save Settings rembobine, Save Interim Images à Off au rappel. |
 | Dossier du rouleau | Testé sur le boîtier (`T11-ROLL2D`) | Crochet de `SetFilePath` : premier fichier d'un rouleau dans le prochain nouveau dossier (`0x535b742c`), mémorisé dans la BOX, puis retour dans ce dossier ; P ouvre son propre dossier quand le plus grand est celui d'un rouleau. |
 | Compteur vue/total à l'écran, multi-exposition imposée | Testés sur le boîtier (`T11-ROLL3`) | Le crochet du compteur écrit `vue/total` par `snprintf` (`0x53141100`, format `"%d/%d"` du firmware `0x53c0ca59`) ; mode d'entraînement `+0x472` mis à 3 (multi-exposition) au rappel d'un mode U. |
+| Ligne de menu Film Roll Mode | Testée sur le boîtier (`T12-MENU1`) | Customize Settings, sous Save Settings (menu C recopié, entrée `0x5407d404`) ; masquée hors des modes U (fonction de visibilité, contrôleur reconstruit à chaque ouverture) ; bit 0 de `0x9b1`, suit la BOX ; nom en 21 langues. Griser : mécanisme non trouvé. |
 
 ### Points de vigilance (conseils de l'auteur de GR Mod)
 - **Compter les captures, pas les encodages.** L'encodeur JPEG tourne aussi pour le développement RAW intégré.
@@ -112,7 +113,7 @@ Sources : code de GR Mod (`core/src/fw/gr3x`) et réponse de son auteur, Maxwooo
 1. **Chaîne d'outils** : compiler GR Mod, flasher un firmware maison. **Fait** : firmware maison flashé et validé sur le GR III, démarrage aussi rapide qu'avec le firmware officiel.
 2. **Cartographie** : trouver les éléments « À trouver » ci-dessus. **Faite (2026-10-27)** : toutes les briques nécessaires sont trouvées, la plupart testées sur le boîtier. Restent, non bloquants : chemin exact du Complete du dialogue, verrou du menu (étape 5), 20 BOX (évolution).
 3. **Cœur du rouleau sans menu** : état et sauvegarde immédiate, compteur `vue/total` à l'écran, dossier du rouleau, multi-exposition et Save Interim Images imposés au rappel. **Fait et testé (2026-10-28, `T11-ROLL1` à `T11-ROLL3`)**.
-4. **Ligne de menu « Mode pellicule » On / Off**, enregistrée dans la BOX ; Off ou Save Settings sur une BOX entamée = rembobiner. État persistant.
+4. **Ligne de menu « Film Roll Mode » On / Off**, enregistrée dans la BOX ; Off ou Save Settings sur une BOX entamée = rembobiner. État persistant. **Fait et testé (2026-10-28, `T12-MENU1`)**.
 5. **Verrou** : extension de la condition native.
 6. **Multi-exposition** : déclencheur pour Next shot, ADJ droite pour Complete, compteur sur Complete.
 7. **Dossiers** par rouleau et par mode U, compteur à l'écran.

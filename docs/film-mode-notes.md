@@ -988,3 +988,16 @@ Plus grand dossier au départ : `109`.
   à Off, 16 de visibilité, 32 de valeur courante, 96 de choix de valeur, la ligne et la liste ;
   quatre contre-épreuves détectées ; sonde du garde-fou adaptée et repassée ; menu C recopié vérifié
   (21 lignes officielles dans l'ordre, en-tête inchangé) ; T11-ROLL3 reconstruit identique.
+
+### Résultats sur le boîtier (build T12-MENU1, 2026-10-28)
+
+- K1 : en P, la ligne n'apparaît pas dans Customize Settings. K2 : en U1, la ligne est sous Save
+  Settings (U1 Off, U2 On au départ : restes des builds de sonde).
+- K3 : Off donne le compteur normal ; On donne `1/36`, multi-exposition et Save Interim Images Off.
+- K4, K5 : Save Settings dans la BOX3 puis 1 vue + Complete : nouveau dossier, `2/36`.
+- K6 : U3 sur Off : compteur normal, pas de rouleau (la BOX5 est elle-même en multi-exposition).
+- K7 : U1, P, U1 : `2/36`. K8 : Off sans Save Settings, puis P et retour : `1/36` (BOX sur On,
+  rouleau rembobiné).
+- K9 : nom affiché correctement en français, en chinois simplifié (底片模式) et en allemand.
+- **Phase 4 : testée sur le boîtier.** Reste : griser la ligne au lieu de la masquer (mécanisme à
+  trouver).
