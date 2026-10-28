@@ -36,7 +36,7 @@ import { installGr3xLiveView } from './liveview';
 import { installGr3xRawDevelopment } from './raw-development';
 import { installGr3xShading } from './shading';
 import { installGr3xFullFrameRaw } from './raw-full-frame';
-import { GR3X_FILM_ROLL_MODE_NAMES, installGr3xFilmRoll } from './film-roll';
+import { GR3X_FILM_ADVANCE_NAMES, GR3X_FILM_ROLL_MODE_NAMES, installGr3xFilmAdvanceFn, installGr3xFilmRoll } from './film-roll';
 
 export const GR3X_ADJ = {
   order: 0x53b5a520,
@@ -107,7 +107,7 @@ export interface Gr3xAdjFeatures {
   filmProbe?: boolean | 'exposures' | 'sequence' | 'emitters' | 'folders' | 'return' | 'return2' | 'return3';
   /** Film mode phase 3.1 (film-roll.ts): the roll's state and frame counter in U1..U3. Round 10
    * with the date imprint, without the film probe. */
-  filmRoll?: boolean | 'folders' | 'folders-diag' | 'menu' | 'keys';
+  filmRoll?: boolean | 'folders' | 'folders-diag' | 'menu' | 'keys' | 'fn';
   /** Round 8: the Image Control order and hidden looks (look-layout.ts; the camera's order with
    * nothing hidden is the same as none). */
   lookLayout?: Gr3xLookLayout;
@@ -132,9 +132,11 @@ export async function buildGr3xAdjResearch(raw: Uint8Array, ratioMenu: readonly 
   if (round10 && !round9) fail('IIIx round 10 builds on round 9');
   const filmProbe = features.filmProbe === true || features.filmProbe === 'exposures' || features.filmProbe === 'sequence' || features.filmProbe === 'emitters' || features.filmProbe === 'folders' || features.filmProbe === 'return' || features.filmProbe === 'return2' || features.filmProbe === 'return3';
   if (filmProbe && !(round10 && dateImprint)) fail('IIIx film probe: round 10 with the date imprint');
-  const filmRoll = features.filmRoll === true || features.filmRoll === 'folders' || features.filmRoll === 'folders-diag' || features.filmRoll === 'menu' || features.filmRoll === 'keys';
-  // Phase 4: the Film Roll Mode line (Customize Settings) and its text ('keys': and the key probe).
-  const filmMenu = features.filmRoll === 'menu' || features.filmRoll === 'keys';
+  const filmRoll = features.filmRoll === true || features.filmRoll === 'folders' || features.filmRoll === 'folders-diag' || features.filmRoll === 'menu' || features.filmRoll === 'keys' || features.filmRoll === 'fn';
+  // Phase 4: the Film Roll Mode line (Customize Settings) and its text ('keys': and the key probe;
+  // 'fn', phase 6: and Film Advance in Fn Button Settings, with its text).
+  const filmMenu = features.filmRoll === 'menu' || features.filmRoll === 'keys' || features.filmRoll === 'fn';
+  const filmFn = features.filmRoll === 'fn';
   if (filmRoll && (!(round10 && dateImprint) || filmProbe)) fail('IIIx film roll: round 10 with the date imprint, without the film probe');
   if (features.lookLayout && !round8) fail('IIIx look layout: round 8');
   if (round7 && dateImprint && features.dateMenu !== 'submenu') fail('IIIx round 7: the date imprint submenu');
@@ -223,7 +225,7 @@ export async function buildGr3xAdjResearch(raw: Uint8Array, ratioMenu: readonly 
   const iconIds = new Map([[0, 257], [3, 256]]);
   // Pictures: round 5 line name, Original, names; round 6 Type, Picture, Original, names.
   const pictureTexts = pictureCount ? (pictureSub ? 3 : 2) + pictureCount : 0;
-  const columns = m.textCount + additions.length + (softFocus ? 1 : 0) + dateTexts + pictureTexts + (filmMenu ? 1 : 0);
+  const columns = m.textCount + additions.length + (softFocus ? 1 : 0) + dateTexts + pictureTexts + (filmMenu ? 1 : 0) + (filmFn ? 1 : 0);
   const softText = m.textCount + additions.length, softIcon = m.iconCount + additions.length;
   // Date imprint: name, the two style names; two style icons (after the soft-focus ones).
   const dateText = softText + (softFocus ? 1 : 0), dateIcon = softIcon + (softFocus ? 1 : 0);
@@ -282,7 +284,13 @@ export async function buildGr3xAdjResearch(raw: Uint8Array, ratioMenu: readonly 
     const text = append(utf16z(name));
     const record = append(Uint8Array.from([name.length + 1, 1, 0, 0, ...words([text])]));
     new DataView(rows[row].buffer).setUint32(filmText * 4, record, true);
+    if (filmFn) {
+      const advance = GR3X_FILM_ADVANCE_NAMES[lang];
+      const advanceText = append(utf16z(advance));
+      new DataView(rows[row].buffer).setUint32((filmText + 1) * 4, append(Uint8Array.from([advance.length + 1, 1, 0, 0, ...words([advanceText])])), true);
+    }
   });
+  const fnEntries = filmFn ? installGr3xFilmAdvanceFn({ code, sites, patch, append, read, u32: word }, filmText + 1) : {};
   const textRoots = append(words(rows.map(row => append(row))));
   for (const [low, high] of m.textRootSites) pair(low, high, 3, m.textRoots, textRoots, 'extended IIIx language directory');
   for (const at of m.textBounds) patch(at, movWord(3, m.textCount - 1), movWord(3, columns - 1), 'extended IIIx text bound');
@@ -416,7 +424,7 @@ export async function buildGr3xAdjResearch(raw: Uint8Array, ratioMenu: readonly 
     schema: 1, kind: 'gr3x-adj-patchset' as const, profile: profile.id,
     originalRtosSha256: profile.rtosSha256, originalLength: p.rtosLength, base: BASE,
     sites, append: { address: geometry.append.address, bytes: hex(payload) }, geometry,
-    entries: { ...geometry.entries, ...scaffold, ratioText, ratioIcon, fnCycle, ...imageEntries, ...developEntries, ...afEntries, ...mapEntries, ...liveEntries, ...rawEntries, ...shadingEntries, ...fullRawEntries, ...softEntries, ...dateEntries, ...lookEntries, ...(probeEntries ?? {}) },
+    entries: { ...geometry.entries, ...scaffold, ratioText, ratioIcon, fnCycle, ...imageEntries, ...developEntries, ...afEntries, ...mapEntries, ...liveEntries, ...rawEntries, ...shadingEntries, ...fullRawEntries, ...softEntries, ...dateEntries, ...lookEntries, ...(probeEntries ?? {}), ...fnEntries },
     catalogs: { order, textRoots, textColumns: columns, iconRoot, iconCount },
     adjSoftFocus: softFocus,
     dateImprint: dateImprint ? { ...dateIds, form: dateForm, ...(round7 ? { iconOff: 296, iconOn: 297 } : {}), ...(lookNames ? { names: lookNames } : {}) } : undefined,

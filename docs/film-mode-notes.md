@@ -1084,3 +1084,15 @@ Plus grand dossier au départ : `109`.
   Movie/Wireless et Hold passent par `GetEventSwitchWlan` (`0x53299f08`, `cmp r6,#0x29` en
   `0x5329a0a0`, assertion sinon). Autres lecteurs des champs : texte d'aide (`0x53172280`, par la
   fonction de texte), tests des fonctions 5 et 6 (AF) : sans risque pour 42.
+
+### Build de test T13-FN1 : Film Advance dans Fn Button Settings
+
+- Fonction 42 « Film Advance » : table des fonctions recopiée avec 37 entrées (42 à la fin), boucle
+  du constructeur des listes adaptée ; texte (21 langues ; japonais フィルム送り, 巻 et げ absents du
+  firmware) et icône (celle de Drive Mode, 0x121) par les fonctions de texte et d'icône ; à
+  l'exécution (`GetEventCustomize` pour Fn, ISO, Drive ; `GetEventSwitchWlan` pour Movie/Wireless et
+  Hold), 42 fait avancer le film (émetteur `0x531a4d80`, seulement en mode U avec Film Roll Mode et
+  une vue prise), puis le boîtier continue comme pour Off.
+- Vérifié en émulateur : la boucle native du constructeur remplit la liste avec 42 à la fin pour
+  les trois modèles (ND, HDF, autre) ; texte, icône, exécution sur les deux chemins ; trois
+  contre-épreuves détectées ; sonde du garde-fou repassée.

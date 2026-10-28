@@ -54,7 +54,7 @@
  *    before the record goes to the live values (0x532750f8, which the setter also calls). With interim images the camera puts the sequence in
  *    a folder of its own (tested), which a roll's folder must not get.
  */
-import { branchWord } from '../aspect/arm';
+import { branchWord, movWord } from '../aspect/arm';
 import { FirmwareError } from '../types';
 import type { Gr3xSite } from './round10';
 import type { Gr3xMenuRatio } from './geometry';
@@ -302,3 +302,69 @@ function installKeys(p: Gr3xRollProgram, free: (at: number) => void, entries: Re
 }
 /** The key table cleared (model's end, form 'keys'): every register kept but ip. */
 const keyClear = `push {r0};movw ip,#${lo(KEY_LAST)};movt ip,#${hi(KEY_LAST)};mov r0,#0;str r0,[ip];str r0,[ip,#4];str r0,[ip,#8];str r0,[ip,#12];strb r0,[ip,#16];pop {r0};`;
+
+/** Phase 6 (docs/film-mode-notes.md, Fn Button Settings): the custom functions' table (36 ids, read by
+ * the button lists' constructor 0x531be67c), its text and icon (0x53292ed0 / 0x53293e6c(model, f)),
+ * the button functions run by GetEventCustomize (Fn, ISO, Drive: 0x5329bcc8(this, out, f, ...)) and
+ * GetEventSwitchWlan (Movie/Wireless, Hold: function in r6 at 0x5329a0a0, `cmp r6,#0x29`). */
+export const GR3X_FN_TABLE = 0x53b4eb7c, GR3X_FN_COUNT = 36, GR3X_FN_LOOP_LOW = 0x531be684, GR3X_FN_LOOP_END = 0x531be698;
+export const GR3X_FN_TEXT = 0x53292ed0, GR3X_FN_ICON = 0x53293e6c, GR3X_FN_CUSTOM = 0x5329bcc8, GR3X_FN_WLAN = 0x5329a0a0;
+/** Film Advance's function number (the camera's are 0..41; 0 is Off). */
+export const GR3X_FILM_ADVANCE = 42;
+/** For now Film Advance shows Drive Mode's icon (function 23's, 0x121). */
+export const GR3X_FILM_ADVANCE_ICON = 0x121;
+const END_POSTER = 0x531a4d80;
+
+/** Film Advance's name, in `LANGS` order; every character is in the camera's texts of that language
+ * (ja: フィルム送り, 巻 and げ are in no text of the firmware). */
+export const GR3X_FILM_ADVANCE_NAMES: readonly string[] = [
+  'Posun filmu', 'Filmfremføring', 'Film Advance', 'Filmin siirto', 'Avance du film', 'Filmtransport', 'Προώθηση φιλμ',
+  'Filmtovábbítás', 'Avanzamento pellicola', 'フィルム送り', '필름 감기', 'Film doorspoelen', 'Przewijanie filmu', 'Avançar filme',
+  'Перемотка плёнки', '过片', 'Avance de película', 'Filmframmatning', 'เลื่อนฟิล์ม', '過片', 'Film ilerletme',
+];
+
+export interface Gr3xFnProgram extends Gr3xRollProgram {
+  append(bytes: Uint8Array): number;
+  read(address: number, length: number): Uint8Array;
+  u32(address: number): number;
+}
+
+/**
+ * Form 'fn' (phase 6, T13-FN1): Film Advance, a function of Fn Button Settings (Fn, ISO, Drive,
+ * Movie/Wireless, Hold Movie/Wireless; the list is the same for the five, filtered only for ND / HDF):
+ *  - the table of 36 functions is copied with Film Advance (42) at the end, and the lists'
+ *    constructor reads 37 (its table address and `add r6,r4,#0x24`);
+ *  - its text (`text`, 21 languages) and icon through the text and icon functions;
+ *  - pressed: at GetEventCustomize's entry (r2) and at GetEventSwitchWlan's switch (r6), function 42
+ *    advances the film when a U mode with Film Roll Mode on has a frame exposed (the end poster
+ *    0x531a4d80, as Complete), then the camera goes on as for Off (function 0): nothing else happens.
+ */
+export function installGr3xFilmAdvanceFn(p: Gr3xFnProgram, text: number) {
+  const fail = (what: string) => { throw new FirmwareError('unexpected-layout', `IIIx film advance: ${what}`); };
+  const free = (at: number) => { if (p.sites.some(s => s.address === at)) throw new FirmwareError('unexpected-instruction', `IIIx film advance: ${at.toString(16)} already patched`); };
+  const official = p.read(GR3X_FN_TABLE, GR3X_FN_COUNT);
+  if ([...official].includes(GR3X_FILM_ADVANCE) || Math.max(...official) > 41 || official[0] !== 0) fail('functions table');
+  if (p.u32(GR3X_FN_LOOP_LOW) !== movWord(4, lo(GR3X_FN_TABLE)) || p.u32(GR3X_FN_LOOP_LOW + 4) !== movWord(4, hi(GR3X_FN_TABLE), true) ||
+    p.u32(GR3X_FN_LOOP_END) !== 0xe2846024) fail('lists constructor');
+  for (const [at, w] of [[GR3X_FN_TEXT, 0xe3510000], [GR3X_FN_ICON, 0xe3510000], [GR3X_FN_CUSTOM, 0xe1a0c00d], [GR3X_FN_WLAN, 0xe3560029]] as const) {
+    free(at); if (p.u32(at) !== w) fail(`instruction at ${at.toString(16)}`);
+  }
+  const entries: Record<string, number> = {};
+  const table = p.append(Uint8Array.from([...official, GR3X_FILM_ADVANCE]));
+  entries.filmFnTable = table;
+  for (const at of [GR3X_FN_LOOP_LOW, GR3X_FN_LOOP_LOW + 4, GR3X_FN_LOOP_END]) free(at);
+  p.patch(GR3X_FN_LOOP_LOW, movWord(4, lo(GR3X_FN_TABLE)), movWord(4, lo(table)), 'film advance: the functions table with Film Advance, low half');
+  p.patch(GR3X_FN_LOOP_LOW + 4, movWord(4, hi(GR3X_FN_TABLE), true), movWord(4, hi(table), true), 'film advance: the functions table with Film Advance, high half');
+  p.patch(GR3X_FN_LOOP_END, 0xe2846024, 0xe2846025, 'film advance: the functions table has 37 entries');
+  entries.filmFnText = p.code(`cmp r1,#${GR3X_FILM_ADVANCE};movweq r0,#${text};bxeq lr;cmp r1,#0;b #${GR3X_FN_TEXT + 4};`);
+  p.patch(GR3X_FN_TEXT, 0xe3510000, branchWord(GR3X_FN_TEXT, entries.filmFnText), 'film advance: its text');
+  entries.filmFnIcon = p.code(`cmp r1,#${GR3X_FILM_ADVANCE};movweq r0,#${GR3X_FILM_ADVANCE_ICON};bxeq lr;cmp r1,#0;b #${GR3X_FN_ICON + 4};`);
+  p.patch(GR3X_FN_ICON, 0xe3510000, branchWord(GR3X_FN_ICON, entries.filmFnIcon), 'film advance: its icon');
+  // The advance (every register kept but the function's, which becomes Off).
+  const advance = (label: string) => `push {r0,r1,r2,r3,ip,lr};${records(label, true)}bl #${END_POSTER};${label}:pop {r0,r1,r2,r3,ip,lr};`;
+  entries.filmFnCustom = p.code(`cmp r2,#${GR3X_FILM_ADVANCE};bne native;${advance('kept')}mov r2,#0;native:mov ip,sp;b #${GR3X_FN_CUSTOM + 4};`);
+  p.patch(GR3X_FN_CUSTOM, 0xe1a0c00d, branchWord(GR3X_FN_CUSTOM, entries.filmFnCustom), 'film advance: Fn, ISO and Drive buttons');
+  entries.filmFnWlan = p.code(`cmp r6,#${GR3X_FILM_ADVANCE};bne go;${advance('kept')}mov r6,#0;go:cmp r6,#0x29;b #${GR3X_FN_WLAN + 4};`);
+  p.patch(GR3X_FN_WLAN, 0xe3560029, branchWord(GR3X_FN_WLAN, entries.filmFnWlan), 'film advance: Movie/Wireless buttons');
+  return entries;
+}

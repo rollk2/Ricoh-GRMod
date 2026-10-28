@@ -96,4 +96,16 @@ describe.skipIf(!input)('GR III film roll (film mode phase 3.1)', () => {
     const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'keys' });
     expect(built.report.revision).toBe('T12-KEYS2');
   }, 240000);
+  it('adds Film Advance to Fn Button Settings (phase 6)', async () => {
+    const film = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'menu' });
+    const fn = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'fn' });
+    for (const [at, expected] of [[0x53292ed0, '000051e3'], [0x53293e6c, '000051e3'], [0x5329bcc8, '0dc0a0e1'], [0x5329a0a0, '290056e3'], [0x531be698, '246084e2']] as const) {
+      expect(film.sites.some(s => s.address === at)).toBe(false);
+      expect(fn.sites.find(s => s.address === at)!).toMatchObject({ expected, reason: expect.stringMatching(/^film advance/) });
+    }
+    expect(fn.sites.find(s => s.address === 0x531be698)!.replacement).toBe('256084e2');
+    expect(fn.sites.length).toBe(film.sites.length + 7);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'fn' });
+    expect(built.report.revision).toBe('T13-FN1');
+  }, 240000);
 });
