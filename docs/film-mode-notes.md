@@ -1048,3 +1048,39 @@ Plus grand dossier au départ : `109`.
 - Table de quatre touches { code, nombre, premier événement après elle } à `0x55804390`, aucune
   touche exclue, remise à zéro à la fin de séquence ; la date montre la touche la plus pressée. Le
   geste testé est répété 5 fois. Vérifié en émulateur ; deux contre-épreuves détectées.
+
+### Résultats sur le boîtier (build T12-KEYS2, 2026-10-28)
+
+| Geste | Touche | Pressions | Événement |
+|---|---|---|---|
+| ADJ droite | 10 | 11 ou plus | 229 (0xe5, traité par la visée) |
+| ADJ gauche | 11 | 5 | 360 à 419 |
+| ADJ enfoncé | 14 | 5 | 360 à 419 |
+| pavé droite | 35 | 5 | 360 à 419 |
+| OK | 50 | 8 | 360 à 419 |
+| aucun (référence) | 57 | 1 | 120 à 179 (0xa2 attendu) |
+
+- La touche 57 arrive à chaque prise de vue (parasite). Visée : contrôleur `LiveViewController`,
+  identifiants 0x08000000 à 0x08000002 (fabrique `0x5316f3bc`, constructeur `0x53173204`).
+- Décision : la touche droite (Drive) avance le film ; puis demande de l'utilisateur : en faire une
+  fonction choisissable dans Fn Button Settings. Version « touche en dur » (T13-ADV1, non vérifiée)
+  mise de côté (stash).
+
+### Fn Button Settings (statique, 2026-10-28)
+
+- Champs de la BOX (un octet tous les deux) : `0x922` Fn Button, `0x924` ISO Button, **`0x926` Drive
+  Button (touche droite)**, `0x928` Movie/Wireless Button, `0x92a` Hold Movie/Wireless Btn., `0x92c`
+  Focus Settings. Getters `0x53246378` + 0xc × n, setters `0x532435f8` + 0x10 × n.
+- Listes : enregistrements 70 à 75 de la table des listes (`0x53b3c6c0`) ; 70 à 74 partagent le
+  vecteur de fonctions du contrôleur (`+0x1a4` début, `+0x1a8` fin), rempli à la construction
+  (`0x531be67c`) depuis la table de **36 numéros de fonction** `0x53b4eb7c` (boucle `add r6,r4,#0x24`),
+  filtrée par `0x531b9410` (seules ND 0x16 et 0x28 dépendent du modèle). Dessin d'une ligne :
+  icône `0x53293e6c(modèle, f)`, texte `0x53292ed0(modèle, f)` (chaînes de comparaisons qui
+  commencent par `cmp r1,#0`). Choix : setter du champ avec `[contrôleur + 0x1a4][ligne]`.
+- Fonctions 0 à 41 ; **0 = Off** ; 42 libre. Noms : 1 Focus, 2 Set MF, 3 Set Snap, ... 23 Drive Mode,
+  24 Drive, 27 Image Control, 30 4-way Controller Action, 31 Outdoor View Setting.
+- Exécution : `CaptureReadySwitchFunctionModel` ; Fn, ISO et Drive passent par
+  `GetEventCustomize` (`0x5329bcc8(this, out, f, ...)`, table de sauts de 42, assertion sinon) ;
+  Movie/Wireless et Hold passent par `GetEventSwitchWlan` (`0x53299f08`, `cmp r6,#0x29` en
+  `0x5329a0a0`, assertion sinon). Autres lecteurs des champs : texte d'aide (`0x53172280`, par la
+  fonction de texte), tests des fonctions 5 et 6 (AF) : sans risque pour 42.
