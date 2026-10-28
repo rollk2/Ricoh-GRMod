@@ -882,3 +882,26 @@ rouleaux (H2, H6, H9) ni pour P (H4). Compteur conforme (H9 : rembobinage puis 2
   DD 1 + appels % 28, HH dossier du rouleau en cours % 24, mm prochain numéro % 60.
 - Vérifié en émulateur : 2620 cas (dont 512 de diagnostic et 864 de l'horloge), deux
   contre-épreuves détectées, sonde du garde-fou repassée.
+
+### Résultats sur le boîtier (build T11-ROLL2D, 2026-10-28)
+
+Plus grand dossier au départ : `109`.
+
+| Test | Fichier | Dossier | Date incrustée |
+|---|---|---|---|
+| I1 P | 6894 | 109 | 2000.01.01 21:00 |
+| I2 U1 | 6895 | **110, nouveau** | 2000.11.03 00:00 |
+| I3 U1 | 6896 | 110 | 2010.01.05 14:00 |
+| I4 P | 6897 | **111, nouveau** | 2010.11.07 21:00 |
+| I5 U2 | 6898 | **112, nouveau** | 2011.11.09 20:00 |
+
+- **Les dossiers marchent comme prévu** : nouveau dossier au premier fichier d'un rouleau (U1 110,
+  U2 112), retour dans le dossier du rouleau (I3), P déplacé hors du dossier d'un rouleau (I4 : 111).
+- Lecture du diagnostic : DD = 1, 3, 5, 7, 9 : **deux appels de `SetFilePath` par photo**, et la date
+  est lue **avant** les appels de la photo (I1 : aucun appel encore) ; chaque photo montre donc le
+  dernier appel de la photo précédente. Ce dernier appel reçoit un numéro déjà fourni et réussit
+  (MM 11 = chemin 5 + 6) ; I3 (MM 01 avec un numéro reçu de 110) reste inexpliqué. HH 14 en I3 = 110
+  mémorisé par le rouleau de U1 (110 % 24).
+- Pourquoi T11-ROLL2 n'a rien créé : non établi. Le code du dossier est identique dans les deux
+  builds (le diagnostic ajoute l'enregistrement et l'appel de la fonction) ; à vérifier que la mise
+  à jour T11-ROLL2 a bien été appliquée.
