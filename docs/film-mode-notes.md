@@ -807,3 +807,19 @@ Plus grand dossier au départ : `106`.
   contre-épreuves détectées ; sonde du garde-fou adaptée et repassée. 324 tests passent.
 - Limites : seules les séquences de multi-exposition font avancer le film (la BOX doit être en
   multi-exposition) ; pas encore de dossier de rouleau, ni de numéro de vue incrusté.
+
+### Résultats sur le boîtier (build T11-ROLL1, 2026-10-28)
+
+- G2 : U1, 2 vues + Complete : **un seul fichier** (6877), compteur 2. Save Interim Images forcé à
+  Off au rappel : **testé**.
+- G3 : une vue + Complete : 3 (6878) ; MENU sans vue : reste à 3. G4 : P montre le compteur normal,
+  retour sur U1 : 3.
+- G5 : **retrait de la batterie sans éteindre : 3 retrouvé** ; extinction normale : 3. L'écriture
+  immédiate des fichiers `APData` (index 1 et mode + 2) marche : **testée**.
+- G6 : U2 a son propre rouleau (1, puis 2), U1 garde 3. G7 : Save Settings dans BOX2 depuis U2 :
+  U2 revient à 1 (rembobinage : **testé**).
+- G7 suite : Save Settings dans BOX2 **depuis U1** a recopié les réglages en cours (ceux de la BOX3
+  rappelée par U1) dans la BOX2 : comportement natif (`0x5324b760` copie l'enregistrement en cours),
+  pas un effet du mod. La consigne de test était ambiguë ; l'utilisateur a perdu le monochrome de
+  la BOX2.
+- G8 : aucun message inhabituel ; les autres BOX intactes.
