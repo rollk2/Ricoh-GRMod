@@ -269,9 +269,10 @@ const KEY_LAST = GR3X_ROLL_DIAG;
  * four { key, count, event (halfword) } at 0x55804390 counts the keys seen at ActionModel::OnEvent's
  * entry (any key; a fifth different key is not counted) and keeps the first UI event posted after
  * each (pending entry + 1 in the byte at + 16, 0 none). The shooting model's end (Complete, MENU...)
- * clears it, so a sequence counts its own keys. The date imprint shows the most pressed key:
- * 20YY.MM.DD HH:mm, YY its key % 100, MM 1 + its count (at most 12), DD 1 + the keys in the table,
- * HH event / 60, mm event % 60 (zeros with an empty table). The gesture under test is repeated (5
+ * clears it (before the final picture is encoded: read the date on the Next / Retake / Complete
+ * screen, where its button hides the hour). The date imprint shows the most pressed key:
+ * 20YY.MM.DD HH:mm, YY its key % 100, MM 1 + its count (at most 12), DD 1 + event / 60, HH the keys
+ * in the table, mm event % 60 (zeros with an empty table). The gesture under test is repeated (5
  * times) so it outnumbers the keys around it.
  */
 function installKeys(p: Gr3xRollProgram, free: (at: number) => void, entries: Record<string, number>) {
@@ -294,8 +295,8 @@ function installKeys(p: Gr3xRollProgram, free: (at: number) => void, entries: Re
     take:mov r5,r3;next:add r2,r2,#1;cmp r2,#4;blo scan;
     mov r0,#0;mov r2,#0;mov r3,#0;cmp r5,#0;ldrbne r0,[r5];ldrbne r2,[r5,#1];ldrhne r3,[r5,#2];
     ${mod('r0', 100, 'year')}add r0,r0,#2000;strb r0,[r1];mov r0,r0,lsr #8;strb r0,[r1,#1];
-    cmp r2,#11;movhi r2,#11;add r2,r2,#1;strb r2,[r1,#2];add r6,r6,#1;strb r6,[r1,#3];
-    mov r2,#0;hour:cmp r3,#60;subhs r3,r3,#60;addhs r2,r2,#1;bhs hour;strb r2,[r1,#4];strb r3,[r1,#5];
+    cmp r2,#11;movhi r2,#11;add r2,r2,#1;strb r2,[r1,#2];strb r6,[r1,#4];
+    mov r2,#1;day:cmp r3,#60;subhs r3,r3,#60;addhs r2,r2,#1;bhs day;strb r2,[r1,#3];strb r3,[r1,#5];
     pop {r4,r5,r6,pc};
     clock:b #${GR3X_GET_TIME};`);
 }

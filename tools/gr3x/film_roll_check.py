@@ -356,7 +356,7 @@ def verify(data,manifest,seed=3101):
             p.real_post=True;regs={0:0x1111,1:ev,2:0x22,3:0x33};p.run(POST_EVENT,POST_EVENT+4,regs);count('event');kept(regs,True);p.real_post=False
         def clock():
             cpu.mem_write(TIME,bytes(16));p.call(e['filmProbeTime'],0x1234,TIME);count('key clock');return bytes(cpu.mem_read(TIME,16))
-        def date(k,c,n,ev):return struct.pack('<H',2000+k%100)+bytes([1+min(c,11),1+n,ev//60,ev%60])+bytes(10)
+        def date(k,c,n,ev):return struct.pack('<H',2000+k%100)+bytes([1+min(c,11),1+ev//60,n,ev%60])+bytes(10)
         cur,boxes=setup(3)
         # Model's end clears the table (whatever the roll does).
         cpu.mem_write(K,bytes(range(1,18)));p.writes=[];p.run(MODEL_END,MODEL_END+4,{0:1,1:2,2:3,3:4});assert table()==([(0,0,0)]*4,0)
