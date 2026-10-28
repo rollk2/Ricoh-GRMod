@@ -869,3 +869,16 @@ rouleaux (H2, H6, H9) ni pour P (H4). Compteur conforme (H9 : rembobinage puis 2
 - Remarque : les rouleaux de U1 et U2 démarrés sous T11-ROLL1 gardaient dans `0x9b3` et `0x9b1`
   des restes des builds de sonde (compteurs) : leur « dossier » pouvait valoir n'importe quoi. Le
   rouleau de U2 redémarré en H9 avait, lui, un dossier effacé.
+
+### Build de diagnostic T11-ROLL2D
+
+- T11-ROLL2 + enregistrement de ce que voit le crochet de `SetFilePath`, dans des mots libres
+  (zone `sbrk` remise à zéro du round 10) : `0x55804390` demi-mot numéro reçu, `+2` chemin
+  (1 mode libre inchangé, 2 dossier du rouleau, 3 nouveau dossier imposé, 4 pas de prochain numéro,
+  5 numéro déjà fourni, 6 mode libre déplacé hors d'un dossier de rouleau), `+3` résultat de
+  `SetFilePath` (la fonction est appelée, adresse de retour gardée en `0x5580438c`), `+4` nombre
+  d'appels, `+6` demi-mot prochain numéro demandé.
+- Date incrustée : `20YY.MM.DD HH:mm` = YY numéro reçu % 100, MM chemin (+ 6 si réussite),
+  DD 1 + appels % 28, HH dossier du rouleau en cours % 24, mm prochain numéro % 60.
+- Vérifié en émulateur : 2620 cas (dont 512 de diagnostic et 864 de l'horloge), deux
+  contre-épreuves détectées, sonde du garde-fou repassée.

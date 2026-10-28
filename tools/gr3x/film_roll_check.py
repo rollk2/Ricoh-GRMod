@@ -24,7 +24,7 @@ This does not establish the camera's storage, menus or pictures.
 import argparse,hashlib,json,random,struct
 from pathlib import Path
 from unicorn import arm_const as reg
-from film_probe_check import Probe
+from film_probe_check import Probe,TIME
 from guard_probe import RECALL_FROM,RECALL_TO,UD,RECS,SIZE
 from native_probe import STOP
 
@@ -40,7 +40,7 @@ LENGTHS={0:36,3:12,4:21}
 
 class RollProbe(Probe):
     def __init__(self,data,manifest):
-        super().__init__(data,manifest);self.writes=[];self.box_native=0;self.next=0;self.next_calls=0
+        super().__init__(data,manifest);self.writes=[];self.box_native=0;self.next=0;self.next_calls=0;self.sfp_ret=None;self.sfp_calls=0;self.entry_sp=None
         for at in range(0x63040000,0x63058000,0x1000):
             try:self.uc.mem_map(at,0x1000)
             except Exception:pass
@@ -49,6 +49,10 @@ class RollProbe(Probe):
         ret=lambda v:(cpu.reg_write(reg.UC_ARM_REG_R0,v),cpu.reg_write(reg.UC_ARM_REG_PC,cpu.reg_read(reg.UC_ARM_REG_LR)))
         if at==APP_DATA:ret(OBJ)
         elif at==APP_WRITE:self.writes.append((r(0),r(1),r(2),r(3)));ret(1)
+        elif at==SET_FILE_PATH+4 and self.sfp_ret is not None:
+            # The diagnostic's call of the function: entry stack, ip = sp, return address its own.
+            assert cpu.reg_read(reg.UC_ARM_REG_SP)==self.entry_sp and cpu.reg_read(reg.UC_ARM_REG_IP)==self.entry_sp
+            self.sfp_calls+=1;ret(self.sfp_ret)
         elif at==NEXT_FOLDER:
             assert r(0)==WRAP;self.next_calls+=1;ret(self.next)
         elif at==BOX_SAVE+4:
@@ -159,7 +163,11 @@ def verify(data,manifest,seed=3101):
             assert got[INTERIM]==(0 if mode else src[INTERIM]),(mode,got[INTERIM],src[INTERIM])
             assert bytes(cpu.mem_read(RECS+(1+mode)*0x1000,SIZE))==src
     # 6. Form 'folders': the roll's folder at SetFilePath's entry.
-    folders=manifest['filmRoll']=='folders'
+    folders=manifest['filmRoll'] in ('folders','folders-diag');diag=manifest['filmRoll']=='folders-diag'
+    D=0x55804390;from native_probe import STACK
+    def diag_check(given,code_want,next_want,ret,calls_before):
+        d=bytes(cpu.mem_read(D,8))
+        assert struct.unpack_from('<H',d,0)[0]==given and d[2]==code_want and d[3]==(1 if ret else 0) and d[4]==(calls_before+1)&255 and struct.unpack_from('<H',d,6)[0]==next_want,(d.hex(),given,code_want,next_want,ret)
     assert (SET_FILE_PATH in sites)==folders and (FOLDER_MARK in sites)==folders
     if folders:
         enc=lambda b,f:(b.__setitem__(FLAGS,(b[FLAGS]&~0xc)|((f>>8)&3)<<2),b.__setitem__(FOLDER,f&255))
@@ -173,7 +181,12 @@ def verify(data,manifest,seed=3101):
         def run(given):
             path=bytearray(rng.randrange(256) for _ in range(16));path[4:6]=struct.pack('<H',given);cpu.mem_write(PATH,bytes(path))
             regs={0:SVC,1:0x1111,2:PATH,3:0x3333,4:0x44,5:0x55,6:0x66};p.next_calls=0
-            p.run(SET_FILE_PATH,SET_FILE_PATH+4,regs);count('folder');kept(regs,True)
+            if diag:
+                p.sfp_ret=rng.choice((0,1,0x5a));p.entry_sp=STACK;p.sfp_calls=0;run.calls=cpu.mem_read(D+4,1)[0]
+                p.run(SET_FILE_PATH,STOP,regs);count('folder');assert p.sfp_calls==1
+                assert cpu.reg_read(reg.UC_ARM_REG_R0)==p.sfp_ret and cpu.reg_read(reg.UC_ARM_REG_LR)==STOP
+                for k in (4,5,6):assert cpu.reg_read(getattr(reg,'UC_ARM_REG_R%d'%k))==regs[k]
+            else:p.run(SET_FILE_PATH,SET_FILE_PATH+4,regs);count('folder');kept(regs,True)
             return path,struct.unpack_from('<H',bytes(cpu.mem_read(PATH,16)),4)[0],bytes(cpu.mem_read(PATH,16))
         for mode in range(8):
             for started in (False,True):
@@ -200,6 +213,12 @@ def verify(data,manifest,seed=3101):
                             else:want=0
                             assert got==want and raw[:4]==bytes(path[:4]) and raw[6:]==bytes(path[6:]),(mode,started,folder,nxt,given,got,want)
                             assert state()==(bytes(want_c),[bytes(b) for b in want_b]),(mode,started,folder,nxt,given)
+                            if diag:
+                                if given:cw,nw=5,0
+                                elif roll and folder in (100,105,512,999):cw,nw=2,0
+                                elif roll:cw,nw=(3 if nxt else 4),nxt
+                                else:cw,nw=1,0
+                                diag_check(given,cw,nw,p.sfp_ret,run.calls);count('diagnostic')
         # Free modes: the highest folder is a started roll's folder of a BOX.
         for mode in (0,2,7):
             for owner in range(1,7):
@@ -219,7 +238,23 @@ def verify(data,manifest,seed=3101):
                         assert got==want,(mode,owner,owner_started,nxt,got)
                         assert state()==(bytes(cur),[bytes(b) for b in boxes])
                         count('free mode, roll folder highest' if owner_started else 'free mode')
-    return dict(schema=1,revision='T11-ROLL2' if folders else 'T11-ROLL1',rtos_sha256=hashlib.sha256(data).hexdigest(),cases=cases,seed=seed,hardware_tested=False,
+                        if diag:diag_check(0,6 if owner_started else 1,nxt if owner_started else 0,p.sfp_ret,run.calls)
+        if diag:
+            # The clock: { 2000 + entry % 100, path + 6 when it succeeded (1..12), 1 + calls % 28, roll folder % 24, next % 60 }.
+            for entry_f in (0,107,999):
+                for code_v in (0,1,3,6):
+                    for ok in (0,1):
+                        for calls in (0,27,28,255):
+                            for folder in (0,110,999):
+                                for nxt in (0,110,999):
+                                    cur,boxes=setup(3);enc(cur,folder);cpu.mem_write(CUR,bytes(cur))
+                                    cpu.mem_write(D,struct.pack('<HBBBBH',entry_f,code_v,ok,calls,0,nxt))
+                                    cpu.mem_write(TIME,bytes(16));p.call(e['filmProbeTime'],0x1234,TIME);count('clock')
+                                    mm=code_v+(6 if ok else 0) or 1
+                                    want=struct.pack('<H',2000+entry_f%100)+bytes([min(mm,12),1+calls%28,folder%24,nxt%60])+bytes(10)
+                                    assert bytes(cpu.mem_read(TIME,16))==want,(entry_f,code_v,ok,calls,folder,nxt)
+            cpu.mem_write(POINTER,b'\0\0\0\0');p.clock=0;p.call(e['filmProbeTime'],0x1234,TIME);assert p.clock==1
+    return dict(schema=1,revision='T11-ROLL2D' if diag else 'T11-ROLL2' if folders else 'T11-ROLL1',rtos_sha256=hashlib.sha256(data).hexdigest(),cases=cases,seed=seed,hardware_tested=False,
         scope='Hooks run from their patched sites (firmware storage and the native BOX save body substituted); the recall runs natively.')
 
 if __name__=='__main__':
