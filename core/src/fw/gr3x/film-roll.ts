@@ -129,7 +129,7 @@ export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuR
 
   // The model's end: advance, then save both records; every register kept.
   free(GR3X_ROLL_MODEL_END);
-  entries.filmRollEnd = p.code(`push {r0,r1,r2,r3,r4,r5,r6,lr};${rec('out')}
+  entries.filmRollEnd = p.code(`${keys ? keyClear : ''}push {r0,r1,r2,r3,r4,r5,r6,lr};${rec('out')}
     ldrb r0,[r2,#${GR3X_ROLL_FLAGS}];tst r0,#${GR3X_ROLL_STARTED};beq out;
     movw r0,#${lo(SINGLETON)};movt r0,#${hi(SINGLETON)};ldr r0,[r0];${ram('r0', 'out')}
     ldr r0,[r0,#0x518];${ram('r0', 'out')}ldr r0,[r0];${ram('r0', 'out')}ldrb r0,[r0,#0x6c0];cmp r0,#2;bne out;
@@ -265,27 +265,39 @@ export const GR3X_KEY_EVENT = 0x53221a1c, GR3X_POST_EVENT = 0x532288b0;
 const KEY_LAST = GR3X_ROLL_DIAG;
 
 /**
- * Form 'keys' (T12-KEYS, test builds only): which key and UI event the ADJ lever gives. At
- * ActionModel::OnEvent's entry, a key other than 1..4 (the shutter's: 0x35, 0xaa) is kept in the
- * byte at 0x55804390 and a flag raised (+ 1); the next UI event posted after it is kept in the
- * halfword + 2 and the flag cleared; + 4 counts the keys kept. The date imprint shows them instead of
- * the date: 20YY.MM.DD HH:mm, YY key % 100, MM 1 + keys kept % 12, DD 1, HH event / 60, mm event % 60.
+ * Form 'keys' (T12-KEYS2, test builds only): which key and UI event the ADJ lever gives. A table of
+ * four { key, count, event (halfword) } at 0x55804390 counts the keys seen at ActionModel::OnEvent's
+ * entry (any key; a fifth different key is not counted) and keeps the first UI event posted after
+ * each (pending entry + 1 in the byte at + 16, 0 none). The shooting model's end (Complete, MENU...)
+ * clears it, so a sequence counts its own keys. The date imprint shows the most pressed key:
+ * 20YY.MM.DD HH:mm, YY its key % 100, MM 1 + its count (at most 12), DD 1 + the keys in the table,
+ * HH event / 60, mm event % 60 (zeros with an empty table). The gesture under test is repeated (5
+ * times) so it outnumbers the keys around it.
  */
 function installKeys(p: Gr3xRollProgram, free: (at: number) => void, entries: Record<string, number>) {
-  const at = `movw ip,#${lo(KEY_LAST)};movt ip,#${hi(KEY_LAST)};`;
+  const T = KEY_LAST, at = `movw ip,#${lo(T)};movt ip,#${hi(T)};`;
   free(GR3X_KEY_EVENT);
-  entries.filmKeyEvent = p.code(`push {r0};cmp r1,#4;bls skip;${at}strb r1,[ip];mov r0,#1;strb r0,[ip,#1];ldrb r0,[ip,#4];add r0,r0,#1;strb r0,[ip,#4];
-    skip:pop {r0};mov ip,sp;b #${GR3X_KEY_EVENT + 4};`);
+  // r1 = key: its entry (or the first empty one), count + 1 (at most 255), pending = entry + 1.
+  entries.filmKeyEvent = p.code(`push {r0,r2,r3};${at}mov r2,#0;
+    find:ldrb r0,[ip,r2,lsl #2];cmp r0,r1;beq hit;cmp r0,#0;beq hit;add r2,r2,#1;cmp r2,#4;blo find;b skip;
+    hit:add r3,ip,r2,lsl #2;strb r1,[r3];ldrb r0,[r3,#1];cmp r0,#255;addlo r0,r0,#1;strb r0,[r3,#1];add r2,r2,#1;strb r2,[ip,#16];
+    skip:pop {r0,r2,r3};mov ip,sp;b #${GR3X_KEY_EVENT + 4};`);
   p.patch(GR3X_KEY_EVENT, 0xe1a0c00d, branchWord(GR3X_KEY_EVENT, entries.filmKeyEvent), 'film roll key probe: the key');
   free(GR3X_POST_EVENT);
-  entries.filmPostEvent = p.code(`push {r0};${at}ldrb r0,[ip,#1];cmp r0,#0;beq none;strh r1,[ip,#2];mov r0,#0;strb r0,[ip,#1];
-    none:pop {r0};mov ip,sp;b #${GR3X_POST_EVENT + 4};`);
+  entries.filmPostEvent = p.code(`push {r0,r2};${at}ldrb r0,[ip,#16];cmp r0,#0;beq none;sub r0,r0,#1;add r2,ip,r0,lsl #2;strh r1,[r2,#2];
+    mov r0,#0;strb r0,[ip,#16];none:pop {r0,r2};mov ip,sp;b #${GR3X_POST_EVENT + 4};`);
   p.patch(GR3X_POST_EVENT, 0xe1a0c00d, branchWord(GR3X_POST_EVENT, entries.filmPostEvent), 'film roll key probe: the event after it');
+  // The clock: the most pressed key (the first of equals).
   entries.filmProbeTime = p.code(`movw r3,#${lo(POINTER)};movt r3,#${hi(POINTER)};ldr r3,[r3];cmp r3,#0;beq clock;
-    push {r4,lr};movw r4,#${lo(KEY_LAST)};movt r4,#${hi(KEY_LAST)};
-    ldrb r0,[r4];${mod('r0', 100, 'year')}add r0,r0,#2000;strb r0,[r1];mov r0,r0,lsr #8;strb r0,[r1,#1];
-    ldrb r0,[r4,#4];${mod('r0', 12, 'month')}add r0,r0,#1;strb r0,[r1,#2];mov r0,#1;strb r0,[r1,#3];
-    ldrh r0,[r4,#2];mov r2,#0;hour:cmp r0,#60;subhs r0,r0,#60;addhs r2,r2,#1;bhs hour;strb r2,[r1,#4];strb r0,[r1,#5];
-    pop {r4,pc};
+    push {r4,r5,r6,lr};movw r4,#${lo(T)};movt r4,#${hi(T)};mov r5,#0;mov r6,#0;mov r2,#0;
+    scan:add r3,r4,r2,lsl #2;ldrb r0,[r3];cmp r0,#0;beq next;add r6,r6,#1;ldrb r0,[r3,#1];cmp r5,#0;beq take;ldrb ip,[r5,#1];cmp r0,ip;bls next;
+    take:mov r5,r3;next:add r2,r2,#1;cmp r2,#4;blo scan;
+    mov r0,#0;mov r2,#0;mov r3,#0;cmp r5,#0;ldrbne r0,[r5];ldrbne r2,[r5,#1];ldrhne r3,[r5,#2];
+    ${mod('r0', 100, 'year')}add r0,r0,#2000;strb r0,[r1];mov r0,r0,lsr #8;strb r0,[r1,#1];
+    cmp r2,#11;movhi r2,#11;add r2,r2,#1;strb r2,[r1,#2];add r6,r6,#1;strb r6,[r1,#3];
+    mov r2,#0;hour:cmp r3,#60;subhs r3,r3,#60;addhs r2,r2,#1;bhs hour;strb r2,[r1,#4];strb r3,[r1,#5];
+    pop {r4,r5,r6,pc};
     clock:b #${GR3X_GET_TIME};`);
 }
+/** The key table cleared (model's end, form 'keys'): every register kept but ip. */
+const keyClear = `push {r0};movw ip,#${lo(KEY_LAST)};movt ip,#${hi(KEY_LAST)};mov r0,#0;str r0,[ip];str r0,[ip,#4];str r0,[ip,#8];str r0,[ip,#12];strb r0,[ip,#16];pop {r0};`;

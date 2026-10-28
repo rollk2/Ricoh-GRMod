@@ -1029,3 +1029,22 @@ Plus grand dossier au départ : `109`.
   (YY touche % 100, MM 1 + touches comptées % 12, HH:mm événement en minutes).
 - Émulation : `rear_dial_probe.py` remplace `0x532288b0` par un bouchon ; la sonde du rouleau le
   laisse passer pour vérifier le crochet. 3047 cas, deux contre-épreuves détectées.
+
+### Résultats sur le boîtier (build T12-KEYS, 2026-10-28)
+
+- L1 à L5 (ADJ droite, gauche, enfoncé ; pavé droite ; OK) : année **06** partout, minutes 49 (heure
+  cachée par l'écran du dialogue) : la dernière touche notée avant chaque photo est toujours la
+  touche 6, quel que soit le geste. Mois : 11, 10, 4, 0, 2 touches notées entre deux lectures (0 pour
+  une photo refaite sans toucher à rien : cohérent).
+- Lecture : soit une touche 6 arrive juste avant chaque prise de vue, soit les gestes ont des codes
+  1 à 4, que la sonde excluait (supposés être le déclencheur). Sonde mal conçue pour isoler un geste.
+- Observé : en visée, le levier ADJ à droite / à gauche règle directement la correction
+  d'exposition (+0.3 / -0.3) ; enfoncé, il ouvre le menu ADJ ; OK déplace le point de mise au
+  point.
+- M : Off puis P puis retour sur U1 : `8/36` retrouvé. **Suspension par Off : testée.**
+
+### Build de sonde T12-KEYS2
+
+- Table de quatre touches { code, nombre, premier événement après elle } à `0x55804390`, aucune
+  touche exclue, remise à zéro à la fin de séquence ; la date montre la touche la plus pressée. Le
+  geste testé est répété 5 fois. Vérifié en émulateur ; deux contre-épreuves détectées.

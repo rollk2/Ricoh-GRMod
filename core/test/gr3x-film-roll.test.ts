@@ -94,6 +94,6 @@ describe.skipIf(!input)('GR III film roll (film mode phase 3.1)', () => {
     expect(keys.sites.length).toBe(film.sites.length + 2);
     expect((keys.entries as Record<string, number>).filmProbeTime).toBeGreaterThan(0x53000000);
     const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'keys' });
-    expect(built.report.revision).toBe('T12-KEYS');
+    expect(built.report.revision).toBe('T12-KEYS2');
   }, 240000);
 });

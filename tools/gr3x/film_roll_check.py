@@ -345,30 +345,39 @@ def verify(data,manifest,seed=3101):
         for v in (0,1):
             p.ui=[];p.run(e['filmDraw'],STOP,{0:0x1234,1:ROW,2:v});count('menu list')
             assert p.ui==[('item',ROW,296 if v==0 else 297,2 if v==0 else 1)],p.ui
-    # 8. Form 'keys': the key probe.
+    # 8. Form 'keys': the key probe (a table of four { key, count, event }, pending entry at + 16).
     if keys_form:
         K=0x55804390;KEY_EVENT,POST_EVENT=0x53221a1c,0x532288b0
-        cpu.mem_write(K,bytes(8))
-        for key,armed_after in ((1,0),(4,0),(5,1),(0x21,1),(0x40,1)):
-            cpu.mem_write(K,bytes([0x77,0,0,0,3,0]));regs={0:0x1111,1:key,2:0x22,3:0x33}
-            p.run(KEY_EVENT,KEY_EVENT+4,regs);count('key');kept(regs,True)
-            d=bytes(cpu.mem_read(K,6))
-            assert d==(bytes([key,1,0,0,4,0]) if armed_after else bytes([0x77,0,0,0,3,0])),(key,d.hex())
-        p.real_post=True
-        for armed in (0,1):
-            for ev in (0xb8,0x1a4):
-                cpu.mem_write(K,bytes([0x21,armed])+struct.pack('<H',0x5555)+bytes([7,0]));regs={0:0x1111,1:ev,2:0x22,3:0x33}
-                p.run(POST_EVENT,POST_EVENT+4,regs);count('event');kept(regs,True)
-                d=bytes(cpu.mem_read(K,6))
-                assert d==(bytes([0x21,0])+struct.pack('<H',ev)+bytes([7,0]) if armed else bytes([0x21,0])+struct.pack('<H',0x5555)+bytes([7,0])),(armed,ev,d.hex())
-        p.real_post=False
-        for key in (0,33,99,100):
-            for ev in (0,0xd4,0x1a4):
-                for n in (0,11,12):
-                    cur,boxes=setup(3);cpu.mem_write(K,bytes([key,0])+struct.pack('<H',ev)+bytes([n,0]))
-                    cpu.mem_write(TIME,bytes(16));p.call(e['filmProbeTime'],0x1234,TIME);count('key clock')
-                    assert bytes(cpu.mem_read(TIME,16))==struct.pack('<H',2000+key%100)+bytes([1+n%12,1,ev//60,ev%60])+bytes(10),(key,ev,n)
-    return dict(schema=1,revision='T12-KEYS' if keys_form else 'T12-MENU2' if menu_form else 'T11-ROLL2D' if diag else 'T11-ROLL3' if folders else 'T11-ROLL1',rtos_sha256=hashlib.sha256(data).hexdigest(),cases=cases,seed=seed,hardware_tested=False,
+        def table():
+            d=bytes(cpu.mem_read(K,17));return [(d[4*i],d[4*i+1],struct.unpack_from('<H',d,4*i+2)[0]) for i in range(4)],d[16]
+        def key(k):
+            regs={0:0x1111,1:k,2:0x22,3:0x33};p.run(KEY_EVENT,KEY_EVENT+4,regs);count('key');kept(regs,True)
+        def post(ev):
+            p.real_post=True;regs={0:0x1111,1:ev,2:0x22,3:0x33};p.run(POST_EVENT,POST_EVENT+4,regs);count('event');kept(regs,True);p.real_post=False
+        def clock():
+            cpu.mem_write(TIME,bytes(16));p.call(e['filmProbeTime'],0x1234,TIME);count('key clock');return bytes(cpu.mem_read(TIME,16))
+        def date(k,c,n,ev):return struct.pack('<H',2000+k%100)+bytes([1+min(c,11),1+n,ev//60,ev%60])+bytes(10)
+        cur,boxes=setup(3)
+        # Model's end clears the table (whatever the roll does).
+        cpu.mem_write(K,bytes(range(1,18)));p.writes=[];p.run(MODEL_END,MODEL_END+4,{0:1,1:2,2:3,3:4});assert table()==([(0,0,0)]*4,0)
+        assert clock()==date(0,0,0,0)
+        # A sequence: key 6, then the gesture 33 five times (each followed by an event), key 6 again.
+        key(6);post(0x31)
+        for i in range(5):key(33);post(0xd4+i)
+        key(6);post(0x31)
+        t,pend=table();assert t==[(6,2,0x31),(33,5,0xd8),(0,0,0),(0,0,0)] and pend==0,(t,pend)
+        assert clock()==date(33,5,2,0xd8)
+        assert clock()==date(33,5,2,0xd8)   # the clock does not clear (two encodes per frame)
+        # No event after a key: the event stays; an event with nothing pending changes nothing.
+        key(1);post(0x99);t,_=table();assert t[2]==(1,1,0x99)
+        post(0x77);assert table()[0][2]==(1,1,0x99)
+        # A fifth different key is not counted; counts stop at 255; equal counts: the first entry.
+        key(2);key(3);t,pend=table();assert t[3]==(2,1,0) and pend==4 and all(x[0]!=3 for x in t)
+        cpu.mem_write(K,bytes([7,255,1,0, 8,255,2,0])+bytes(9));key(7);assert table()[0][0][1]==255
+        assert clock()==date(7,255,2,1)
+        cpu.mem_write(K,bytes([9,3,5,0, 10,3,6,0, 11,2,7,0])+bytes(5));assert clock()==date(9,3,3,5)
+        cpu.mem_write(K,bytes([60,1,0x1a4&255,0x1a4>>8])+bytes(13));assert clock()==date(60,1,1,0x1a4)
+    return dict(schema=1,revision='T12-KEYS2' if keys_form else 'T12-MENU2' if menu_form else 'T11-ROLL2D' if diag else 'T11-ROLL3' if folders else 'T11-ROLL1',rtos_sha256=hashlib.sha256(data).hexdigest(),cases=cases,seed=seed,hardware_tested=False,
         scope='Hooks run from their patched sites (firmware storage and the native BOX save body substituted); the recall runs natively.')
 
 if __name__=='__main__':
