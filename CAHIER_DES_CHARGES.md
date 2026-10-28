@@ -100,6 +100,7 @@ Sources : code de GR Mod (`core/src/fw/gr3x`) et réponse de son auteur, Maxwooo
 | Save Interim Images | Trouvé (statique, libellés relevés) | Octet `+0x482` de l'enregistrement (champ de BOX) : 0 Off, 1 Unblended, 2 Blended, 3 Unblended + Blended. Getter `0x532451d0`, setter `0x53262990(UserDataModel, valeur)`. |
 | État du rouleau, compteur, sauvegarde immédiate | Testés sur le boîtier (`T11-ROLL1`) | `film-roll.ts` : démarrage à la première vue en U, avance à chaque fin de séquence, écriture immédiate des fichiers `APData` (`0x53826c54`, index 1 et mode + 2 ; survit au retrait de la batterie), Save Settings rembobine, Save Interim Images à Off au rappel. |
 | Dossier du rouleau | Testé sur le boîtier (`T11-ROLL2D`) | Crochet de `SetFilePath` : premier fichier d'un rouleau dans le prochain nouveau dossier (`0x535b742c`), mémorisé dans la BOX, puis retour dans ce dossier ; P ouvre son propre dossier quand le plus grand est celui d'un rouleau. |
+| Compteur vue/total à l'écran, multi-exposition imposée | Testés sur le boîtier (`T11-ROLL3`) | Le crochet du compteur écrit `vue/total` par `snprintf` (`0x53141100`, format `"%d/%d"` du firmware `0x53c0ca59`) ; mode d'entraînement `+0x472` mis à 3 (multi-exposition) au rappel d'un mode U. |
 
 ### Points de vigilance (conseils de l'auteur de GR Mod)
 - **Compter les captures, pas les encodages.** L'encodeur JPEG tourne aussi pour le développement RAW intégré.
@@ -110,7 +111,7 @@ Sources : code de GR Mod (`core/src/fw/gr3x`) et réponse de son auteur, Maxwooo
 
 1. **Chaîne d'outils** : compiler GR Mod, flasher un firmware maison. **Fait** : firmware maison flashé et validé sur le GR III, démarrage aussi rapide qu'avec le firmware officiel.
 2. **Cartographie** : trouver les éléments « À trouver » ci-dessus. **Faite (2026-10-27)** : toutes les briques nécessaires sont trouvées, la plupart testées sur le boîtier. Restent, non bloquants : chemin exact du Complete du dialogue, verrou du menu (étape 5), 20 BOX (évolution).
-3. **Compteur provisoire** dans le hook JPEG, incrusté avec la date, en ne comptant que les captures (pas le développement RAW intégré).
+3. **Cœur du rouleau sans menu** : état et sauvegarde immédiate, compteur `vue/total` à l'écran, dossier du rouleau, multi-exposition et Save Interim Images imposés au rappel. **Fait et testé (2026-10-28, `T11-ROLL1` à `T11-ROLL3`)**.
 4. **Ligne de menu « Mode pellicule » On / Off**, enregistrée dans la BOX ; Off ou Save Settings sur une BOX entamée = rembobiner. État persistant.
 5. **Verrou** : extension de la condition native.
 6. **Multi-exposition** : déclencheur pour Next shot, ADJ droite pour Complete, compteur sur Complete.

@@ -935,3 +935,15 @@ Plus grand dossier au départ : `109`.
 - Limite : en mode U, le compteur ne montre plus `-----` (carte absente ou pleine).
 - Vérifié en émulateur : 2700 cas (dont 768 du compteur), quatre contre-épreuves détectées ;
   sonde du garde-fou adaptée (multi-exposition au rappel) et repassée.
+
+### Résultats sur le boîtier (build T11-ROLL3, 2026-10-28)
+
+- J1 : U1 affiche `3/36`, mode d'entraînement en multi-exposition au rappel : **testé**.
+- J2 : 1 vue + Complete : compteur + 1, photo dans `110` (dossier du rouleau de U1).
+- J3 : P : compteur normal ; photo dans un nouveau dossier `113` (le plus grand, `112`, est celui
+  du rouleau de U2).
+- J4 : format 1:1 en U2 : `vue/12`, retour au format d'origine : `vue/36`.
+- J5 : mode d'entraînement mis en vue par vue en U1, passage en P puis retour : multi-exposition.
+- J6 : le texte `vue/total` tient à l'écran, « calé entre RAW et SD ».
+- **Phase 3 (cœur du rouleau sans menu) : testée sur le boîtier.** Demande de l'utilisateur pour la
+  suite : l'option « mode pellicule » par BOX (phase 4).
