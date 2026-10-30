@@ -141,4 +141,12 @@ describe.skipIf(!input)('GR III film roll (film mode phase 3.1)', () => {
     const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'fn4' });
     expect(built.report.revision).toBe('T13-FN4');
   }, 240000);
+  it('Retake calls the shooting model\'s Retake action instead of posting the event (T13-FN5)', async () => {
+    const fn4 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'fn4' });
+    const fn5 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'fn5' });
+    expect(fn5.sites.map(s => s.address)).toEqual(fn4.sites.map(s => s.address));
+    expect(fn5.append.bytes).not.toBe(fn4.append.bytes);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'fn5' });
+    expect(built.report.revision).toBe('T13-FN5');
+  }, 240000);
 });

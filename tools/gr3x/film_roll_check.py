@@ -61,6 +61,8 @@ class RollProbe(Probe):
             # The diagnostic's call of the function: entry stack, ip = sp, return address its own.
             assert cpu.reg_read(reg.UC_ARM_REG_SP)==self.entry_sp and cpu.reg_read(reg.UC_ARM_REG_IP)==self.entry_sp
             self.sfp_calls+=1;ret(self.sfp_ret)
+        elif self.fn_stubs and at==0x532270d4:
+            self.events.append(('retake action',));ret(1)
         elif self.fn_stubs and at==0x5320aefc:
             self.queue_arg=r(0);ret(0xe0e0)
         elif self.fn_stubs and at==0x532288b0:
@@ -98,7 +100,7 @@ def verify(data,manifest,seed=3101):
     p=RollProbe(data,manifest);cpu=p.uc;rng=random.Random(seed);cases={}
     count=lambda k:cases.__setitem__(k,cases.get(k,0)+1)
     cpu.mem_write(OBJ+8,struct.pack('<I',STORE))
-    menu_form=manifest['filmRoll'] in ('menu','keys','fn','fn2','fn3','fn4');keys_form=manifest['filmRoll']=='keys';fn_form=manifest['filmRoll'] in ('fn','fn2','fn3','fn4');fn2=manifest['filmRoll']=='fn2';fn3=manifest['filmRoll']=='fn3';fn4=manifest['filmRoll']=='fn4'
+    menu_form=manifest['filmRoll'] in ('menu','keys','fn','fn2','fn3','fn4','fn5');keys_form=manifest['filmRoll']=='keys';fn_form=manifest['filmRoll'] in ('fn','fn2','fn3','fn4','fn5');fn2=manifest['filmRoll']=='fn2';fn3=manifest['filmRoll']=='fn3';fn4=manifest['filmRoll'] in ('fn4','fn5');fn5=manifest['filmRoll']=='fn5'
     def setup(mode,cur=None,box=None,model=True,pointer=True,state=2,film=True):
         cur=bytearray(rng.randrange(256) for _ in range(SIZE)) if cur is None else bytearray(cur)
         # Form 'menu': the record in use's Film Roll Mode (bit 0 of 0x9b1) on unless asked off.
@@ -209,7 +211,7 @@ def verify(data,manifest,seed=3101):
             assert got[DRIVE]==(3 if forced else src[DRIVE]),(mode,got[DRIVE])
             assert bytes(cpu.mem_read(RECS+(1+mode)*0x1000,SIZE))==src
     # 6. Form 'folders': the roll's folder at SetFilePath's entry.
-    folders=manifest['filmRoll'] in ('folders','folders-diag','menu','keys','fn','fn2','fn3','fn4');diag=manifest['filmRoll']=='folders-diag'
+    folders=manifest['filmRoll'] in ('folders','folders-diag','menu','keys','fn','fn2','fn3','fn4','fn5');diag=manifest['filmRoll']=='folders-diag'
     D=0x55804390
     def diag_check(given,code_want,next_want,ret,calls_before):
         d=bytes(cpu.mem_read(D,8))
@@ -426,7 +428,7 @@ def verify(data,manifest,seed=3101):
                     p.run(0x5329bcc8,0x5329bccc,regs);count('fn pressed')
                     adv=fn==42 and film and 1<=mode<=6
                     assert p.posters==(1 if adv else 0),(mode,film,fn)
-                    assert p.events==([(0xb7,0,0)] if fn==43 and film and 1<=mode<=6 and st==2 else []),(mode,film,fn,st,p.events)
+                    assert p.events==(([('retake action',)] if fn5 else [(0xb7,0,0)]) if fn==43 and film and 1<=mode<=6 and st==2 else []),(mode,film,fn,st,p.events)
                     want=dict(regs);want[2]=0 if fn in (42,43) else fn
                     kept(want,True);assert state()==before
         # Pressed (Movie/Wireless, Hold): the function in r6 at the switch.
@@ -439,7 +441,7 @@ def verify(data,manifest,seed=3101):
                     p.run(0x5329a0a0,0x5329a0a4,regs);count('fn wlan')
                     adv=fn==42 and film and 1<=mode<=6
                     assert p.posters==(1 if adv else 0),(mode,film,fn)
-                    assert p.events==([(0xb7,0,0)] if fn==43 and film and 1<=mode<=6 and st==2 else []),(mode,film,fn,st,p.events)
+                    assert p.events==(([('retake action',)] if fn5 else [(0xb7,0,0)]) if fn==43 and film and 1<=mode<=6 and st==2 else []),(mode,film,fn,st,p.events)
                     want=dict(regs);want[6]=0 if fn in (42,43) else fn
                     for k,v in want.items():assert cpu.reg_read(getattr(reg,'UC_ARM_REG_R%d'%k))==v,k
                     cpsr=cpu.reg_read(reg.UC_ARM_REG_CPSR);C=(cpsr>>29)&1;Z=(cpsr>>30)&1
@@ -525,7 +527,7 @@ def verify(data,manifest,seed=3101):
         cpu.mem_write(K,bytes([9,3,0,0, 10,3,0,0, 11,2,0,0, 130,40,0,0])+bytes(1));assert clock()==date(130,40,9,3)
         cpu.mem_write(K,bytes([9,3,0,0, 10,7,0,0, 11,2,0,0])+bytes(5));assert clock()==date(10,7,9,3)
         cpu.mem_write(K,bytes([200,1,0,0])+bytes(13));assert clock()==date(200,1,0,0)
-    return dict(schema=1,revision='T13-FN4' if fn4 else 'T13-FN3' if fn3 else 'T13-FN2' if fn2 else 'T13-FN1' if fn_form else 'T12-KEYS2' if keys_form else 'T12-MENU2' if menu_form else 'T11-ROLL2D' if diag else 'T11-ROLL3' if folders else 'T11-ROLL1',rtos_sha256=hashlib.sha256(data).hexdigest(),cases=cases,seed=seed,hardware_tested=False,
+    return dict(schema=1,revision='T13-FN5' if fn5 else 'T13-FN4' if fn4 else 'T13-FN3' if fn3 else 'T13-FN2' if fn2 else 'T13-FN1' if fn_form else 'T12-KEYS2' if keys_form else 'T12-MENU2' if menu_form else 'T11-ROLL2D' if diag else 'T11-ROLL3' if folders else 'T11-ROLL1',rtos_sha256=hashlib.sha256(data).hexdigest(),cases=cases,seed=seed,hardware_tested=False,
         scope='Hooks run from their patched sites (firmware storage and the native BOX save body substituted); the recall runs natively.')
 
 if __name__=='__main__':

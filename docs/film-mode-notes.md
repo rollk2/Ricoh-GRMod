@@ -1234,3 +1234,15 @@ Plus grand dossier au départ : `109`.
   (Film Advance n'a été testé que sur Fn et Drive), ou l'événement 0xb7 n'est pas traité hors de
   QuickViewController. Test discriminant sans nouveau build : échanger les deux fonctions entre les
   touches gauche et droite.
+- Test d'échange (même build) : Reprendre photo sur la touche droite, Film Advance sur la gauche.
+  X5 : Retake toujours sans effet ; X6 : la touche gauche fait avancer (2 → 3). G2 : la photo finale
+  superpose lampe, fenêtre et livre. Conclusion (forte) : la touche gauche passe bien par nos
+  crochets ; c'est l'événement 0xb7 publié en visée qui n'aboutit pas.
+
+### Build de test T13-FN5 : Retake par l'action du boîtier
+
+- La fonction 43 appelle directement l'action de l'événement 0xb7, `0x532270d4` (modèle de prise de
+  vue par `0x5320b19c`, puis son Retake `0x5323a1a4`, qui vérifie lui-même l'état 2), au lieu de
+  publier l'événement. C'est la jumelle de l'action Complete `0x532270f4`. Le reste est T13-FN4.
+- Vérifié en émulateur : l'action appelée seulement dans le bon cas, sur les deux chemins ; T13-FN4
+  reconstruit identique octet pour octet ; sondes de T13-FN1, T13-FN4 et du garde-fou repassées.

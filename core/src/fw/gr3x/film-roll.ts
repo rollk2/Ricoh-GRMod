@@ -335,6 +335,8 @@ export const GR3X_FN_TEXT = 0x53292ed0, GR3X_FN_ICON = 0x53293e6c, GR3X_FN_CUSTO
 export const GR3X_FILM_ADVANCE = 42;
 /** Function 43 (T13-FN4): Retake, with the camera's own text « Retake shot » (0x2b5, 21 languages). */
 export const GR3X_FILM_RETAKE = 43, GR3X_RETAKE_TEXT = 0x2b5;
+/** The UI action of event 0xb7 (Retake): the shooting model (0x5320b19c) then its Retake 0x5323a1a4. */
+export const GR3X_RETAKE_ACTION = 0x532270d4;
 /** For now Film Advance shows Drive Mode's icon (function 23's, 0x121). */
 export const GR3X_FILM_ADVANCE_ICON = 0x121;
 const END_POSTER = 0x531a4d80;
@@ -363,7 +365,7 @@ export interface Gr3xFnProgram extends Gr3xRollProgram {
  *    advances the film when a U mode with Film Roll Mode on has a frame exposed (the end poster
  *    0x531a4d80, as Complete), then the camera goes on as for Off (function 0): nothing else happens.
  */
-export function installGr3xFilmAdvanceFn(p: Gr3xFnProgram, text: number, retake = false) {
+export function installGr3xFilmAdvanceFn(p: Gr3xFnProgram, text: number, retake: false | 'event' | 'action' = false) {
   const fail = (what: string) => { throw new FirmwareError('unexpected-layout', `IIIx film advance: ${what}`); };
   const free = (at: number) => { if (p.sites.some(s => s.address === at)) throw new FirmwareError('unexpected-instruction', `IIIx film advance: ${at.toString(16)} already patched`); };
   const official = p.read(GR3X_FN_TABLE, GR3X_FN_COUNT);
@@ -389,11 +391,13 @@ export function installGr3xFilmAdvanceFn(p: Gr3xFnProgram, text: number, retake 
   p.patch(GR3X_FN_ICON, 0xe3510000, branchWord(GR3X_FN_ICON, entries.filmFnIcon), 'film advance: its icon');
   // The advance (every register kept but the function's, which becomes Off).
   const advance = (label: string) => `push {r0,r1,r2,r3,ip,lr};${records(label, true)}bl #${END_POSTER};${label}:pop {r0,r1,r2,r3,ip,lr};`;
-  // The retake (43): UI event 0xb7, as the screen's Retake shot, when a frame is exposed (state 2).
+  // The retake (43), when a frame is exposed (state 2): 'event' (T13-FN4) posts UI event 0xb7, as the
+  // screen's Retake shot (ignored in the live view on the camera); 'action' (T13-FN5) calls that
+  // event's action 0x532270d4 (the shooting model's Retake 0x5323a1a4, which checks the state too).
   const retakeCode = (label: string) => `push {r0,r1,r2,r3,ip,lr};${records(label, true)}
     movw r0,#${lo(SINGLETON)};movt r0,#${hi(SINGLETON)};ldr r0,[r0];${ram('r0', label)}
     ldr r0,[r0,#0x518];${ram('r0', label)}ldr r0,[r0];${ram('r0', label)}ldrb r0,[r0,#0x6c0];cmp r0,#2;bne ${label};
-    bl #${UI_TASK};bl #${UI_QUEUE};mov r1,#0xb7;mov r2,#0;mov r3,#0;bl #${GR3X_POST_EVENT};${label}:pop {r0,r1,r2,r3,ip,lr};`;
+    ${retake === 'action' ? `bl #${GR3X_RETAKE_ACTION};` : `bl #${UI_TASK};bl #${UI_QUEUE};mov r1,#0xb7;mov r2,#0;mov r3,#0;bl #${GR3X_POST_EVENT};`}${label}:pop {r0,r1,r2,r3,ip,lr};`;
   const retakeCustom = retake ? `cmp r2,#${GR3X_FILM_RETAKE};bne native;${retakeCode('rkept')}mov r2,#0;b native;` : '';
   const retakeWlan = retake ? `cmp r6,#${GR3X_FILM_RETAKE};bne go;${retakeCode('rkept')}mov r6,#0;b go;` : '';
   entries.filmFnCustom = p.code(`cmp r2,#${GR3X_FILM_ADVANCE};bne ${retake ? 'other' : 'native'};${advance('kept')}mov r2,#0;${retake ? `b native;other:${retakeCustom}` : ''}native:mov ip,sp;b #${GR3X_FN_CUSTOM + 4};`);
