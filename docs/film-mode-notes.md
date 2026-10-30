@@ -1154,3 +1154,17 @@ Plus grand dossier au départ : `109`.
 - Conclusion : il ne faut pas sauter l'ouverture mais la rediriger vers la visée (0x08000000),
   comme le fait Next shot ; et la sonde doit ignorer les codes parasites et repartir de zéro à
   chaque vue.
+
+### Build de test T13-FN3 : la visée au lieu de l'écran, sonde corrigée
+
+- Dans l'action d'ouverture, en `0x53226760` (`mov r1,#0xc`, suivi de `movt r1,#0x800`) : en mode U,
+  avec Film Roll Mode et l'état de multi-exposition 2, r1 reçoit 0 au lieu de 0xc, donc la demande
+  vise le contrôleur de la visée (0x08000000) comme Next shot ; ailleurs, l'écran comme avant. Le
+  saut de T13-FN2 (`0x53226738`) n'est pas dans ce build.
+- Sonde des touches : table vidée au début de chaque vue (crochet d'exposition), codes 6 et 57
+  ignorés ; date = les deux touches les plus pressées depuis la dernière vue (même codage que
+  T13-FN2). Test prévu avec Film Advance sur Fn et la touche Drive sur Off, pour observer l'appui
+  long de la touche droite sans faire avancer le film.
+- Vérifié en émulateur : redirection seulement dans le bon cas (120 combinaisons), registres et pile
+  rendus ; table vidée par l'exposition, codes 6 et 57 ignorés, horloge ; T13-FN1 et T13-FN2
+  reconstruits identiques octet pour octet ; sonde du garde-fou repassée.

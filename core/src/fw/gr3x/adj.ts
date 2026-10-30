@@ -107,7 +107,7 @@ export interface Gr3xAdjFeatures {
   filmProbe?: boolean | 'exposures' | 'sequence' | 'emitters' | 'folders' | 'return' | 'return2' | 'return3';
   /** Film mode phase 3.1 (film-roll.ts): the roll's state and frame counter in U1..U3. Round 10
    * with the date imprint, without the film probe. */
-  filmRoll?: boolean | 'folders' | 'folders-diag' | 'menu' | 'keys' | 'fn' | 'fn2';
+  filmRoll?: boolean | 'folders' | 'folders-diag' | 'menu' | 'keys' | 'fn' | 'fn2' | 'fn3';
   /** Round 8: the Image Control order and hidden looks (look-layout.ts; the camera's order with
    * nothing hidden is the same as none). */
   lookLayout?: Gr3xLookLayout;
@@ -132,12 +132,13 @@ export async function buildGr3xAdjResearch(raw: Uint8Array, ratioMenu: readonly 
   if (round10 && !round9) fail('IIIx round 10 builds on round 9');
   const filmProbe = features.filmProbe === true || features.filmProbe === 'exposures' || features.filmProbe === 'sequence' || features.filmProbe === 'emitters' || features.filmProbe === 'folders' || features.filmProbe === 'return' || features.filmProbe === 'return2' || features.filmProbe === 'return3';
   if (filmProbe && !(round10 && dateImprint)) fail('IIIx film probe: round 10 with the date imprint');
-  const filmRoll = features.filmRoll === true || features.filmRoll === 'folders' || features.filmRoll === 'folders-diag' || features.filmRoll === 'menu' || features.filmRoll === 'keys' || features.filmRoll === 'fn' || features.filmRoll === 'fn2';
+  const filmRoll = features.filmRoll === true || features.filmRoll === 'folders' || features.filmRoll === 'folders-diag' || features.filmRoll === 'menu' || features.filmRoll === 'keys' || features.filmRoll === 'fn' || features.filmRoll === 'fn2' || features.filmRoll === 'fn3';
   // Phase 4: the Film Roll Mode line (Customize Settings) and its text ('keys': and the key probe;
   // 'fn', phase 6: and Film Advance in Fn Button Settings, with its text).
-  const filmMenu = features.filmRoll === 'menu' || features.filmRoll === 'keys' || features.filmRoll === 'fn' || features.filmRoll === 'fn2';
+  const filmMenu = features.filmRoll === 'menu' || features.filmRoll === 'keys' || features.filmRoll === 'fn' || features.filmRoll === 'fn2' || features.filmRoll === 'fn3';
   // 'fn2' (T13-FN2): and no Next / Retake / Complete screen, with a key probe (two most pressed keys).
-  const filmFn = features.filmRoll === 'fn' || features.filmRoll === 'fn2';
+  // 'fn3' (T13-FN3): the live view instead of that screen, the key probe cleared at each exposure.
+  const filmFn = features.filmRoll === 'fn' || features.filmRoll === 'fn2' || features.filmRoll === 'fn3';
   if (filmRoll && (!(round10 && dateImprint) || filmProbe)) fail('IIIx film roll: round 10 with the date imprint, without the film probe');
   if (features.lookLayout && !round8) fail('IIIx look layout: round 8');
   if (round7 && dateImprint && features.dateMenu !== 'submenu') fail('IIIx round 7: the date imprint submenu');
@@ -214,7 +215,7 @@ export async function buildGr3xAdjResearch(raw: Uint8Array, ratioMenu: readonly 
   const scaffold = round10 ? installGr3xSettingsScaffold({ code, sites, u32: word }) : {};
   // Film mode test builds: hooked first, so every later hook (films, End Screen, guard) runs around it.
   const probe = filmProbe ? installGr3xFilmProbe({ code, sites, patch }, features.filmProbe === true ? 'encodes' : features.filmProbe as 'exposures' | 'sequence' | 'emitters' | 'folders' | 'return' | 'return2' | 'return3') : undefined;
-  const roll = filmRoll ? installGr3xFilmRoll({ code, sites, patch }, menu, features.filmRoll !== true, features.filmRoll === 'folders-diag', filmMenu, features.filmRoll === 'keys' ? 'sequence' : features.filmRoll === 'fn2' ? 'boot' : false, features.filmRoll === 'fn2') : undefined;
+  const roll = filmRoll ? installGr3xFilmRoll({ code, sites, patch }, menu, features.filmRoll !== true, features.filmRoll === 'folders-diag', filmMenu, features.filmRoll === 'keys' ? 'sequence' : features.filmRoll === 'fn2' ? 'boot' : features.filmRoll === 'fn3' ? 'shot' : false, features.filmRoll === 'fn2' ? 'skip' : features.filmRoll === 'fn3' ? 'live' : false) : undefined;
   const probeEntries = probe?.entries ?? roll?.entries;
   if (round10) patch(GR3X_ZERO_FILL_LITERAL, GR3X_FILL_OFFICIAL, GR3X_FILL_R10, 'start-up zero fill over the 76 bytes before the heap (round 10\'s RAM words)');
   const order = append(Uint8Array.from(geometry.ratios.map(r => r.id)));

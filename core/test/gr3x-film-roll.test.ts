@@ -120,4 +120,15 @@ describe.skipIf(!input)('GR III film roll (film mode phase 3.1)', () => {
     const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'fn2' });
     expect(built.report.revision).toBe('T13-FN2');
   }, 240000);
+  it('asks for the live view instead of that screen, and clears the key probe at each exposure (T13-FN3)', async () => {
+    const fn = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'fn' });
+    const fn3 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'fn3' });
+    expect(fn3.sites.find(s => s.address === 0x53226760)!).toMatchObject({ expected: '0c10a0e3', reason: expect.stringMatching(/^film roll: the live view/) });
+    expect(fn3.sites.some(s => s.address === 0x53226738)).toBe(false);
+    for (const at of [0x53221a1c, 0x532288b0]) expect(fn3.sites.find(s => s.address === at)!.reason).toMatch(/^film roll key probe/);
+    expect(fn3.sites.length).toBe(fn.sites.length + 3);
+    expect((fn3.entries as Record<string, number>).filmReviewToLive).toBeGreaterThan(0x53000000);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'fn3' });
+    expect(built.report.revision).toBe('T13-FN3');
+  }, 240000);
 });

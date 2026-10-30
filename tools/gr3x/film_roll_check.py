@@ -88,7 +88,7 @@ def verify(data,manifest,seed=3101):
     p=RollProbe(data,manifest);cpu=p.uc;rng=random.Random(seed);cases={}
     count=lambda k:cases.__setitem__(k,cases.get(k,0)+1)
     cpu.mem_write(OBJ+8,struct.pack('<I',STORE))
-    menu_form=manifest['filmRoll'] in ('menu','keys','fn','fn2');keys_form=manifest['filmRoll']=='keys';fn_form=manifest['filmRoll'] in ('fn','fn2');fn2=manifest['filmRoll']=='fn2'
+    menu_form=manifest['filmRoll'] in ('menu','keys','fn','fn2','fn3');keys_form=manifest['filmRoll']=='keys';fn_form=manifest['filmRoll'] in ('fn','fn2','fn3');fn2=manifest['filmRoll']=='fn2';fn3=manifest['filmRoll']=='fn3'
     def setup(mode,cur=None,box=None,model=True,pointer=True,state=2,film=True):
         cur=bytearray(rng.randrange(256) for _ in range(SIZE)) if cur is None else bytearray(cur)
         # Form 'menu': the record in use's Film Roll Mode (bit 0 of 0x9b1) on unless asked off.
@@ -199,7 +199,7 @@ def verify(data,manifest,seed=3101):
             assert got[DRIVE]==(3 if forced else src[DRIVE]),(mode,got[DRIVE])
             assert bytes(cpu.mem_read(RECS+(1+mode)*0x1000,SIZE))==src
     # 6. Form 'folders': the roll's folder at SetFilePath's entry.
-    folders=manifest['filmRoll'] in ('folders','folders-diag','menu','keys','fn','fn2');diag=manifest['filmRoll']=='folders-diag'
+    folders=manifest['filmRoll'] in ('folders','folders-diag','menu','keys','fn','fn2','fn3');diag=manifest['filmRoll']=='folders-diag'
     D=0x55804390
     def diag_check(given,code_want,next_want,ret,calls_before):
         d=bytes(cpu.mem_read(D,8))
@@ -431,9 +431,21 @@ def verify(data,manifest,seed=3101):
                     assert (C==0 or Z==1)==(want[6]<=0x29)
         p.stubs_on=False;p.fn_stubs=False
     # 11. Form 'fn2': no Next / Retake / Complete screen in film mode, and the two-key clock.
-    if fn2:
-        OPEN=0x53226738;K=0x55804390;KEY_EVENT,POST_EVENT=0x53221a1c,0x532288b0
-        for mode in (0,1,3,6,7):
+    # 12. Form 'fn3': the live view's id (0x08000000) instead of the screen's (0x0800000c) in film mode,
+    # the key probe cleared at each exposure and deaf to keys 6 and 57.
+    if fn2 or fn3:
+        OPEN=0x53226738;REVIEW_ID=0x53226760;K=0x55804390;KEY_EVENT,POST_EVENT=0x53221a1c,0x532288b0
+        for mode in (0,1,3,6,7) if fn3 else ():
+            for film in (False,True):
+                for st in (0,1,2,3):
+                    for model,pointer in ((True,True),(False,True),(True,False)):
+                        setup(mode,film=film,state=st,model=model,pointer=pointer);before=state()
+                        live=film and 1<=mode<=6 and st==2 and model and pointer
+                        regs={0:0x1111,1:0x2222,2:0x3333,3:0x4444,4:0x44,5:0x55}
+                        p.run(REVIEW_ID,REVIEW_ID+4,regs);count('review to live' if live else 'review screen')
+                        want=dict(regs);want[1]=0 if live else 0xc;kept(want)
+                        assert cpu.reg_read(reg.UC_ARM_REG_SP)==STACK and state()==before
+        for mode in (0,1,3,6,7) if fn2 else ():
             for film in (False,True):
                 for st in (0,1,2,3):
                     for model,pointer in ((True,True),(False,True),(True,False)):
@@ -456,15 +468,28 @@ def verify(data,manifest,seed=3101):
         def clock():
             cpu.mem_write(TIME,bytes(16));p.call(e['filmProbeTime'],0x1234,TIME);count('key clock');return bytes(cpu.mem_read(TIME,16))
         def date(k1,c1,k2,c2):return struct.pack('<H',2000+k1%100)+bytes([1+min(c1,11),1+min(c2,30),k2//60,k2%60])+bytes(10)
+        if fn3:
+            # Each exposure clears the table (the exposure hook runs first); keys 6 and 57 are not counted.
+            for started in (False,True):
+                cur,boxes=setup(3)
+                for b in [cur]:b[FLAGS]=(b[FLAGS]&~2)|(2 if started else 0)
+                cpu.mem_write(CUR,bytes(cur));cpu.mem_write(K,bytes(range(1,18)))
+                regs={0:0x1111,1:0x2222,2:0x3333,3:0x4444}
+                p.run(e['exposureOrientation'],BEFORE_EXPOSE+4,regs);count('key clear at exposure');kept(regs,True)
+                assert bytes(cpu.mem_read(K,17))==bytes(17)
+            cpu.mem_write(K,bytes(17))
+            for k in (6,57,6):key(k)
+            assert bytes(cpu.mem_read(K,17))==bytes(17)
         cpu.mem_write(K,bytes(17));assert clock()==date(0,0,0,0)
-        key(57);key(57);key(57);key(35);t=clock();assert t==date(57,3,35,1),t.hex()
+        N=58 if fn3 else 57
+        key(N);key(N);key(N);key(35);t=clock();assert t==date(N,3,35,1),t.hex()
         for _ in range(4):key(35)
-        assert clock()==date(35,5,57,3)
-        key(50);assert clock()==date(35,5,57,3)
+        assert clock()==date(35,5,N,3)
+        key(50);assert clock()==date(35,5,N,3)
         cpu.mem_write(K,bytes([9,3,0,0, 10,3,0,0, 11,2,0,0, 130,40,0,0])+bytes(1));assert clock()==date(130,40,9,3)
         cpu.mem_write(K,bytes([9,3,0,0, 10,7,0,0, 11,2,0,0])+bytes(5));assert clock()==date(10,7,9,3)
         cpu.mem_write(K,bytes([200,1,0,0])+bytes(13));assert clock()==date(200,1,0,0)
-    return dict(schema=1,revision='T13-FN2' if fn2 else 'T13-FN1' if fn_form else 'T12-KEYS2' if keys_form else 'T12-MENU2' if menu_form else 'T11-ROLL2D' if diag else 'T11-ROLL3' if folders else 'T11-ROLL1',rtos_sha256=hashlib.sha256(data).hexdigest(),cases=cases,seed=seed,hardware_tested=False,
+    return dict(schema=1,revision='T13-FN3' if fn3 else 'T13-FN2' if fn2 else 'T13-FN1' if fn_form else 'T12-KEYS2' if keys_form else 'T12-MENU2' if menu_form else 'T11-ROLL2D' if diag else 'T11-ROLL3' if folders else 'T11-ROLL1',rtos_sha256=hashlib.sha256(data).hexdigest(),cases=cases,seed=seed,hardware_tested=False,
         scope='Hooks run from their patched sites (firmware storage and the native BOX save body substituted); the recall runs natively.')
 
 if __name__=='__main__':
