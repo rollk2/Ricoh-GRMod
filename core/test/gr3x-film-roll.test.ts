@@ -131,4 +131,14 @@ describe.skipIf(!input)('GR III film roll (film mode phase 3.1)', () => {
     const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'fn3' });
     expect(built.report.revision).toBe('T13-FN3');
   }, 240000);
+  it('closes that screen by itself and adds Retake to Fn Button Settings (T13-FN4)', async () => {
+    const fn = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'fn' });
+    const fn4 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'fn4' });
+    expect(fn4.sites.find(s => s.address === 0x531cbde4)!).toMatchObject({ expected: '0dc0a0e1', reason: expect.stringMatching(/^film roll: Next \/ Retake \/ Complete closes/) });
+    for (const at of [0x53226738, 0x53226760, 0x53221a1c, 0x532288b0]) expect(fn4.sites.some(s => s.address === at)).toBe(false);
+    expect(fn4.sites.find(s => s.address === 0x531be698)!.replacement).toBe('266084e2');
+    expect(fn4.sites.length).toBe(fn.sites.length + 1);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'fn4' });
+    expect(built.report.revision).toBe('T13-FN4');
+  }, 240000);
 });

@@ -1202,3 +1202,22 @@ Plus grand dossier au départ : `109`.
 - Plan T13-FN4 : (1) à l'entrée du démarrage `0x531cbde4`, en mode pellicule (U, Film Roll Mode,
   état 2), exécuter le démarrage natif puis appeler Next shot (`0x531ca804`) sur l'écran ; (2) fonction
   43 « Film Retake » dans Fn Button Settings : publie 0xb7 si une vue a été prise.
+
+### Build de test T13-FN4 : l'écran se referme seul, Retake dans Fn Button Settings
+
+- À l'entrée du démarrage de QuickViewController (`0x531cbde4`) : en mode U, avec Film Roll Mode et
+  l'état de multi-exposition 2, le démarrage natif est appelé (pile d'entrée, ip = sp), puis Next shot
+  (`0x531ca804`, r0 = l'écran) ; ailleurs, le démarrage seul. Ni la sonde des touches ni les
+  crochets de T13-FN2 et T13-FN3 ne sont dans ce build.
+- Fonction 43 « Retake » : table des fonctions à 38 entrées (42 puis 43), texte du boîtier 0x2b5
+  (« Retake shot », « Reprendre photo » en français, vérifié dans les tables de textes), icône 0x121 ;
+  pressée (Fn, ISO, Drive, Movie/Wireless, Hold) : publie l'événement 0xb7
+  (`0x532288b0(0x5320aefc(0x5320ad88()), 0xb7, 0, 0)`, comme le bouton de l'écran) en mode U avec
+  Film Roll Mode et l'état 2, puis le boîtier continue comme pour Off.
+- Vérifié en émulateur : démarrage puis Next shot seulement dans le bon cas (120 combinaisons),
+  arguments, pile et retour ; Retake publié seulement dans le bon cas (mode, Film Roll Mode, état
+  0 ou 2) sur les deux chemins ; liste (38 fonctions pour les trois modèles), texte et icône ;
+  T13-FN1 et T13-FN3 reconstruits identiques octet pour octet ; sondes de T13-FN1 à T13-FN3 et du
+  garde-fou repassées.
+- Note d'émulation : Unicorn enchaîne les blocs déjà exécutés, un saut vers un bloc déjà atteint
+  n'est plus arrêté à l'adresse de fin ; les cas qui s'arrêtent en `fn + 4` passent donc en premier.

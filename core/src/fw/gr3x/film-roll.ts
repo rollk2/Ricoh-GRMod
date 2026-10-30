@@ -110,7 +110,7 @@ export interface Gr3xRollProgram {
   patch(address: number, expected: number, replacement: number, reason: string): void;
 }
 
-export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuRatio[], folders = false, diag = false, filmMenu = false, keys: false | 'sequence' | 'boot' | 'shot' = false, noReview: false | 'skip' | 'live' = false) {
+export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuRatio[], folders = false, diag = false, filmMenu = false, keys: false | 'sequence' | 'boot' | 'shot' = false, noReview: false | 'skip' | 'live' | 'next' = false) {
   const rec = (label: string) => records(label, filmMenu);
   const free = (at: number) => { if (p.sites.some(s => s.address === at)) throw new FirmwareError('unexpected-instruction', `IIIx film roll: ${at.toString(16)} already patched`); };
   const entries: Record<string, number> = {};
@@ -180,6 +180,7 @@ export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuR
   if (keys) installKeys(p, free, entries, keys === 'boot' || keys === 'shot', keys === 'shot');
   if (noReview === 'skip') installNoReview(p, free, entries);
   if (noReview === 'live') installReviewToLive(p, free, entries);
+  if (noReview === 'next') installReviewNext(p, free, entries);
   return { entries, exposure };
 }
 
@@ -332,6 +333,8 @@ export const GR3X_FN_TABLE = 0x53b4eb7c, GR3X_FN_COUNT = 36, GR3X_FN_LOOP_LOW = 
 export const GR3X_FN_TEXT = 0x53292ed0, GR3X_FN_ICON = 0x53293e6c, GR3X_FN_CUSTOM = 0x5329bcc8, GR3X_FN_WLAN = 0x5329a0a0;
 /** Film Advance's function number (the camera's are 0..41; 0 is Off). */
 export const GR3X_FILM_ADVANCE = 42;
+/** Function 43 (T13-FN4): Retake, with the camera's own text « Retake shot » (0x2b5, 21 languages). */
+export const GR3X_FILM_RETAKE = 43, GR3X_RETAKE_TEXT = 0x2b5;
 /** For now Film Advance shows Drive Mode's icon (function 23's, 0x121). */
 export const GR3X_FILM_ADVANCE_ICON = 0x121;
 const END_POSTER = 0x531a4d80;
@@ -360,7 +363,7 @@ export interface Gr3xFnProgram extends Gr3xRollProgram {
  *    advances the film when a U mode with Film Roll Mode on has a frame exposed (the end poster
  *    0x531a4d80, as Complete), then the camera goes on as for Off (function 0): nothing else happens.
  */
-export function installGr3xFilmAdvanceFn(p: Gr3xFnProgram, text: number) {
+export function installGr3xFilmAdvanceFn(p: Gr3xFnProgram, text: number, retake = false) {
   const fail = (what: string) => { throw new FirmwareError('unexpected-layout', `IIIx film advance: ${what}`); };
   const free = (at: number) => { if (p.sites.some(s => s.address === at)) throw new FirmwareError('unexpected-instruction', `IIIx film advance: ${at.toString(16)} already patched`); };
   const official = p.read(GR3X_FN_TABLE, GR3X_FN_COUNT);
@@ -371,21 +374,31 @@ export function installGr3xFilmAdvanceFn(p: Gr3xFnProgram, text: number) {
     free(at); if (p.u32(at) !== w) fail(`instruction at ${at.toString(16)}`);
   }
   const entries: Record<string, number> = {};
-  const table = p.append(Uint8Array.from([...official, GR3X_FILM_ADVANCE]));
+  const added = retake ? [GR3X_FILM_ADVANCE, GR3X_FILM_RETAKE] : [GR3X_FILM_ADVANCE];
+  const table = p.append(Uint8Array.from([...official, ...added]));
   entries.filmFnTable = table;
   for (const at of [GR3X_FN_LOOP_LOW, GR3X_FN_LOOP_LOW + 4, GR3X_FN_LOOP_END]) free(at);
   p.patch(GR3X_FN_LOOP_LOW, movWord(4, lo(GR3X_FN_TABLE)), movWord(4, lo(table)), 'film advance: the functions table with Film Advance, low half');
   p.patch(GR3X_FN_LOOP_LOW + 4, movWord(4, hi(GR3X_FN_TABLE), true), movWord(4, hi(table), true), 'film advance: the functions table with Film Advance, high half');
-  p.patch(GR3X_FN_LOOP_END, 0xe2846024, 0xe2846025, 'film advance: the functions table has 37 entries');
-  entries.filmFnText = p.code(`cmp r1,#${GR3X_FILM_ADVANCE};movweq r0,#${text};bxeq lr;cmp r1,#0;b #${GR3X_FN_TEXT + 4};`);
+  p.patch(GR3X_FN_LOOP_END, 0xe2846024, 0xe2846024 + added.length, `film advance: the functions table has ${GR3X_FN_COUNT + added.length} entries`);
+  const retakeText = retake ? `cmp r1,#${GR3X_FILM_RETAKE};movweq r0,#${GR3X_RETAKE_TEXT};bxeq lr;` : '';
+  entries.filmFnText = p.code(`cmp r1,#${GR3X_FILM_ADVANCE};movweq r0,#${text};bxeq lr;${retakeText}cmp r1,#0;b #${GR3X_FN_TEXT + 4};`);
   p.patch(GR3X_FN_TEXT, 0xe3510000, branchWord(GR3X_FN_TEXT, entries.filmFnText), 'film advance: its text');
-  entries.filmFnIcon = p.code(`cmp r1,#${GR3X_FILM_ADVANCE};movweq r0,#${GR3X_FILM_ADVANCE_ICON};bxeq lr;cmp r1,#0;b #${GR3X_FN_ICON + 4};`);
+  const retakeIcon = retake ? `cmp r1,#${GR3X_FILM_RETAKE};movweq r0,#${GR3X_FILM_ADVANCE_ICON};bxeq lr;` : '';
+  entries.filmFnIcon = p.code(`cmp r1,#${GR3X_FILM_ADVANCE};movweq r0,#${GR3X_FILM_ADVANCE_ICON};bxeq lr;${retakeIcon}cmp r1,#0;b #${GR3X_FN_ICON + 4};`);
   p.patch(GR3X_FN_ICON, 0xe3510000, branchWord(GR3X_FN_ICON, entries.filmFnIcon), 'film advance: its icon');
   // The advance (every register kept but the function's, which becomes Off).
   const advance = (label: string) => `push {r0,r1,r2,r3,ip,lr};${records(label, true)}bl #${END_POSTER};${label}:pop {r0,r1,r2,r3,ip,lr};`;
-  entries.filmFnCustom = p.code(`cmp r2,#${GR3X_FILM_ADVANCE};bne native;${advance('kept')}mov r2,#0;native:mov ip,sp;b #${GR3X_FN_CUSTOM + 4};`);
+  // The retake (43): UI event 0xb7, as the screen's Retake shot, when a frame is exposed (state 2).
+  const retakeCode = (label: string) => `push {r0,r1,r2,r3,ip,lr};${records(label, true)}
+    movw r0,#${lo(SINGLETON)};movt r0,#${hi(SINGLETON)};ldr r0,[r0];${ram('r0', label)}
+    ldr r0,[r0,#0x518];${ram('r0', label)}ldr r0,[r0];${ram('r0', label)}ldrb r0,[r0,#0x6c0];cmp r0,#2;bne ${label};
+    bl #${UI_TASK};bl #${UI_QUEUE};mov r1,#0xb7;mov r2,#0;mov r3,#0;bl #${GR3X_POST_EVENT};${label}:pop {r0,r1,r2,r3,ip,lr};`;
+  const retakeCustom = retake ? `cmp r2,#${GR3X_FILM_RETAKE};bne native;${retakeCode('rkept')}mov r2,#0;b native;` : '';
+  const retakeWlan = retake ? `cmp r6,#${GR3X_FILM_RETAKE};bne go;${retakeCode('rkept')}mov r6,#0;b go;` : '';
+  entries.filmFnCustom = p.code(`cmp r2,#${GR3X_FILM_ADVANCE};bne ${retake ? 'other' : 'native'};${advance('kept')}mov r2,#0;${retake ? `b native;other:${retakeCustom}` : ''}native:mov ip,sp;b #${GR3X_FN_CUSTOM + 4};`);
   p.patch(GR3X_FN_CUSTOM, 0xe1a0c00d, branchWord(GR3X_FN_CUSTOM, entries.filmFnCustom), 'film advance: Fn, ISO and Drive buttons');
-  entries.filmFnWlan = p.code(`cmp r6,#${GR3X_FILM_ADVANCE};bne go;${advance('kept')}mov r6,#0;go:cmp r6,#0x29;b #${GR3X_FN_WLAN + 4};`);
+  entries.filmFnWlan = p.code(`cmp r6,#${GR3X_FILM_ADVANCE};bne ${retake ? 'other' : 'go'};${advance('kept')}mov r6,#0;${retake ? `b go;other:${retakeWlan}` : ''}go:cmp r6,#0x29;b #${GR3X_FN_WLAN + 4};`);
   p.patch(GR3X_FN_WLAN, 0xe3560029, branchWord(GR3X_FN_WLAN, entries.filmFnWlan), 'film advance: Movie/Wireless buttons');
   return entries;
 }
@@ -428,4 +441,25 @@ function installReviewToLive(p: Gr3xRollProgram, free: (at: number) => void, ent
     pop {r0,r1,r2,r3,r4,lr};mov r1,#0;b #${GR3X_REVIEW_ID + 4};
     screen:pop {r0,r1,r2,r3,r4,lr};mov r1,#0xc;b #${GR3X_REVIEW_ID + 4};`);
   p.patch(GR3X_REVIEW_ID, 0xe3a0100c, branchWord(GR3X_REVIEW_ID, entries.filmReviewToLive), 'film roll: the live view instead of Next / Retake / Complete in film mode');
+}
+
+/** QuickViewController (the Next / Retake / Complete screen): its start (table entry 7) and Next shot. */
+export const GR3X_REVIEW_START = 0x531cbde4, GR3X_NEXT_SHOT = 0x531ca804;
+/** The UI task and its queue: 0x532288b0(0x5320aefc(0x5320ad88()), event, 0, 0) posts a UI event. */
+const UI_TASK = 0x5320ad88, UI_QUEUE = 0x5320aefc;
+
+/**
+ * Form 'fn4' (T13-FN4): the screen opens, then closes by itself in film mode. At its start's entry,
+ * in a U mode with Film Roll Mode on and the multi-exposure state 2, the native start runs (called,
+ * entry stack, ip = sp), then Next shot on the screen (r0 = this): the live view again, with the
+ * frame shown over it, as when Next shot is chosen. Elsewhere the start runs alone.
+ */
+function installReviewNext(p: Gr3xRollProgram, free: (at: number) => void, entries: Record<string, number>) {
+  free(GR3X_REVIEW_START);
+  entries.filmReviewNext = p.code(`push {r0,r1,r2,r3,r4,lr};${records('alone', true)}
+    movw r0,#${lo(SINGLETON)};movt r0,#${hi(SINGLETON)};ldr r0,[r0];${ram('r0', 'alone')}
+    ldr r0,[r0,#0x518];${ram('r0', 'alone')}ldr r0,[r0];${ram('r0', 'alone')}ldrb r0,[r0,#0x6c0];cmp r0,#2;bne alone;
+    pop {r0,r1,r2,r3,r4,lr};push {r0,lr};mov ip,sp;bl #${GR3X_REVIEW_START + 4};pop {r0,lr};b #${GR3X_NEXT_SHOT};
+    alone:pop {r0,r1,r2,r3,r4,lr};mov ip,sp;b #${GR3X_REVIEW_START + 4};`);
+  p.patch(GR3X_REVIEW_START, 0xe1a0c00d, branchWord(GR3X_REVIEW_START, entries.filmReviewNext), 'film roll: Next / Retake / Complete closes by itself (Next shot) in film mode');
 }

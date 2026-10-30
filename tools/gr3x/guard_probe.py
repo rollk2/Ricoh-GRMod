@@ -138,7 +138,7 @@ def verify(data,manifest,seed=1107,rounds=400):
         src=recs[1+mode]
         expect=bytearray(want(src,films,max_ratio)[:0xb26])
         # Film mode (film-roll.ts): recalling U1..U3 sets Save Interim Images (+0x482) to Off.
-        if manifest.get('filmRoll') and 1<=mode<=6 and (manifest['filmRoll'] not in ('menu','keys','fn','fn2','fn3') or src[0x9b1]&1):expect[0x482]=0;expect[0x472]=3
+        if manifest.get('filmRoll') and 1<=mode<=6 and (manifest['filmRoll'] not in ('menu','keys','fn','fn2','fn3','fn4') or src[0x9b1]&1):expect[0x482]=0;expect[0x472]=3
         assert bytes(cpu.mem_read(RECS,0xb26))==bytes(expect)
         assert bytes(cpu.mem_read(RECS+(1+mode)*0x1000,SIZE))==src
     # 3. Load and save (without films; with films slots_probe runs them with the films' table).

@@ -46,7 +46,7 @@ LENGTHS={0:36,3:12,4:21}
 
 class RollProbe(Probe):
     def __init__(self,data,manifest):
-        super().__init__(data,manifest);self.writes=[];self.box_native=0;self.next=0;self.next_calls=0;self.sfp_ret=None;self.sfp_calls=0;self.entry_sp=None;self.prints=[];self.setters=[];self.ui=[];self.real_post=False;self.fn_stubs=False;self.posters=0;self.model_no=0
+        super().__init__(data,manifest);self.writes=[];self.box_native=0;self.next=0;self.next_calls=0;self.sfp_ret=None;self.sfp_calls=0;self.entry_sp=None;self.prints=[];self.setters=[];self.ui=[];self.real_post=False;self.fn_stubs=False;self.posters=0;self.model_no=0;self.events=[];self.qv_stubs=False;self.qv=[]
         for at in range(0x63040000,0x63058000,0x1000):
             try:self.uc.mem_map(at,0x1000)
             except Exception:pass
@@ -61,6 +61,16 @@ class RollProbe(Probe):
             # The diagnostic's call of the function: entry stack, ip = sp, return address its own.
             assert cpu.reg_read(reg.UC_ARM_REG_SP)==self.entry_sp and cpu.reg_read(reg.UC_ARM_REG_IP)==self.entry_sp
             self.sfp_calls+=1;ret(self.sfp_ret)
+        elif self.fn_stubs and at==0x5320aefc:
+            self.queue_arg=r(0);ret(0xe0e0)
+        elif self.fn_stubs and at==0x532288b0:
+            assert r(0)==0xe0e0;self.events.append((r(1),r(2),r(3)));ret(1)
+        elif self.qv_stubs and at==0x531cbde4+4:
+            assert cpu.reg_read(reg.UC_ARM_REG_SP)==cpu.reg_read(reg.UC_ARM_REG_IP)
+            self.qv.append(('start',r(0),r(1),r(2),r(3),cpu.reg_read(reg.UC_ARM_REG_SP)));ret(0x77)
+        elif self.qv_stubs and at==0x531ca804:
+            assert cpu.reg_read(reg.UC_ARM_REG_LR)==STOP
+            self.qv.append(('next',r(0),cpu.reg_read(reg.UC_ARM_REG_SP)));ret(1)
         elif self.fn_stubs and at==0x531a4d80:
             self.posters+=1;ret(0x5a)
         elif self.fn_stubs and at==0x5320c09c:
@@ -88,7 +98,7 @@ def verify(data,manifest,seed=3101):
     p=RollProbe(data,manifest);cpu=p.uc;rng=random.Random(seed);cases={}
     count=lambda k:cases.__setitem__(k,cases.get(k,0)+1)
     cpu.mem_write(OBJ+8,struct.pack('<I',STORE))
-    menu_form=manifest['filmRoll'] in ('menu','keys','fn','fn2','fn3');keys_form=manifest['filmRoll']=='keys';fn_form=manifest['filmRoll'] in ('fn','fn2','fn3');fn2=manifest['filmRoll']=='fn2';fn3=manifest['filmRoll']=='fn3'
+    menu_form=manifest['filmRoll'] in ('menu','keys','fn','fn2','fn3','fn4');keys_form=manifest['filmRoll']=='keys';fn_form=manifest['filmRoll'] in ('fn','fn2','fn3','fn4');fn2=manifest['filmRoll']=='fn2';fn3=manifest['filmRoll']=='fn3';fn4=manifest['filmRoll']=='fn4'
     def setup(mode,cur=None,box=None,model=True,pointer=True,state=2,film=True):
         cur=bytearray(rng.randrange(256) for _ in range(SIZE)) if cur is None else bytearray(cur)
         # Form 'menu': the record in use's Film Roll Mode (bit 0 of 0x9b1) on unless asked off.
@@ -199,7 +209,7 @@ def verify(data,manifest,seed=3101):
             assert got[DRIVE]==(3 if forced else src[DRIVE]),(mode,got[DRIVE])
             assert bytes(cpu.mem_read(RECS+(1+mode)*0x1000,SIZE))==src
     # 6. Form 'folders': the roll's folder at SetFilePath's entry.
-    folders=manifest['filmRoll'] in ('folders','folders-diag','menu','keys','fn','fn2','fn3');diag=manifest['filmRoll']=='folders-diag'
+    folders=manifest['filmRoll'] in ('folders','folders-diag','menu','keys','fn','fn2','fn3','fn4');diag=manifest['filmRoll']=='folders-diag'
     D=0x55804390
     def diag_check(given,code_want,next_want,ret,calls_before):
         d=bytes(cpu.mem_read(D,8))
@@ -385,8 +395,8 @@ def verify(data,manifest,seed=3101):
         cpu.mem_write(K,bytes([60,1,0x1a4&255,0x1a4>>8])+bytes(13));assert clock()==date(60,1,1,0x1a4)
     # 10. Form 'fn': Film Advance (function 42) in Fn Button Settings.
     if fn_form:
-        TABLE_OFF=bytes(cpu.mem_read(0x53b4eb7c,36));tbl=e['filmFnTable']
-        assert bytes(cpu.mem_read(tbl,37))==TABLE_OFF+bytes([42])
+        TABLE_OFF=bytes(cpu.mem_read(0x53b4eb7c,36));tbl=e['filmFnTable'];ADDED=bytes([42,43] if fn4 else [42])
+        assert bytes(cpu.mem_read(tbl,36+len(ADDED)))==TABLE_OFF+ADDED
         p.stubs_on=True;p.fn_stubs=True
         # The lists' constructor (native loop, table and count patched): the vector it fills.
         VEC=0x63055000;OBJF=0x63056000
@@ -395,41 +405,67 @@ def verify(data,manifest,seed=3101):
             p.run(0x531be67c,STOP,{0:OBJF});count('fn list')
             end=struct.unpack('<I',bytes(cpu.mem_read(OBJF+0x1a8,4)))[0]
             got=bytes(cpu.mem_read(VEC,end-VEC))
-            want=bytes(f for f in TABLE_OFF+bytes([42]) if not (model!=0 and f==0x16) and not (model!=1 and f==0x28))
+            want=bytes(f for f in TABLE_OFF+ADDED if not (model!=0 and f==0x16) and not (model!=1 and f==0x28))
             assert got==want,(model,got.hex(),want.hex())
         # Text and icon: 42 ours, the others the camera's.
-        for fn,text0 in ((0,2),(42,None)):
+        for fn,text0 in ((0,2),(42,None))+(((43,0x2b5),) if fn4 else ()):
             p.call(0x53292ed0,0x1234,fn);t=cpu.reg_read(reg.UC_ARM_REG_R0)
             if fn==42:assert 786<=t<1000,t
             else:assert t==text0
             count('fn text')
-        for fn,icon in ((0,0x113),(23,0x121),(24,0x120),(42,0x121)):
+        for fn,icon in ((0,0x113),(23,0x121),(24,0x120),(42,0x121))+(((43,0x121),) if fn4 else ()):
             p.call(0x53293e6c,0x1234,fn);assert cpu.reg_read(reg.UC_ARM_REG_R0)==icon,(fn,hex(cpu.reg_read(reg.UC_ARM_REG_R0)));count('fn icon')
         # Pressed (Fn, ISO, Drive): GetEventCustomize's entry.
+        FNS=(0,23,41,42,43) if fn4 else (0,23,41,42)
         for mode in (0,3,7):
             for film in (False,True):
-                for fn in (0,23,41,42):
-                    cur,boxes=setup(mode,film=film);p.posters=0;before=state()
+                for fn in FNS:
+                  for st in ((2,0) if fn==43 else (2,)):
+                    cur,boxes=setup(mode,film=film,state=st);p.posters=0;p.events=[];before=state()
                     regs={0:0x1111,1:0x2222,2:fn,3:0x3333,4:0x44,5:0x55}
                     p.run(0x5329bcc8,0x5329bccc,regs);count('fn pressed')
                     adv=fn==42 and film and 1<=mode<=6
                     assert p.posters==(1 if adv else 0),(mode,film,fn)
-                    want=dict(regs);want[2]=0 if fn==42 else fn
+                    assert p.events==([(0xb7,0,0)] if fn==43 and film and 1<=mode<=6 and st==2 else []),(mode,film,fn,st,p.events)
+                    want=dict(regs);want[2]=0 if fn in (42,43) else fn
                     kept(want,True);assert state()==before
         # Pressed (Movie/Wireless, Hold): the function in r6 at the switch.
         for mode in (0,3):
             for film in (False,True):
-                for fn in (0,23,41,42):
-                    cur,boxes=setup(mode,film=film);p.posters=0
+                for fn in FNS:
+                  for st in ((2,0) if fn==43 else (2,)):
+                    cur,boxes=setup(mode,film=film,state=st);p.posters=0;p.events=[]
                     regs={0:0x1111,1:0x2222,2:0x3333,3:0x4444,4:0x44,5:0x55,6:fn}
                     p.run(0x5329a0a0,0x5329a0a4,regs);count('fn wlan')
                     adv=fn==42 and film and 1<=mode<=6
                     assert p.posters==(1 if adv else 0),(mode,film,fn)
-                    want=dict(regs);want[6]=0 if fn==42 else fn
+                    assert p.events==([(0xb7,0,0)] if fn==43 and film and 1<=mode<=6 and st==2 else []),(mode,film,fn,st,p.events)
+                    want=dict(regs);want[6]=0 if fn in (42,43) else fn
                     for k,v in want.items():assert cpu.reg_read(getattr(reg,'UC_ARM_REG_R%d'%k))==v,k
                     cpsr=cpu.reg_read(reg.UC_ARM_REG_CPSR);C=(cpsr>>29)&1;Z=(cpsr>>30)&1
                     assert (C==0 or Z==1)==(want[6]<=0x29)
         p.stubs_on=False;p.fn_stubs=False
+    # 13. Form 'fn4': the screen's start, then Next shot, in film mode.
+    if fn4:
+        # The cases that stop at the start's second instruction first: Unicorn chains the blocks it has
+        # run, so a jump into a block already reached is not stopped at `until` afterwards.
+        START,NEXT=0x531cbde4,0x531ca804;p.qv_stubs=True
+        cases_qv=[(m,f,st,mo,po) for m in (0,1,3,6,7) for f in (False,True) for st in (0,1,2,3) for mo,po in ((True,True),(False,True),(True,False))]
+        cases_qv.sort(key=lambda c:c[1] and 1<=c[0]<=6 and c[2]==2 and c[3] and c[4])
+        for mode,film,st,model,pointer in cases_qv:
+                        setup(mode,film=film,state=st,model=model,pointer=pointer);before=state();p.qv=[]
+                        auto=film and 1<=mode<=6 and st==2 and model and pointer
+                        regs={0:0x1111,1:0x2222,2:0x3333,3:0x4444,4:0x44,5:0x55}
+                        if auto:
+                            p.run(START,STOP,regs);count('review closes')
+                            assert p.qv[0][:5]==('start',0x1111,0x2222,0x3333,0x4444) and p.qv[0][5]==STACK-8
+                            assert p.qv[1]==('next',0x1111,STACK) and len(p.qv)==2,p.qv
+                            assert cpu.reg_read(reg.UC_ARM_REG_R0)==1 and cpu.reg_read(reg.UC_ARM_REG_SP)==STACK
+                            for k in (4,5):assert cpu.reg_read(getattr(reg,'UC_ARM_REG_R%d'%k))==regs[k]
+                        else:
+                            p.qv_stubs=False;p.run(START,START+4,regs);p.qv_stubs=True;count('review stays');kept(regs,True)
+                        assert state()==before
+        p.qv_stubs=False
     # 11. Form 'fn2': no Next / Retake / Complete screen in film mode, and the two-key clock.
     # 12. Form 'fn3': the live view's id (0x08000000) instead of the screen's (0x0800000c) in film mode,
     # the key probe cleared at each exposure and deaf to keys 6 and 57.
@@ -489,7 +525,7 @@ def verify(data,manifest,seed=3101):
         cpu.mem_write(K,bytes([9,3,0,0, 10,3,0,0, 11,2,0,0, 130,40,0,0])+bytes(1));assert clock()==date(130,40,9,3)
         cpu.mem_write(K,bytes([9,3,0,0, 10,7,0,0, 11,2,0,0])+bytes(5));assert clock()==date(10,7,9,3)
         cpu.mem_write(K,bytes([200,1,0,0])+bytes(13));assert clock()==date(200,1,0,0)
-    return dict(schema=1,revision='T13-FN3' if fn3 else 'T13-FN2' if fn2 else 'T13-FN1' if fn_form else 'T12-KEYS2' if keys_form else 'T12-MENU2' if menu_form else 'T11-ROLL2D' if diag else 'T11-ROLL3' if folders else 'T11-ROLL1',rtos_sha256=hashlib.sha256(data).hexdigest(),cases=cases,seed=seed,hardware_tested=False,
+    return dict(schema=1,revision='T13-FN4' if fn4 else 'T13-FN3' if fn3 else 'T13-FN2' if fn2 else 'T13-FN1' if fn_form else 'T12-KEYS2' if keys_form else 'T12-MENU2' if menu_form else 'T11-ROLL2D' if diag else 'T11-ROLL3' if folders else 'T11-ROLL1',rtos_sha256=hashlib.sha256(data).hexdigest(),cases=cases,seed=seed,hardware_tested=False,
         scope='Hooks run from their patched sites (firmware storage and the native BOX save body substituted); the recall runs natively.')
 
 if __name__=='__main__':
