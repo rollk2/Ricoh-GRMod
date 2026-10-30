@@ -117,7 +117,7 @@ Sources : code de GR Mod (`core/src/fw/gr3x`) et réponse de son auteur, Maxwooo
 3. **Cœur du rouleau sans menu** : état et sauvegarde immédiate, compteur `vue/total` à l'écran, dossier du rouleau, multi-exposition et Save Interim Images imposés au rappel. **Fait et testé (2026-10-28, `T11-ROLL1` à `T11-ROLL3`)**.
 4. **Ligne de menu « Film Roll Mode » On / Off**, enregistrée dans la BOX ; Off ou Save Settings sur une BOX entamée = rembobiner. État persistant. **Fait et testé (2026-10-28, `T12-MENU1`)**.
 5. **Verrou** : extension de la condition native.
-6. **Multi-exposition** : déclencheur pour Next shot, touche « Film Advance » pour Complete, compteur sur Complete. **Avance testée (2026-10-30, `T13-FN1`)** ; reste : supprimer l'écran Next / Retake / Complete, Retake par appui long.
+6. **Multi-exposition** : déclencheur pour Next shot, touche « Film Advance » pour Complete, compteur sur Complete. **Avance testée (2026-10-30, `T13-FN1`)** ; reste : supprimer l'écran Next / Retake / Complete (build `T13-FN2` à tester), Retake par appui long (code de l'appui long sondé par `T13-FN2`).
 7. **Dossiers** par rouleau et par mode U, compteur à l'écran.
 
 Chaque étape suit le même cycle : test en émulateur, flash, essai sur le boîtier, retour au firmware officiel si besoin.

@@ -1110,3 +1110,30 @@ Plus grand dossier au départ : `109`.
 - **Phase 6 (avance du film par une touche réglable) : testée sur le boîtier.**
 - Demande suivante : éviter l'écran Next / Retake / Complete après chaque vue (revenir directement
   en visée) ; Complete = la touche Film Advance ; Retake = appui long sur cette touche.
+
+### Écran Next / Retake / Complete (analyse statique, 2026-10-30)
+
+- Ouverture : événement d'interface 0x90 publié par `CaptureReadyModel` (`0x532a85dc`) quand le test
+  `0x532a848c` répond oui ; l'action `0x53226738` demande le passage au contrôleur
+  `QuickViewController` (identifiant 0x0800000c) par `0x5316c9d8(this, id, id courant)`, qui ne fait
+  que publier l'événement 0x193 avec la demande (certitude : lue dans le code).
+- Next shot (`0x531ca804`) : lève l'octet +0x180 de l'écran puis demande le retour à la visée
+  (0x08000000), et renvoie 1. Retake (`0x531ca7d8`) publie 0xb7. Complete passe par l'émetteur
+  `0x531a4d80` (événement 0xb8), déjà utilisé par Film Advance.
+- Hypothèse (à vérifier sur le boîtier) : si l'écran ne s'ouvre pas, la visée reste avec l'état
+  de multi-exposition 2 et le cliché transparent, comme après Next shot. Inconnue : le rôle de
+  l'octet +0x180, qui n'est pas levé quand l'écran est sauté.
+
+### Build de test T13-FN2 : pas d'écran après chaque vue, sonde de l'appui long
+
+- À l'entrée de `0x53226738` : en mode U, avec Film Roll Mode et l'état de multi-exposition 2,
+  l'action renvoie 1 sans ouvrir l'écran ; sinon l'écran s'ouvre comme avant (P, Av, Tv, M, Film
+  Roll Mode Off, autres cas).
+- Sonde des touches (même table qu'en T12-KEYS2, à `0x55804390`) gardée jusqu'à l'extinction : elle
+  n'est plus remise à zéro en fin de séquence. Date des photos : 20YY = touche la plus pressée,
+  MM = 1 + son nombre de pressions (12 au plus), DD = 1 + nombre de pressions de la deuxième,
+  HH:mm = code de la deuxième touche en minutes (HH × 60 + mm). But : voir quel code donne un appui
+  long sur la touche droite (le code 35 est l'appui court).
+- Vérifié en émulateur : écran sauté seulement dans le bon cas (120 combinaisons de mode, Film Roll
+  Mode, état et pointeurs), registres et pile rendus ; table gardée en fin de séquence ; horloge des
+  deux touches (égalités, plafonds) ; tout le reste de T13-FN1 et la sonde du garde-fou repassés.

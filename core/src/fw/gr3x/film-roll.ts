@@ -110,7 +110,7 @@ export interface Gr3xRollProgram {
   patch(address: number, expected: number, replacement: number, reason: string): void;
 }
 
-export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuRatio[], folders = false, diag = false, filmMenu = false, keys = false) {
+export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuRatio[], folders = false, diag = false, filmMenu = false, keys: false | 'sequence' | 'boot' = false, noReview = false) {
   const rec = (label: string) => records(label, filmMenu);
   const free = (at: number) => { if (p.sites.some(s => s.address === at)) throw new FirmwareError('unexpected-instruction', `IIIx film roll: ${at.toString(16)} already patched`); };
   const entries: Record<string, number> = {};
@@ -129,7 +129,7 @@ export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuR
 
   // The model's end: advance, then save both records; every register kept.
   free(GR3X_ROLL_MODEL_END);
-  entries.filmRollEnd = p.code(`${keys ? keyClear : ''}push {r0,r1,r2,r3,r4,r5,r6,lr};${rec('out')}
+  entries.filmRollEnd = p.code(`${keys === 'sequence' ? keyClear : ''}push {r0,r1,r2,r3,r4,r5,r6,lr};${rec('out')}
     ldrb r0,[r2,#${GR3X_ROLL_FLAGS}];tst r0,#${GR3X_ROLL_STARTED};beq out;
     movw r0,#${lo(SINGLETON)};movt r0,#${hi(SINGLETON)};ldr r0,[r0];${ram('r0', 'out')}
     ldr r0,[r0,#0x518];${ram('r0', 'out')}ldr r0,[r0];${ram('r0', 'out')}ldrb r0,[r0,#0x6c0];cmp r0,#2;bne out;
@@ -176,7 +176,8 @@ export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuR
     mov r1,#0;strb r1,[r0,#${GR3X_INTERIM}];mov r1,#${GR3X_DRIVE_MULTI};strb r1,[r0,#${GR3X_DRIVE}];none:bx lr;`);
   if (folders) installFolders(p, free, entries, diag, filmMenu);
   if (filmMenu) installMenu(p, entries);
-  if (keys) installKeys(p, free, entries);
+  if (keys) installKeys(p, free, entries, keys === 'boot');
+  if (noReview) installNoReview(p, free, entries);
   return { entries, exposure };
 }
 
@@ -275,7 +276,7 @@ const KEY_LAST = GR3X_ROLL_DIAG;
  * in the table, mm event % 60 (zeros with an empty table). The gesture under test is repeated (5
  * times) so it outnumbers the keys around it.
  */
-function installKeys(p: Gr3xRollProgram, free: (at: number) => void, entries: Record<string, number>) {
+function installKeys(p: Gr3xRollProgram, free: (at: number) => void, entries: Record<string, number>, top2 = false) {
   const T = KEY_LAST, at = `movw ip,#${lo(T)};movt ip,#${hi(T)};`;
   free(GR3X_KEY_EVENT);
   // r1 = key: its entry (or the first empty one), count + 1 (at most 255), pending = entry + 1.
@@ -289,7 +290,7 @@ function installKeys(p: Gr3xRollProgram, free: (at: number) => void, entries: Re
     mov r0,#0;strb r0,[ip,#16];none:pop {r0,r2};mov ip,sp;b #${GR3X_POST_EVENT + 4};`);
   p.patch(GR3X_POST_EVENT, 0xe1a0c00d, branchWord(GR3X_POST_EVENT, entries.filmPostEvent), 'film roll key probe: the event after it');
   // The clock: the most pressed key (the first of equals).
-  entries.filmProbeTime = p.code(`movw r3,#${lo(POINTER)};movt r3,#${hi(POINTER)};ldr r3,[r3];cmp r3,#0;beq clock;
+  if (!top2) entries.filmProbeTime = p.code(`movw r3,#${lo(POINTER)};movt r3,#${hi(POINTER)};ldr r3,[r3];cmp r3,#0;beq clock;
     push {r4,r5,r6,lr};movw r4,#${lo(T)};movt r4,#${hi(T)};mov r5,#0;mov r6,#0;mov r2,#0;
     scan:add r3,r4,r2,lsl #2;ldrb r0,[r3];cmp r0,#0;beq next;add r6,r6,#1;ldrb r0,[r3,#1];cmp r5,#0;beq take;ldrb ip,[r5,#1];cmp r0,ip;bls next;
     take:mov r5,r3;next:add r2,r2,#1;cmp r2,#4;blo scan;
@@ -298,6 +299,23 @@ function installKeys(p: Gr3xRollProgram, free: (at: number) => void, entries: Re
     cmp r2,#11;movhi r2,#11;add r2,r2,#1;strb r2,[r1,#2];strb r6,[r1,#4];
     mov r2,#1;day:cmp r3,#60;subhs r3,r3,#60;addhs r2,r2,#1;bhs day;strb r2,[r1,#3];strb r3,[r1,#5];
     pop {r4,r5,r6,pc};
+    clock:b #${GR3X_GET_TIME};`);
+  // T13-FN2 ('boot': the table is cleared only at start-up): the two most pressed keys,
+  // 20YY.MM.DD HH:mm with YY the first's key % 100, MM 1 + its count (at most 12), DD 1 + the
+  // second's count (at most 31), HH:mm the second's key as minutes (HH * 60 + mm).
+  if (top2) entries.filmProbeTime = p.code(`movw r3,#${lo(POINTER)};movt r3,#${hi(POINTER)};ldr r3,[r3];cmp r3,#0;beq clock;
+    push {r4,r5,r6,r7,lr};movw r4,#${lo(T)};movt r4,#${hi(T)};mov r5,#0;mov r6,#0;mov r2,#0;
+    scan:add r3,r4,r2,lsl #2;ldrb r0,[r3];cmp r0,#0;beq next;ldrb r0,[r3,#1];
+    cmp r5,#0;beq first;ldrb ip,[r5,#1];cmp r0,ip;bls second;
+    first:mov r6,r5;mov r5,r3;b next;
+    second:cmp r6,#0;beq take2;ldrb ip,[r6,#1];cmp r0,ip;bls next;take2:mov r6,r3;
+    next:add r2,r2,#1;cmp r2,#4;blo scan;
+    mov r0,#0;mov r2,#0;cmp r5,#0;ldrbne r0,[r5];ldrbne r2,[r5,#1];
+    ${mod('r0', 100, 'year')}add r0,r0,#2000;strb r0,[r1];mov r0,r0,lsr #8;strb r0,[r1,#1];
+    cmp r2,#11;movhi r2,#11;add r2,r2,#1;strb r2,[r1,#2];
+    mov r0,#0;mov r2,#0;cmp r6,#0;ldrbne r0,[r6];ldrbne r2,[r6,#1];cmp r2,#30;movhi r2,#30;add r2,r2,#1;strb r2,[r1,#3];
+    mov r2,#0;hour:cmp r0,#60;subhs r0,r0,#60;addhs r2,r2,#1;bhs hour;strb r2,[r1,#4];strb r0,[r1,#5];
+    pop {r4,r5,r6,r7,pc};
     clock:b #${GR3X_GET_TIME};`);
 }
 /** The key table cleared (model's end, form 'keys'): every register kept but ip. */
@@ -367,4 +385,25 @@ export function installGr3xFilmAdvanceFn(p: Gr3xFnProgram, text: number) {
   entries.filmFnWlan = p.code(`cmp r6,#${GR3X_FILM_ADVANCE};bne go;${advance('kept')}mov r6,#0;go:cmp r6,#0x29;b #${GR3X_FN_WLAN + 4};`);
   p.patch(GR3X_FN_WLAN, 0xe3560029, branchWord(GR3X_FN_WLAN, entries.filmFnWlan), 'film advance: Movie/Wireless buttons');
   return entries;
+}
+
+/** The UI action that opens the Next / Retake / Complete screen (UI event 0x90 from CaptureReadyModel;
+ * QuickViewController, controller id 0x0800000c, from the current id). */
+export const GR3X_OPEN_REVIEW = 0x53226738;
+
+/**
+ * Form 'fn2' (T13-FN2): no Next / Retake / Complete screen in film mode. At the opening action's
+ * entry, in a U mode with Film Roll Mode on and the multi-exposure state 2 (a frame exposed), the
+ * action returns without switching to the screen: the live view stays, as after Next shot (which only
+ * sets the screen's flag + 0x180 and switches back to 0x08000000), returning 1 like Next shot.
+ * Elsewhere the screen opens.
+ */
+function installNoReview(p: Gr3xRollProgram, free: (at: number) => void, entries: Record<string, number>) {
+  free(GR3X_OPEN_REVIEW);
+  entries.filmNoReview = p.code(`push {r0,r1,r2,r3,r4,lr};${records('open', true)}
+    movw r0,#${lo(SINGLETON)};movt r0,#${hi(SINGLETON)};ldr r0,[r0];${ram('r0', 'open')}
+    ldr r0,[r0,#0x518];${ram('r0', 'open')}ldr r0,[r0];${ram('r0', 'open')}ldrb r0,[r0,#0x6c0];cmp r0,#2;bne open;
+    pop {r0,r1,r2,r3,r4,lr};mov r0,#1;bx lr;
+    open:pop {r0,r1,r2,r3,r4,lr};mov ip,sp;b #${GR3X_OPEN_REVIEW + 4};`);
+  p.patch(GR3X_OPEN_REVIEW, 0xe1a0c00d, branchWord(GR3X_OPEN_REVIEW, entries.filmNoReview), 'film roll: no Next / Retake / Complete screen in film mode');
 }
