@@ -1221,3 +1221,16 @@ Plus grand dossier au départ : `109`.
   garde-fou repassées.
 - Note d'émulation : Unicorn enchaîne les blocs déjà exécutés, un saut vers un bloc déjà atteint
   n'est plus arrêté à l'adresse de fin ; les cas qui s'arrêtent en `fn + 4` passent donc en premier.
+
+### Résultats sur le boîtier (build T13-FN4, 2026-10-30)
+
+- A3 : « Reprendre photo » en dernière ligne de Fn Button Settings.
+- B2 à B4, C2, E2 : **l'écran Next / Retake / Complete n'apparaît plus du tout** (pas même un
+  éclair), retour direct en visée avec les vues précédentes en transparence. F : Film Advance fait
+  avancer (1 → 2). I2 : avec Film Roll Mode Off, l'écran apparaît et reste, comme avant.
+  **Suppression de l'écran : validée sur le boîtier.**
+- D2 : Retake sur la touche gauche **sans effet** (la fenêtre reste, puis lampe + fenêtre + livre).
+  Deux hypothèses : la touche gauche ne passe pas par `GetEventCustomize` ni `GetEventSwitchWlan`
+  (Film Advance n'a été testé que sur Fn et Drive), ou l'événement 0xb7 n'est pas traité hors de
+  QuickViewController. Test discriminant sans nouveau build : échanger les deux fonctions entre les
+  touches gauche et droite.
