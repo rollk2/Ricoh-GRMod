@@ -1137,3 +1137,20 @@ Plus grand dossier au départ : `109`.
 - Vérifié en émulateur : écran sauté seulement dans le bon cas (120 combinaisons de mode, Film Roll
   Mode, état et pointeurs), registres et pile rendus ; table gardée en fin de séquence ; horloge des
   deux touches (égalités, plafonds) ; tout le reste de T13-FN1 et la sonde du garde-fou repassés.
+
+### Résultats sur le boîtier (build T13-FN2, 2026-10-30)
+
+- C2, D2 : l'écran Next / Retake / Complete n'apparaît plus en mode pellicule. G : avec Film Roll
+  Mode Off, il apparaît comme avant.
+- C3 : après la vue, le boîtier reste sur l'aperçu de la photo (affichage qui précède l'écran),
+  pas en visée : sauter l'action d'ouverture ne ramène pas en visée. F1 : deux vues prises à la
+  suite sont bien superposées (la séquence continue).
+- E2 : depuis la visée (retour par le déclencheur), la touche Film Advance ne fait rien ; depuis
+  l'aperçu, elle fait avancer le film. Hypothèse : sans passage par un contrôleur, la visée
+  retrouvée n'est pas celle de `CaptureReadyModel` qui exécute les fonctions des touches.
+- F2 : 2005.12.19 00:06, soit touche 5 (12 pressions ou plus) puis touche 6 (18 pressions). Le
+  code 35 n'est pas dans la table : remise à zéro seulement à l'allumage, la table de 4 entrées se
+  remplit de codes émis sans geste (5, 6, puis d'autres). Sonde non concluante pour l'appui long.
+- Conclusion : il ne faut pas sauter l'ouverture mais la rediriger vers la visée (0x08000000),
+  comme le fait Next shot ; et la sonde doit ignorer les codes parasites et repartir de zéro à
+  chaque vue.
