@@ -1168,3 +1168,37 @@ Plus grand dossier au départ : `109`.
 - Vérifié en émulateur : redirection seulement dans le bon cas (120 combinaisons), registres et pile
   rendus ; table vidée par l'exposition, codes 6 et 57 ignorés, horloge ; T13-FN1 et T13-FN2
   reconstruits identiques octet pour octet ; sonde du garde-fou repassée.
+
+### Résultats sur le boîtier (build T13-FN3, 2026-10-30)
+
+- B2 : l'écran Next / Retake / Complete n'apparaît pas ; B3, B4 : on reste sur l'aperçu, sans
+  retour en visée ni transparence. Demander la visée ne change rien.
+- Observation de l'utilisateur : pendant l'aperçu, toucher l'écran déplace le collimateur (fonction
+  de la visée). Conclusion (forte) : l'aperçu est un état du contrôleur de la visée ; la demande de
+  passer à 0x08000000 vise le contrôleur courant et reste sans effet. Seul le passage par
+  QuickViewController puis Next shot relance la visée avec la transparence.
+- D2 : Film Advance (sur Fn) fonctionne depuis l'aperçu (compteur 1 → 2).
+- E2 : 2008.02.01 00:00 : depuis la vue, une seule touche vue, code 8 (Fn), une fois. Les 5 appuis
+  longs sur la touche droite réglée sur Off n'ont donné aucun code : une touche sur Off n'arrive
+  pas au gestionnaire `0x53221a1c`. Appui long non mesuré.
+- Décisions : Retake par une seconde fonction « Film Retake » de Fn Button Settings (l'utilisateur
+  la mettra sur la touche gauche) ; pour l'écran, l'ouvrir puis déclencher Next shot
+  automatiquement (analyse à faire).
+
+### QuickViewController : démarrage et retour automatique (analyse statique, 2026-10-30)
+
+- Table virtuelle à `0x53b41380` (posée par le destructeur `0x531ca634` : `[this] = 0x53b41378 + 8`) :
+  [6] `0x531ca6b4` donne l'identifiant de l'écran (0x0800000c par défaut ; 0x0800000d, 0x0800000e,
+  0x08000011 selon l'octet +0x799 d'un modèle), [7] **`0x531cbde4` = démarrage** (état +0x16c = 6,
+  +0x182 = 0, préparation de l'affichage, publie 0xf1), [10] `0x531cbfc4` = événements (sélecteur sur
+  le code), [13] `0x531ca7b0` = transmission au modèle, [15] `0x531ca86c` = minuterie (si la minuterie
+  +0x178 expire avec l'état +0x16c ≤ 1 : +0x180 = 1 puis retour à la visée, comme Next shot).
+- Deux autres chemins font comme Next shot : `0x531ca82c` (Cancel du dialogue de suppression, après
+  `0x532300d4(…, 0)`) et `0x531cbf98`.
+- Retake hors de l'écran : l'événement 0xb7 est traité par la table globale des actions
+  (`0x53227830`) puis le modèle `0x5323a1a4`, seulement à l'état 2 ; la commande distante le publie
+  aussi sans écran. Le publier depuis la visée doit donc marcher, comme 0xb8 pour Film Advance
+  (certitude moyenne : à vérifier sur le boîtier).
+- Plan T13-FN4 : (1) à l'entrée du démarrage `0x531cbde4`, en mode pellicule (U, Film Roll Mode,
+  état 2), exécuter le démarrage natif puis appeler Next shot (`0x531ca804`) sur l'écran ; (2) fonction
+  43 « Film Retake » dans Fn Button Settings : publie 0xb7 si une vue a été prise.
