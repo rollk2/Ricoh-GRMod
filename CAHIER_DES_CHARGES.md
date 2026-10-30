@@ -22,7 +22,7 @@ Retrouver la discipline de l'argentique sur un GR : on charge une pellicule (un 
 2. **Démarrer** : le rouleau démarre à la **première vue** prise dans un mode U dont la BOX a le mode pellicule sur On. Aucune action de menu. Le firmware crée alors le dossier du rouleau, force Save Interim Images à Off et le mode d'entraînement en multi-exposition (au rappel du mode U), et verrouille les réglages.
 3. **Photographier** : le GR reste en multi-exposition pendant tout le rouleau.
    - Déclencheur : prend la photo. Si la vue n'a pas été avancée, la photo se superpose à la précédente (équivaut à « Next shot »).
-   - ADJ vers la droite : avance le film (équivaut à « Complete »). La vue est enregistrée, le compteur passe à la vue suivante.
+   - Touche réglée sur « Film Advance » (Fn Button Settings, par exemple la touche droite / Drive) : avance le film (équivaut à « Complete »). La vue est enregistrée, le compteur passe à la vue suivante. Sans vue prise, rien. À venir : plus d'écran Next / Retake / Complete après chaque vue, et Retake par un appui long sur cette touche.
 4. **Fin du rouleau** : à la dernière vue avancée, le rouleau est terminé. Idéal visé : un **message de fin de rouleau** qui propose de changer de pellicule (réglages de la BOX). À défaut, la vue suivante démarre **automatiquement un nouveau rouleau** (nouveau dossier, compteur à 1), avec les mêmes réglages de BOX.
 5. **Suspendre** : mettre « Film Roll Mode » sur Off sans Save Settings suspend le mode pellicule dans ce mode U ; le rouleau est gardé et reprend quand la BOX (toujours sur On) est rappelée (décision du 2026-10-28).
 6. **Rembobiner** : Save Settings par-dessus la BOX d'un rouleau entamé termine le rouleau ; si la nouvelle BOX a le mode pellicule sur On, un nouveau rouleau démarre à la première vue. Un moyen de rembobiner à la main reste à définir.
@@ -103,6 +103,7 @@ Sources : code de GR Mod (`core/src/fw/gr3x`) et réponse de son auteur, Maxwooo
 | Dossier du rouleau | Testé sur le boîtier (`T11-ROLL2D`) | Crochet de `SetFilePath` : premier fichier d'un rouleau dans le prochain nouveau dossier (`0x535b742c`), mémorisé dans la BOX, puis retour dans ce dossier ; P ouvre son propre dossier quand le plus grand est celui d'un rouleau. |
 | Compteur vue/total à l'écran, multi-exposition imposée | Testés sur le boîtier (`T11-ROLL3`) | Le crochet du compteur écrit `vue/total` par `snprintf` (`0x53141100`, format `"%d/%d"` du firmware `0x53c0ca59`) ; mode d'entraînement `+0x472` mis à 3 (multi-exposition) au rappel d'un mode U. |
 | Ligne de menu Film Roll Mode | Testée sur le boîtier (`T12-MENU1`) | Customize Settings, sous Save Settings (menu C recopié, entrée `0x5407d404`) ; masquée hors des modes U (fonction de visibilité, contrôleur reconstruit à chaque ouverture) ; bit 0 de `0x9b1`, suit la BOX ; nom en 21 langues. Griser : mécanisme non trouvé. |
+| Avance du film par une touche (Film Advance) | Testée sur le boîtier (`T13-FN1`) | Fonction 42 ajoutée à Fn Button Settings (Fn, ISO, Drive, Movie/Wireless, Hold) : table des fonctions `0x53b4eb7c` recopiée, texte et icône, exécution dans `GetEventCustomize` (`0x5329bcc8`) et `GetEventSwitchWlan` (`0x5329a0a0`) : émetteur `0x531a4d80` si une vue a été prise, sinon rien. Réglage par BOX (champs `0x922` à `0x92a`). |
 
 ### Points de vigilance (conseils de l'auteur de GR Mod)
 - **Compter les captures, pas les encodages.** L'encodeur JPEG tourne aussi pour le développement RAW intégré.
@@ -116,7 +117,7 @@ Sources : code de GR Mod (`core/src/fw/gr3x`) et réponse de son auteur, Maxwooo
 3. **Cœur du rouleau sans menu** : état et sauvegarde immédiate, compteur `vue/total` à l'écran, dossier du rouleau, multi-exposition et Save Interim Images imposés au rappel. **Fait et testé (2026-10-28, `T11-ROLL1` à `T11-ROLL3`)**.
 4. **Ligne de menu « Film Roll Mode » On / Off**, enregistrée dans la BOX ; Off ou Save Settings sur une BOX entamée = rembobiner. État persistant. **Fait et testé (2026-10-28, `T12-MENU1`)**.
 5. **Verrou** : extension de la condition native.
-6. **Multi-exposition** : déclencheur pour Next shot, ADJ droite pour Complete, compteur sur Complete.
+6. **Multi-exposition** : déclencheur pour Next shot, touche « Film Advance » pour Complete, compteur sur Complete. **Avance testée (2026-10-30, `T13-FN1`)** ; reste : supprimer l'écran Next / Retake / Complete, Retake par appui long.
 7. **Dossiers** par rouleau et par mode U, compteur à l'écran.
 
 Chaque étape suit le même cycle : test en émulateur, flash, essai sur le boîtier, retour au firmware officiel si besoin.

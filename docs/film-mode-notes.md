@@ -1096,3 +1096,17 @@ Plus grand dossier au départ : `109`.
 - Vérifié en émulateur : la boucle native du constructeur remplit la liste avec 42 à la fin pour
   les trois modèles (ND, HDF, autre) ; texte, icône, exécution sur les deux chemins ; trois
   contre-épreuves détectées ; sonde du garde-fou repassée.
+
+### Résultats sur le boîtier (build T13-FN1, 2026-10-30)
+
+- B3 : Film Advance en dernière ligne de la liste de Drive Button. B5 : ouvrir le menu sans vue ne
+  fait pas avancer (1 reste 1).
+- C4 : vue, Next shot, touche droite : séquence terminée, compteur 1 → 2, pas de mode snap.
+- D2 : touche droite sans vue : rien (2 reste 2). E4 : deux vues superposées puis touche droite :
+  un seul fichier, compteur 3.
+- F1 : « Avance du film » en français. G1 : en P, la touche droite garde son action.
+- H2, H3 : Save Settings dans la BOX3 (rembobinage, 1/36), réglage gardé après P et retour, avance
+  confirmée.
+- **Phase 6 (avance du film par une touche réglable) : testée sur le boîtier.**
+- Demande suivante : éviter l'écran Next / Retake / Complete après chaque vue (revenir directement
+  en visée) ; Complete = la touche Film Advance ; Retake = appui long sur cette touche.
