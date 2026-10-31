@@ -1482,3 +1482,14 @@ Lecture (attention : MM = valeur du test + 2, HH = phase + 1) :
   pellicule, il bloque les suivants jusqu'à l'exposition suivante (préfixe du crochet d'exposition).
 - Vérifié en émulateur : 4 appels, 1 seul envoi, sur les deux chemins ; rien hors mode pellicule ;
   drapeau baissé par l'exposition ; T14-DIR2 et T13-FN1 reconstruits identiques ; sondes repassées.
+
+### Comparaisons sur le boîtier (2026-10-31)
+
+- T14-DIR3 : affichage perdu à la 3e vue (vue, avance, répétés).
+- A (T14-DIR3, Film Roll Mode Off, écran natif, Complete × 8) : jamais perdu.
+- B (T13-FN7, vue puis avance × 8) : **toujours à la 3e vue** (après la 2e avance). Le bogue existait
+  donc dès la fermeture automatique (T13-FN4 et suivants) ; il ne vient ni du nom de dossier ni des
+  quatre Complete. Systématique : probablement un déséquilibre interne cumulé à chaque fermeture
+  automatique.
+- C (écran natif) : un appui à mi-course sur le déclencheur ferme l'écran et revient en visée avec la
+  transparence (comme Photo suivante ; code `0x531cbf5c` → `0x531cbf98`, identique à Next shot).
