@@ -1360,3 +1360,13 @@ Lecture (attention : MM = valeur du test + 2, HH = phase + 1) :
 - Vérifié en émulateur : 240 cas de démarrage (avec et sans drapeau), drapeau levé par l'ouverture et
   baissé par l'exposition, protection 43 et 200 ; T13-FN1, T13-FN4, T13-FN6 reconstruits identiques ;
   sondes repassées.
+
+### Résultats sur le boîtier (build T13-FN7, 2026-10-31, test guidé, U3)
+
+- Vue : pas d'écran, visée et transparence. Vue puis Menu, Menu : **affichage normal** (bogue
+  corrigé), compteur + 1 (le menu fait Complete, natif). Deux vues : pas d'écran, transparence.
+  Film Advance : + 1. Touche gauche (43 enregistrée) : rien, pas de plantage ; sa ligne de Fn Button
+  Settings affiche Off sans plantage.
+- **Phase 6 (avance par une touche, sans écran après chaque vue) : validée sur le boîtier.**
+- Conclusion : le chemin du menu redémarrait QuickViewController sans passer par l'action
+  d'ouverture `0x53226738` ; le drapeau suffit.
