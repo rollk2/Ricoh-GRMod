@@ -1585,3 +1585,6 @@ Lecture (attention : MM = valeur du test + 2, HH = phase + 1) :
   pellicule (après une vue, drapeau d'ouverture), le jeu 0 est imposé.
 - Vérifié en émulateur (240 cas, avec et sans multi-exposition, registres et pile) ; T14-DIR6
   reconstruit identique ; sondes repassées.
+- T14-DIR7 sur le boîtier : boutons toujours présents. Le jeu passé à `0x5316d354` n'est pas (ou pas
+  seulement) ce qui affiche Next shot / Retake / Complete ; l'affichage des boutons reste à localiser
+  (pistes : `0x531cb7bc` et ses appels `0x531cb254`, `0x531cb6d4`, `0x531cb16c`).
