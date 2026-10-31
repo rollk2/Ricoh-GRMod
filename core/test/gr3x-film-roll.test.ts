@@ -180,4 +180,14 @@ describe.skipIf(!input)('GR III film roll (film mode phase 3.1)', () => {
     const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'fn7' });
     expect(built.report.revision).toBe('T13-FN7');
   }, 240000);
+  it('names the roll folder from the film and the roll length (T14-DIR1)', async () => {
+    const fn7 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'fn7' });
+    const dir1 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'dir1' });
+    const e = dir1.entries as Record<string, number>;
+    expect(dir1.sites.map(s => s.address)).toEqual(fn7.sites.map(s => s.address));
+    for (const k of ['filmFolderNameSet', 'filmFolderNameRestore']) expect(e[k]).toBeGreaterThan(0x53000000);
+    expect((fn7.entries as Record<string, number>).filmFolderNameSet).toBeUndefined();
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'dir1' });
+    expect(built.report.revision).toBe('T14-DIR1');
+  }, 240000);
 });

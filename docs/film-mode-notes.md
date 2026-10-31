@@ -1413,3 +1413,20 @@ Lecture (attention : MM = valeur du test + 2, HH = phase + 1) :
 - Format `"%s%04d.%s"` (`0x53d26c14`) utilisé par `0x535b87f0` (préfixe de 4 caractères pris dans une
   structure de fichier, numéro sur 4 chiffres) : semble servir à la lecture des fichiers existants ;
   le point de fabrication du nom d'un nouveau fichier reste à trouver.
+
+### Build de test T14-DIR1 : nom du dossier du rouleau
+
+- T13-FN7, plus : à chaque avance en mode pellicule (fin du modèle, rouleau entamé, état 2), avant
+  l'enregistrement de l'image, le nom `code + longueur` (`NEG36`, 5 caractères et un zéro à
+  `0x558043b0`) et le type 1 (nom libre) sont donnés **aux seules valeurs en direct**
+  (`0x5354d138`, `0x5354d104` sur `*0x53525d5c()`). Code : octet `+0x1c2` (11 à 22 → STD ... NEG ;
+  autre valeur → FLM en attendant le code saisi dans l'application). Longueur : celle du compteur.
+- Au rappel d'un mode libre ou d'un mode U sans Film Roll Mode, et quand Film Roll Mode passe à Off :
+  le nom (`+0x936`) et le type (`+0x934`) enregistrés sont redonnés aux valeurs en direct. Le réglage
+  Folder Name enregistré n'est jamais modifié.
+- Vérifié en émulateur : nom et type donnés à chaque avance (180 cas, codes connus et inconnus,
+  ratios), rien sinon ; remise au rappel (15 cas) et non au rappel d'un U pellicule (13 cas) ; remise
+  par Off ; T13-FN7 et T13-FN1 reconstruits identiques ; sonde du garde-fou adaptée (substitution des
+  deux setters en direct) et repassée.
+- Inconnue : la création du dossier lit-elle bien les valeurs en direct (et non l'enregistrement) ?
+  T10-FILMPROBE5 passait par les setters complets.

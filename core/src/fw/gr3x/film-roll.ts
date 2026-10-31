@@ -110,7 +110,7 @@ export interface Gr3xRollProgram {
   patch(address: number, expected: number, replacement: number, reason: string): void;
 }
 
-export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuRatio[], folders = false, diag = false, filmMenu = false, keys: false | 'sequence' | 'boot' | 'shot' = false, noReview: false | 'skip' | 'live' | 'next' | 'armed' = false) {
+export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuRatio[], folders = false, diag = false, filmMenu = false, keys: false | 'sequence' | 'boot' | 'shot' = false, noReview: false | 'skip' | 'live' | 'next' | 'armed' = false, folderName = false) {
   const rec = (label: string) => records(label, filmMenu);
   const free = (at: number) => { if (p.sites.some(s => s.address === at)) throw new FirmwareError('unexpected-instruction', `IIIx film roll: ${at.toString(16)} already patched`); };
   const entries: Record<string, number> = {};
@@ -128,13 +128,38 @@ export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuR
     mov r0,#0;strb r0,[r2,#${GR3X_ROLL_FOLDER}];strb r0,[r3,#${GR3X_ROLL_FOLDER}];
     rollkept:pop {r0,r1,r2,r3};`;
 
+  // T14-DIR1 (folderName): the roll's folder name, NNN + film code + length (112NEG36), given to the
+  // live shooting values only (the saved Folder Name is never changed): set at each advance (before
+  // the frame's picture is saved, so a roll's new folder takes it), and the saved name and type given
+  // back when a free mode or a U mode without Film Roll Mode is recalled, or when it is set to Off.
+  if (folderName) {
+    const codes = Object.entries(GR3X_LOOK_CODES).map(([look, code]) =>
+      `cmp r0,#${look};movweq r3,#${code.charCodeAt(0) | code.charCodeAt(1) << 8};movteq r3,#${code.charCodeAt(2)};beq code;`).join('');
+    const unknown = GR3X_UNKNOWN_LOOK_CODE;
+    // r0 = record in use: name buffer filled, then the live name and type (free name).
+    entries.filmFolderNameSet = p.code(`push {r0,r1,r2,r3,r4,r5,r6,lr};mov r5,r0;movw r4,#${lo(FOLDER_NAME)};movt r4,#${hi(FOLDER_NAME)};
+      ldrb r0,[r5,#${GR3X_LOOK}];${codes}movw r3,#${unknown.charCodeAt(0) | unknown.charCodeAt(1) << 8};movt r3,#${unknown.charCodeAt(2)};
+      code:strb r3,[r4];mov r3,r3,lsr #8;strb r3,[r4,#1];mov r3,r3,lsr #8;strb r3,[r4,#2];
+      ldrb r0,[r5,#${GR3X_RATIO}];${length}mov r1,#0;tens:cmp r0,#10;subhs r0,r0,#10;addhs r1,r1,#1;bhs tens;
+      add r1,r1,#48;strb r1,[r4,#3];add r0,r0,#48;strb r0,[r4,#4];mov r0,#0;strb r0,[r4,#5];
+      bl #${GR3X_LIVE_VALUES};ldr r0,[r0];mov r1,r4;bl #${GR3X_LIVE_FOLDER_NAME};
+      bl #${GR3X_LIVE_VALUES};ldr r0,[r0];mov r1,#1;bl #${GR3X_LIVE_FOLDER_TYPE};
+      pop {r0,r1,r2,r3,r4,r5,r6,pc};`);
+    // r0 = a record: its saved name (5 characters) and type to the live values.
+    entries.filmFolderNameRestore = p.code(`push {r0,r1,r2,r3,r4,r5,r6,lr};mov r5,r0;movw r4,#${lo(FOLDER_NAME)};movt r4,#${hi(FOLDER_NAME)};
+      mov r1,#0;copy:add r2,r5,r1;ldrb r0,[r2,#${GR3X_FOLDER_NAME}];strb r0,[r4,r1];add r1,r1,#1;cmp r1,#5;blo copy;mov r0,#0;strb r0,[r4,#5];
+      bl #${GR3X_LIVE_VALUES};ldr r0,[r0];mov r1,r4;bl #${GR3X_LIVE_FOLDER_NAME};
+      bl #${GR3X_LIVE_VALUES};ldr r0,[r0];ldrb r1,[r5,#${GR3X_FOLDER_TYPE}];bl #${GR3X_LIVE_FOLDER_TYPE};
+      pop {r0,r1,r2,r3,r4,r5,r6,pc};`);
+  }
+
   // The model's end: advance, then save both records; every register kept.
   free(GR3X_ROLL_MODEL_END);
   entries.filmRollEnd = p.code(`${keys === 'sequence' ? keyClear : ''}push {r0,r1,r2,r3,r4,r5,r6,lr};${rec('out')}
     ldrb r0,[r2,#${GR3X_ROLL_FLAGS}];tst r0,#${GR3X_ROLL_STARTED};beq out;
     movw r0,#${lo(SINGLETON)};movt r0,#${hi(SINGLETON)};ldr r0,[r0];${ram('r0', 'out')}
     ldr r0,[r0,#0x518];${ram('r0', 'out')}ldr r0,[r0];${ram('r0', 'out')}ldrb r0,[r0,#0x6c0];cmp r0,#2;bne out;
-    mov r4,r1;mov r5,r2;mov r6,r3;
+    mov r4,r1;mov r5,r2;mov r6,r3;${folderName ? `mov r0,r5;bl #${entries.filmFolderNameSet};` : ''}
     ldrb r0,[r5,#${GR3X_RATIO}];${length}
     ldrb r1,[r5,#${GR3X_ROLL_FRAME}];add r1,r1,#1;cmp r1,r0;movhi r1,#0;
     strb r1,[r5,#${GR3X_ROLL_FRAME}];strb r1,[r6,#${GR3X_ROLL_FRAME}];strbhi r1,[r5,#${GR3X_ROLL_FOLDER}];strbhi r1,[r6,#${GR3X_ROLL_FOLDER}];
@@ -175,8 +200,16 @@ export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuR
   // The mode recall (called by the guard's recall hook): r0 the record in use, r1 the mode recalled.
   entries.filmRollRecall = p.code(`sub r1,r1,#1;cmp r1,#5;bxhi lr;${ram('r0', 'none')}${filmMenu ? `ldrb r1,[r0,#${GR3X_ROLL_FLAGS}];tst r1,#${GR3X_FILM_ON};bxeq lr;` : ''}
     mov r1,#0;strb r1,[r0,#${GR3X_INTERIM}];mov r1,#${GR3X_DRIVE_MULTI};strb r1,[r0,#${GR3X_DRIVE}];none:bx lr;`);
+  // folderName: then, outside film mode (a free mode, or a U mode with Film Roll Mode off), the saved
+  // folder name and type back in the live values.
+  if (folderName) {
+    const core = entries.filmRollRecall;
+    entries.filmRollRecall = p.code(`push {r4,r5,r6,lr};mov r4,r0;mov r5,r1;bl #${core};${ram('r4', 'done')}
+      sub r0,r5,#1;cmp r0,#5;bhi restore;ldrb r0,[r4,#${GR3X_ROLL_FLAGS}];tst r0,#${GR3X_FILM_ON};bne done;
+      restore:mov r0,r4;bl #${entries.filmFolderNameRestore};done:pop {r4,r5,r6,pc};`);
+  }
   if (folders) installFolders(p, free, entries, diag, filmMenu);
-  if (filmMenu) installMenu(p, entries);
+  if (filmMenu) installMenu(p, entries, folderName ? entries.filmFolderNameRestore : 0);
   if (keys) installKeys(p, free, entries, keys === 'boot' || keys === 'shot', keys === 'shot');
   if (noReview === 'skip') installNoReview(p, free, entries);
   if (noReview === 'live') installReviewToLive(p, free, entries);
@@ -249,7 +282,7 @@ const APP = 0x5320ad88, USER_DATA = 0x5320b31c, INTERIM_SET = 0x53262990, DRIVE_
  *    again (the BOX keeps its own Film Roll Mode until Save Settings, which rewinds);
  *  - isCurrent(this, value): bit 0 == value (0 outside a U mode).
  */
-function installMenu(p: Gr3xRollProgram, entries: Record<string, number>) {
+function installMenu(p: Gr3xRollProgram, entries: Record<string, number>, restore = 0) {
   const mode = (label: string) => `movw r3,#${lo(MODEL)};movt r3,#${hi(MODEL)};ldr r2,[r3];${ram('r2', label)}ldrb r2,[r2];sub r2,r2,#1;cmp r2,#5;bhi ${label};`;
   entries.filmMenuVisible = p.code(`${mode('hidden')}mov r0,#1;bx lr;hidden:mov r0,#0;bx lr;`);
   entries.filmMenuIsCurrent = p.code(`${mode('none')}ldr r2,[r3,#4];${ram('r2', 'none')}ldrb r2,[r2,#${GR3X_ROLL_FLAGS}];and r2,r2,#${GR3X_FILM_ON};
@@ -258,7 +291,7 @@ function installMenu(p: Gr3xRollProgram, entries: Record<string, number>) {
     ldrb r0,[r2,#${GR3X_ROLL_FLAGS}];cmp r4,#0;beq off;
     orr r0,r0,#${GR3X_FILM_ON};strb r0,[r2,#${GR3X_ROLL_FLAGS}];
     bl #${APP};bl #${USER_DATA};mov r5,r0;mov r1,#0;bl #${INTERIM_SET};mov r0,r5;mov r1,#${GR3X_DRIVE_MULTI};bl #${DRIVE_SET};b done;
-    off:bic r0,r0,#${GR3X_FILM_ON};strb r0,[r2,#${GR3X_ROLL_FLAGS}];
+    off:bic r0,r0,#${GR3X_FILM_ON};strb r0,[r2,#${GR3X_ROLL_FLAGS}];${restore ? `mov r0,r2;bl #${restore};` : ''}
     done:pop {r4,r5,r6,pc};`);
 }
 
@@ -537,3 +570,19 @@ export const GR3X_CANCEL_CLEAR = `push {r0};movw ip,#${lo(CANCEL_FLAG)};movt ip,
 const REVIEW_ARM = KEY_LAST + 9;
 /** That flag cleared at each exposure (every register kept but ip). */
 export const GR3X_REVIEW_ARM_CLEAR = `push {r0};movw ip,#${lo(REVIEW_ARM)};movt ip,#${hi(REVIEW_ARM)};mov r0,#0;strb r0,[ip];pop {r0};`;
+
+/** T14-DIR1: the roll folder's name. The look of the photo set in use (+0x1c2: 11 Standard to 22
+ * Negative Film) gives 3 characters (decision of 2026-10-31); other looks (GR Mod's films) FLM until
+ * the application asks each film's code. */
+export const GR3X_LOOK = 0x1c2;
+export const GR3X_LOOK_CODES: Readonly<Record<number, string>> = {
+  11: 'STD', 12: 'VIV', 13: 'MON', 14: 'SMO', 15: 'HMO', 16: 'HCB', 17: 'POS', 18: 'BLB', 19: 'RET', 20: 'HDR', 21: 'CRP', 22: 'NEG',
+};
+export const GR3X_UNKNOWN_LOOK_CODE = 'FLM';
+/** The saved Folder Name (5 bytes) and its type, in each record. */
+export const GR3X_FOLDER_NAME = 0x936, GR3X_FOLDER_TYPE = 0x934;
+/** The live shooting values (*0x53525d5c()) and their folder name (item 0xfd) and type (item 0xfc)
+ * setters, as Folder Name's own setters use them (0x5326caa0, 0x53258604). */
+export const GR3X_LIVE_VALUES = 0x53525d5c, GR3X_LIVE_FOLDER_NAME = 0x5354d138, GR3X_LIVE_FOLDER_TYPE = 0x5354d104;
+/** The name given (6 bytes: 5 characters and a zero), round 10's zero-filled sbrk area. */
+const FOLDER_NAME = GR3X_ROLL_DIAG + 0x20;
