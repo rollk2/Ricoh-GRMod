@@ -1458,3 +1458,15 @@ Lecture (attention : MM = valeur du test + 2, HH = phase + 1) :
 - Piste retenue : appuyer sur Next shot au premier événement reçu par l'écran après son démarrage
   (gestionnaire `0x531cbfc4`, entrée 10 de la table), c'est-à-dire quand l'écran est actif, comme un
   appui réel.
+
+### Résultats et build de test T14-DIR2 (2026-10-31)
+
+- Précision de l'utilisateur sur T14-DIR1 : après P puis retour en U3, une vue fait **disparaître
+  l'affichage de visée** (la vue est en transparence) ; Film Advance valide la vue mais l'affichage
+  ne revient pas, ni en P, jusqu'à la photo suivante. Même famille que le bogue du menu.
+- T14-DIR2 : le démarrage de l'écran ne fait plus que noter l'écran (son adresse en `0x5580439c`,
+  0 sinon ; mêmes conditions que T13-FN7, drapeau d'ouverture compris) ; au premier événement reçu
+  par cet écran (gestionnaire `0x531cbfc4`), l'événement est traité normalement, puis Next shot.
+- Vérifié en émulateur : 120 cas de démarrage, gestionnaire inchangé pour un autre écran, appel du
+  gestionnaire puis de Next shot pour l'écran noté ; T14-DIR1 reconstruit identique ; sondes
+  repassées.

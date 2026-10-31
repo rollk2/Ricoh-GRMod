@@ -110,7 +110,7 @@ export interface Gr3xRollProgram {
   patch(address: number, expected: number, replacement: number, reason: string): void;
 }
 
-export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuRatio[], folders = false, diag = false, filmMenu = false, keys: false | 'sequence' | 'boot' | 'shot' = false, noReview: false | 'skip' | 'live' | 'next' | 'armed' = false, folderName = false) {
+export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuRatio[], folders = false, diag = false, filmMenu = false, keys: false | 'sequence' | 'boot' | 'shot' = false, noReview: false | 'skip' | 'live' | 'next' | 'armed' | 'deferred' = false, folderName = false) {
   const rec = (label: string) => records(label, filmMenu);
   const free = (at: number) => { if (p.sites.some(s => s.address === at)) throw new FirmwareError('unexpected-instruction', `IIIx film roll: ${at.toString(16)} already patched`); };
   const entries: Record<string, number> = {};
@@ -213,7 +213,7 @@ export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuR
   if (keys) installKeys(p, free, entries, keys === 'boot' || keys === 'shot', keys === 'shot');
   if (noReview === 'skip') installNoReview(p, free, entries);
   if (noReview === 'live') installReviewToLive(p, free, entries);
-  if (noReview === 'next' || noReview === 'armed') installReviewNext(p, free, entries, noReview === 'armed');
+  if (noReview === 'next' || noReview === 'armed' || noReview === 'deferred') installReviewNext(p, free, entries, noReview !== 'next', noReview === 'deferred');
   return { entries, exposure };
 }
 
@@ -504,7 +504,7 @@ const UI_TASK = 0x5320ad88, UI_QUEUE = 0x5320aefc;
  * entry stack, ip = sp), then Next shot on the screen (r0 = this): the live view again, with the
  * frame shown over it, as when Next shot is chosen. Elsewhere the start runs alone.
  */
-function installReviewNext(p: Gr3xRollProgram, free: (at: number) => void, entries: Record<string, number>, armed = false) {
+function installReviewNext(p: Gr3xRollProgram, free: (at: number) => void, entries: Record<string, number>, armed = false, deferred = false) {
   free(GR3X_REVIEW_START);
   // 'armed' (T13-FN7): only a start that follows the opening action (UI event 0x90, after a shot);
   // the flag is raised there and falls at the start (and at each exposure, GR3X_REVIEW_ARM_CLEAR).
@@ -514,6 +514,24 @@ function installReviewNext(p: Gr3xRollProgram, free: (at: number) => void, entri
     p.patch(GR3X_OPEN_REVIEW, 0xe1a0c00d, branchWord(GR3X_OPEN_REVIEW, entries.filmReviewArm), 'film roll: the Next / Retake / Complete screen opened after a shot');
   }
   const arm = armed ? `movw ip,#${lo(REVIEW_ARM)};movt ip,#${hi(REVIEW_ARM)};ldrb r0,[ip];mov r1,#0;strb r1,[ip];cmp r0,#0;beq alone;` : '';
+  if (deferred) {
+    // 'deferred' (T14-DIR2): the start only notes the screen (its address, 0 otherwise); Next shot is
+    // pressed when that screen gets its first UI event (its handler, table entry 10), after the
+    // native handling of that event: the screen is then the active one, as for a real press.
+    free(GR3X_REVIEW_EVENT);
+    entries.filmReviewNext = p.code(`push {r0,r1,r2,r3,r4,lr};mov r4,r0;movw ip,#${lo(REVIEW_PENDING)};movt ip,#${hi(REVIEW_PENDING)};mov r0,#0;str r0,[ip];
+      ${arm}${records('alone', true)}
+      movw r0,#${lo(SINGLETON)};movt r0,#${hi(SINGLETON)};ldr r0,[r0];${ram('r0', 'alone')}
+      ldr r0,[r0,#0x518];${ram('r0', 'alone')}ldr r0,[r0];${ram('r0', 'alone')}ldrb r0,[r0,#0x6c0];cmp r0,#2;bne alone;
+      movw ip,#${lo(REVIEW_PENDING)};movt ip,#${hi(REVIEW_PENDING)};str r4,[ip];
+      alone:pop {r0,r1,r2,r3,r4,lr};mov ip,sp;b #${GR3X_REVIEW_START + 4};`);
+    p.patch(GR3X_REVIEW_START, 0xe1a0c00d, branchWord(GR3X_REVIEW_START, entries.filmReviewNext), 'film roll: Next / Retake / Complete noted for Next shot in film mode');
+    entries.filmReviewEvent = p.code(`push {r1};movw ip,#${lo(REVIEW_PENDING)};movt ip,#${hi(REVIEW_PENDING)};ldr r1,[ip];cmp r1,r0;bne native;
+      mov r1,#0;str r1,[ip];pop {r1};push {r0,lr};mov ip,sp;bl #${GR3X_REVIEW_EVENT + 4};pop {r0,lr};b #${GR3X_NEXT_SHOT};
+      native:pop {r1};mov ip,sp;b #${GR3X_REVIEW_EVENT + 4};`);
+    p.patch(GR3X_REVIEW_EVENT, 0xe1a0c00d, branchWord(GR3X_REVIEW_EVENT, entries.filmReviewEvent), 'film roll: Next shot at the screen\'s first event in film mode');
+    return;
+  }
   entries.filmReviewNext = p.code(`push {r0,r1,r2,r3,r4,lr};${arm}${records('alone', true)}
     movw r0,#${lo(SINGLETON)};movt r0,#${hi(SINGLETON)};ldr r0,[r0];${ram('r0', 'alone')}
     ldr r0,[r0,#0x518];${ram('r0', 'alone')}ldr r0,[r0];${ram('r0', 'alone')}ldrb r0,[r0,#0x6c0];cmp r0,#2;bne alone;
@@ -586,3 +604,8 @@ export const GR3X_FOLDER_NAME = 0x936, GR3X_FOLDER_TYPE = 0x934;
 export const GR3X_LIVE_VALUES = 0x53525d5c, GR3X_LIVE_FOLDER_NAME = 0x5354d138, GR3X_LIVE_FOLDER_TYPE = 0x5354d104;
 /** The name given (6 bytes: 5 characters and a zero), round 10's zero-filled sbrk area. */
 const FOLDER_NAME = GR3X_ROLL_DIAG + 0x20;
+
+/** QuickViewController's UI event handler (its table entry 10). */
+export const GR3X_REVIEW_EVENT = 0x531cbfc4;
+/** T14-DIR2: the screen waiting for Next shot (a word, zero at start-up, the key probe's area). */
+const REVIEW_PENDING = KEY_LAST + 12;
