@@ -161,4 +161,13 @@ describe.skipIf(!input)('GR III film roll (film mode phase 3.1)', () => {
     const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'rt1' });
     expect(built.report.revision).toBe('T13-RT1');
   }, 240000);
+  it('Retake cancels the whole frame (T13-FN6)', async () => {
+    const fn5 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'fn5' });
+    const fn6 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'fn6' });
+    expect(fn5.sites.some(s => s.address === 0x5346a8d8)).toBe(false);
+    expect(fn6.sites.find(s => s.address === 0x5346a8d8)!).toMatchObject({ expected: '0dc0a0e1', reason: expect.stringMatching(/^film retake: the whole frame/) });
+    expect(fn6.sites.length).toBe(fn5.sites.length + 1);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'fn6' });
+    expect(built.report.revision).toBe('T13-FN6');
+  }, 240000);
 });

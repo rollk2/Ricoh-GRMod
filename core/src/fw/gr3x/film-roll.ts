@@ -365,7 +365,7 @@ export interface Gr3xFnProgram extends Gr3xRollProgram {
  *    advances the film when a U mode with Film Roll Mode on has a frame exposed (the end poster
  *    0x531a4d80, as Complete), then the camera goes on as for Off (function 0): nothing else happens.
  */
-export function installGr3xFilmAdvanceFn(p: Gr3xFnProgram, text: number, retake: false | 'event' | 'action' | 'probe' = false) {
+export function installGr3xFilmAdvanceFn(p: Gr3xFnProgram, text: number, retake: false | 'event' | 'action' | 'probe' | 'cancel' = false) {
   const fail = (what: string) => { throw new FirmwareError('unexpected-layout', `IIIx film advance: ${what}`); };
   const free = (at: number) => { if (p.sites.some(s => s.address === at)) throw new FirmwareError('unexpected-instruction', `IIIx film advance: ${at.toString(16)} already patched`); };
   const official = p.read(GR3X_FN_TABLE, GR3X_FN_COUNT);
@@ -399,11 +399,20 @@ export function installGr3xFilmAdvanceFn(p: Gr3xFnProgram, text: number, retake:
   const retakeCode = (label: string) => `push {r0,r1,r2,r3,ip,lr};${tally(5)}${records(label, true)}
     movw r0,#${lo(SINGLETON)};movt r0,#${hi(SINGLETON)};ldr r0,[r0];${ram('r0', label)}
     ldr r0,[r0,#0x518];${ram('r0', label)}ldr r0,[r0];${ram('r0', label)}ldrb r0,[r0,#0x6c0];cmp r0,#2;bne ${label};
-    ${retake === 'action' || retake === 'probe' ? `${tally(6)}bl #${GR3X_RETAKE_ACTION};` : `bl #${UI_TASK};bl #${UI_QUEUE};mov r1,#0xb7;mov r2,#0;mov r3,#0;bl #${GR3X_POST_EVENT};`}${label}:pop {r0,r1,r2,r3,ip,lr};`;
+    ${retake === 'cancel' ? `movw ip,#${lo(CANCEL_FLAG)};movt ip,#${hi(CANCEL_FLAG)};ldrb r0,[ip];cmp r0,#0;bne ${label};mov r0,#1;strb r0,[ip];bl #${GR3X_RETAKE_ACTION};` : retake === 'action' || retake === 'probe' ? `${tally(6)}bl #${GR3X_RETAKE_ACTION};` : `bl #${UI_TASK};bl #${UI_QUEUE};mov r1,#0xb7;mov r2,#0;mov r3,#0;bl #${GR3X_POST_EVENT};`}${label}:pop {r0,r1,r2,r3,ip,lr};`;
   const retakeCustom = retake ? `cmp r2,#${GR3X_FILM_RETAKE};bne native;${retakeCode('rkept')}mov r2,#0;b native;` : '';
   const retakeWlan = retake ? `cmp r6,#${GR3X_FILM_RETAKE};bne go;${retakeCode('rkept')}mov r6,#0;b go;` : '';
   entries.filmFnCustom = p.code(`cmp r2,#${GR3X_FILM_ADVANCE};bne ${retake ? 'other' : 'native'};${advance('kept')}mov r2,#0;${retake ? `b native;other:${retakeCustom}` : ''}native:mov ip,sp;b #${GR3X_FN_CUSTOM + 4};`);
   p.patch(GR3X_FN_CUSTOM, 0xe1a0c00d, branchWord(GR3X_FN_CUSTOM, entries.filmFnCustom), 'film advance: Fn, ISO and Drive buttons');
+  // 'cancel' (T13-FN6): the capture machine's Retake, when the flag is up, takes the sequence for its
+  // first frame (+ 4 = 1), so it ends empty (state 0) as when the first frame is retaken; the flag
+  // falls there, or at the next exposure (GR3X_CANCEL_CLEAR).
+  if (retake === 'cancel') {
+    free(GR3X_MACHINE_RETAKE);
+    entries.filmCancelMachine = p.code(`push {r1};movw ip,#${lo(CANCEL_FLAG)};movt ip,#${hi(CANCEL_FLAG)};ldrb r1,[ip];cmp r1,#0;beq go;
+      mov r1,#0;strb r1,[ip];mov r1,#1;str r1,[r0,#4];go:pop {r1};mov ip,sp;b #${GR3X_MACHINE_RETAKE + 4};`);
+    p.patch(GR3X_MACHINE_RETAKE, 0xe1a0c00d, branchWord(GR3X_MACHINE_RETAKE, entries.filmCancelMachine), 'film retake: the whole frame is cancelled');
+  }
   entries.filmFnWlan = p.code(`cmp r6,#${GR3X_FILM_ADVANCE};bne ${retake ? 'other' : 'go'};${advance('kept')}mov r6,#0;${retake ? `b go;other:${retakeWlan}` : ''}go:cmp r6,#0x29;b #${GR3X_FN_WLAN + 4};`);
   p.patch(GR3X_FN_WLAN, 0xe3560029, branchWord(GR3X_FN_WLAN, entries.filmFnWlan), 'film advance: Movie/Wireless buttons');
   return entries;
@@ -508,3 +517,8 @@ export function installGr3xRetakeProbe(p: Gr3xRollProgram) {
     clock:b #${GR3X_GET_TIME};`);
   return entries;
 }
+
+/** T13-FN6: the frame cancel's flag (a byte zero at start-up, the key probe's area, unused there). */
+const CANCEL_FLAG = KEY_LAST + 8;
+/** The flag cleared at each exposure (every register kept but ip). */
+export const GR3X_CANCEL_CLEAR = `push {r0};movw ip,#${lo(CANCEL_FLAG)};movt ip,#${hi(CANCEL_FLAG)};mov r0,#0;strb r0,[ip];pop {r0};`;

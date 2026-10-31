@@ -1294,3 +1294,17 @@ Lecture (attention : MM = valeur du test + 2, HH = phase + 1) :
   être retirée ; le Retake natif ne retire que la vue en attente de décision.
 - `0x532a838c` (appelé à l'arrêt de l'écran sans Next shot) : remise en état de CaptureReadyModel
   (publie 0x66 et 0x15a), pas un retrait de vue.
+
+### Build de test T13-FN6 : Retake annule toute la vue en cours
+
+- Décision (2026-10-31) : la fonction 43 (texte du boîtier « Reprendre photo ») annule la vue en
+  cours entière (toutes ses expositions), sans avancer le film.
+- Fonction 43 : en mode U, Film Roll Mode, état 2, si le drapeau `0x55804398` est baissé : le lever
+  et appeler l'action Retake `0x532270d4` ; drapeau levé : rien (les 4 appels par appui n'en font
+  qu'un). Machine à états, entrée de `0x5346a8d8` : drapeau levé, phase (+ 4) forcée à 1 et drapeau
+  baissé ; la machine finit alors à l'état 0, comme le Retake natif de la première vue (vue vide).
+  Le drapeau tombe aussi à chaque exposition (préfixe du crochet d'exposition).
+- Vérifié en émulateur (machine, déduplication, effacement à l'exposition ; un défaut trouvé et
+  corrigé avant envoi : l'événement 0xb7 était aussi publié) ; T13-FN4, T13-FN5, T13-RT1 reconstruits
+  identiques ; sondes repassées.
+- Inconnues : la transparence en visée s'efface-t-elle ; le compteur et le dossier restent-ils justes.
