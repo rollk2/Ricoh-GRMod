@@ -1320,3 +1320,29 @@ Lecture (attention : MM = valeur du test + 2, HH = phase + 1) :
 - **Bogue majeur signalé (2026-10-31)** : en mode pellicule, après Menu puis retour, l'affichage de
   prise de vue a disparu (plus de collimateur ni d'informations), alors qu'une vue reste possible.
   Déjà vu en T13-FN5. Cause inconnue ; à cerner (mode P, mode pellicule sans vue, avec vue).
+
+### Test guidé T13-FN6 (2026-10-31, réponses cliquées, U3)
+
+| Étape | Geste | Résultat |
+|---|---|---|
+| 1 | lampe, fenêtre, touche gauche | lampe et fenêtre toujours en transparence |
+| 2 | livre, touche droite | compteur + 1 |
+| 3 | lecture, dernière photo | **lampe, fenêtre et livre** : l'annulation ne retire rien de l'image |
+| 4 | Menu, Menu, sans vue en cours | affichage normal |
+| 5 | lampe, Menu, Menu | **affichage disparu**, plus de transparence |
+| 6 | | compteur non affiché |
+| 7 | lecture | la lampe : le menu a fait Complete (natif) |
+| 8 | mi-course | toujours disparu |
+| 9 | une vue | toujours disparu, la vue est en transparence |
+| 10 | touche droite | toujours disparu |
+| 11 | molette P puis U3 | toujours disparu |
+| 12 | extinction, rallumage | tout revient |
+| 13 | Film Roll Mode Off, vue, écran natif, Photo suivante, Menu, Menu | **affichage normal** |
+
+- L'image de la superposition est construite au fil des vues : une vue validée y reste. Retake vue par
+  vue ou annulation de la vue en cours : impossibles sans garder la décision sur l'écran natif.
+- Le bogue du menu vient de notre fermeture automatique (étape 13 : rien en natif). Hypothèse : le
+  chemin du menu (Complete par le menu) redémarre QuickViewController alors que l'état vaut encore 2,
+  et notre Next shot automatique demande la visée au milieu du passage au menu. Seul ouvreur trouvé
+  par recherche des identifiants 0x0800000c à 0x08000011 : l'action `0x53226738` (les autres
+  occurrences sont la fabrique `0x5316f3bc`, le gestionnaire de touches et QuickViewController).
