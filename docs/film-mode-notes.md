@@ -1346,3 +1346,17 @@ Lecture (attention : MM = valeur du test + 2, HH = phase + 1) :
   et notre Next shot automatique demande la visée au milieu du passage au menu. Seul ouvreur trouvé
   par recherche des identifiants 0x0800000c à 0x08000011 : l'action `0x53226738` (les autres
   occurrences sont la fabrique `0x5316f3bc`, le gestionnaire de touches et QuickViewController).
+
+### Build de test T13-FN7 : correction du bogue du menu, sans Retake
+
+- Décision (2026-10-31) : pas de Retake en mode pellicule ; la fonction 43 est retirée.
+- Fermeture automatique seulement après un déclenchement : l'action d'ouverture `0x53226738` (événement
+  0x90) lève un drapeau (`0x55804399`) ; le démarrage `0x531cbde4` le consomme (toujours baissé) et
+  n'appelle Next shot que s'il était levé, en plus des conditions de T13-FN4. Le drapeau tombe aussi à
+  chaque exposition. Si le chemin du menu passe lui aussi par `0x53226738`, la correction ne suffira
+  pas : le test le dira.
+- Protection : une fonction supérieure à 42 (43 enregistrée par T13-FN4 à T13-FN6) se lit comme Off
+  (texte, icône, exécution sur les deux chemins).
+- Vérifié en émulateur : 240 cas de démarrage (avec et sans drapeau), drapeau levé par l'ouverture et
+  baissé par l'exposition, protection 43 et 200 ; T13-FN1, T13-FN4, T13-FN6 reconstruits identiques ;
+  sondes repassées.
