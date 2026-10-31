@@ -1588,3 +1588,22 @@ Lecture (attention : MM = valeur du test + 2, HH = phase + 1) :
 - T14-DIR7 sur le boîtier : boutons toujours présents. Le jeu passé à `0x5316d354` n'est pas (ou pas
   seulement) ce qui affiche Next shot / Retake / Complete ; l'affichage des boutons reste à localiser
   (pistes : `0x531cb7bc` et ses appels `0x531cb254`, `0x531cb6d4`, `0x531cb16c`).
+
+### Les boutons de l'écran (analyse statique, 2026-10-31)
+
+- Appui sur un bouton (`0x531cb4e4`) : seulement dans les états `+0x16c` 4 et 5 ; table
+  `0x53b412a4 + état × 0x20` (compte et textes, puis paires de pointeurs de fonctions membres) :
+  état 4 = Cancel / Delete (`0x53b41324`), état 5 = Next shot / Retake / Complete (`0x53b41344`).
+- L'état vient de l'identifiant de l'écran (`+0x124`, `0x5316d8d4`) − 0x0800000c (`0x531cb028`),
+  posé au démarrage par `0x531cb7bc`. L'identifiant est choisi par l'écran lui-même (entrée 6 de sa
+  table, `0x531ca6b4`) selon l'octet `+0x799` de `0x532372e8()` : 3 → 0x08000011 (multi-exposition,
+  état 5), 4 → 0x0800000d, 5 → 0x0800000c ou 0x0800000e, sinon 0x0800000c (photo simple, état 0).
+- Explique les échecs de T14-DIR6 et DIR7 (agir sur la présentation ou le jeu n'enlève pas l'état 5).
+
+### Build de test T14-DIR8 : l'identité d'une photo simple
+
+- En mode pellicule (U, Film Roll Mode, état de multi-exposition 2), l'octet `+0x799` lu par
+  `0x531ca6b4` (`0x531ca6e8`) vaut 0 au lieu de 3 : l'écran se déclare 0x0800000c (aperçu d'une photo
+  simple, sans boutons, Rec Review). Plus aucun autre crochet sur l'écran.
+- Vérifié en émulateur (240 cas, valeurs 0, 3, 4, 5) ; T14-DIR7 reconstruit identique ; sondes
+  repassées. Inconnue principale : la multi-exposition continue-t-elle après cet aperçu.

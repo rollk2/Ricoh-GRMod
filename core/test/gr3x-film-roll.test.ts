@@ -266,4 +266,13 @@ describe.skipIf(!input)('GR III film roll (film mode phase 3.1)', () => {
     const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'dir7' });
     expect(built.report.revision).toBe('T14-DIR7');
   }, 240000);
+  it('gives the screen a single picture\'s review id in film mode (T14-DIR8)', async () => {
+    const dir3 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'dir3' });
+    const dir8 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'dir8' });
+    expect(dir8.sites.find(s => s.address === 0x531ca6e8)!).toMatchObject({ expected: '9937d0e5', reason: expect.stringMatching(/single picture's review instead/) });
+    for (const at of [0x531cbde4, 0x531cbfc4, 0x53226738]) expect(dir8.sites.some(s => s.address === at)).toBe(false);
+    expect(dir8.sites.length).toBe(dir3.sites.length - 2);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'dir8' });
+    expect(built.report.revision).toBe('T14-DIR8');
+  }, 240000);
 });

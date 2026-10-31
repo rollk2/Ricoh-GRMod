@@ -110,7 +110,7 @@ export interface Gr3xRollProgram {
   patch(address: number, expected: number, replacement: number, reason: string): void;
 }
 
-export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuRatio[], folders = false, diag = false, filmMenu = false, keys: false | 'sequence' | 'boot' | 'shot' = false, noReview: false | 'skip' | 'live' | 'next' | 'armed' | 'deferred' | 'logged' | 'posted' | 'closed' | 'timed' | 'timedNext' | 'plain' | 'noButtons' = false, folderName = false) {
+export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuRatio[], folders = false, diag = false, filmMenu = false, keys: false | 'sequence' | 'boot' | 'shot' = false, noReview: false | 'skip' | 'live' | 'next' | 'armed' | 'deferred' | 'logged' | 'posted' | 'closed' | 'timed' | 'timedNext' | 'plain' | 'noButtons' | 'plainId' = false, folderName = false) {
   const rec = (label: string) => records(label, filmMenu);
   const free = (at: number) => { if (p.sites.some(s => s.address === at)) throw new FirmwareError('unexpected-instruction', `IIIx film roll: ${at.toString(16)} already patched`); };
   const entries: Record<string, number> = {};
@@ -216,6 +216,7 @@ export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuR
   if (noReview === 'next' || noReview === 'armed' || noReview === 'deferred' || noReview === 'logged') installReviewNext(p, free, entries, noReview !== 'next', noReview === 'deferred' || noReview === 'logged', noReview === 'logged');
   if (noReview === 'plain') installReviewPlain(p, free, entries);
   if (noReview === 'noButtons') installReviewNoButtons(p, free, entries);
+  if (noReview === 'plainId') installReviewPlainId(p, free, entries);
   if (noReview === 'timed' || noReview === 'timedNext') installReviewTimer(p, free, entries, noReview === 'timedNext');
   if (noReview === 'posted' || noReview === 'closed') installReviewHalfPress(p, free, entries, noReview === 'posted' ? GR3X_DELETE_EVENT : GR3X_REVIEW_CLOSE_EVENT);
   return { entries, exposure };
@@ -770,4 +771,26 @@ function installReviewNoButtons(p: Gr3xRollProgram, free: (at: number) => void, 
     pop {r0,r1,r2,r3,r4,lr};mov r1,#0;b #${GR3X_REVIEW_BUTTONS + 8};
     keep:pop {r0,r1,r2,r3,r4,lr};b #${GR3X_REVIEW_BUTTONS + 8};`);
   p.patch(GR3X_REVIEW_BUTTONS, 0x13a01003, branchWord(GR3X_REVIEW_BUTTONS, entries.filmReviewButtons), 'film roll: no Next / Retake / Complete buttons in film mode');
+}
+
+/** QuickViewController's own id (table entry 6, 0x531ca6b4): from the byte + 0x799 of 0x532372e8()
+ * (`ldrb r3,[r0,#0x799]` here): 3 → 0x08000011 (the multi-exposure review: state 5, the buttons
+ * Next shot / Retake / Complete of the table 0x53b412a4 + 5 × 0x20), 4 → 0x0800000d, 5 → 0x0800000c or
+ * 0x0800000e, otherwise 0x0800000c (a single picture's review, state 0, no buttons). */
+export const GR3X_REVIEW_ID_KIND = 0x531ca6e8;
+
+/**
+ * Form 'dir8' (T14-DIR8): in film mode (a U mode with Film Roll Mode on, a frame exposed), the screen
+ * takes the id of a single picture's review (kind 3 read as 0): the picture without buttons, kept as
+ * Rec Review says, closed by a half press as after a single picture.
+ */
+function installReviewPlainId(p: Gr3xRollProgram, free: (at: number) => void, entries: Record<string, number>) {
+  free(GR3X_REVIEW_ID_KIND);
+  entries.filmReviewId = p.code(`ldrb r3,[r0,#0x799];cmp r3,#3;bne back;push {r0,r1,r2,r3,r4,lr};${records('keep', true)}
+    movw r0,#${lo(SINGLETON)};movt r0,#${hi(SINGLETON)};ldr r0,[r0];${ram('r0', 'keep')}
+    ldr r0,[r0,#0x518];${ram('r0', 'keep')}ldr r0,[r0];${ram('r0', 'keep')}ldrb r0,[r0,#0x6c0];cmp r0,#2;bne keep;
+    pop {r0,r1,r2,r3,r4,lr};mov r3,#0;b back;
+    keep:pop {r0,r1,r2,r3,r4,lr};
+    back:b #${GR3X_REVIEW_ID_KIND + 4};`);
+  p.patch(GR3X_REVIEW_ID_KIND, 0xe5d03799, branchWord(GR3X_REVIEW_ID_KIND, entries.filmReviewId), 'film roll: a single picture\'s review instead of the multi-exposure one');
 }
