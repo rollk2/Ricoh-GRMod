@@ -1308,3 +1308,12 @@ Lecture (attention : MM = valeur du test + 2, HH = phase + 1) :
   corrigé avant envoi : l'événement 0xb7 était aussi publié) ; T13-FN4, T13-FN5, T13-RT1 reconstruits
   identiques ; sondes repassées.
 - Inconnues : la transparence en visée s'efface-t-elle ; le compteur et le dossier restent-ils justes.
+
+### Résultats sur le boîtier (build T13-FN6, 2026-10-31, partiels)
+
+- C2 : après l'annulation, la visée garde la lampe et la fenêtre en transparence ; C3 compteur 3
+  (inchangé). D2 : après la vue suivante, lampe, fenêtre et livre en transparence. E2 : avance (3 → 4).
+- G4 : vue, annulation, puis Film Advance : **aucun effet** ; l'annulation a bien remis la machine
+  hors de l'état 2 (sinon l'avance aurait eu lieu).
+- Conclusion provisoire : l'annulation agit sur la machine à états, mais pas sur l'image de
+  transparence en visée. À établir : le contenu de la photo de E (lampe et fenêtre comprises ou non).
