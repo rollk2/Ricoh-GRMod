@@ -1383,3 +1383,21 @@ Lecture (attention : MM = valeur du test + 2, HH = phase + 1) :
   sondes).
 - Priorités : nom du dossier, puis extinction ou changement de mode pendant une vue, puis fin de
   rouleau.
+
+### Nom du dossier du rouleau (analyse statique, 2026-10-31)
+
+- Le réglage d'origine Folder Name (`+0x936`, 5 octets) et son type (`+0x934`) sont copiés dans les
+  huit enregistrements (réglage global), puis transmis aux valeurs de prise de vue en direct :
+  `0x5326caa0` → `0x5354d138(live, nom)` (élément 0xfd de `0x5354b564`) ; `0x53258604` →
+  `0x5354d104(live, type)` (si `0x532585a4()`). `live = *0x53525d5c()`. Certitude : lu dans le code.
+- Le chemin du fichier est formé sur le gabarit `" :\DCIM\        \        .   "` (`0x53d26c68`,
+  utilisé par `0x536bd410` et `0x5383d430`) ; la recherche des dossiers existants utilise `"%03d*"`
+  (`0x5359efc0`). Le nom de 5 caractères d'un nouveau dossier vient donc des valeurs en direct.
+- T10-FILMPROBE5 a montré que nom, type et drapeau posés à la fin du modèle (`0x5323a080`, tâche de
+  l'interface) s'appliquent au dossier créé pour l'image qui suit.
+- Image Control actif : octet `+0x1c2` (11 Standard à 22 Negative Film ; les films de GR Mod ont
+  leurs propres valeurs).
+- Proposition : poser le nom du rouleau (code + longueur) et le type « nom libre » **seulement dans
+  les valeurs en direct** à la fin du modèle en mode pellicule et au rappel d'un mode U pellicule ;
+  remettre le nom et le type enregistrés au rappel d'un autre mode et quand Film Roll Mode passe à
+  Off. Le réglage enregistré de l'utilisateur n'est jamais modifié.
