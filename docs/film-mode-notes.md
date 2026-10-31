@@ -1441,3 +1441,20 @@ Lecture (attention : MM = valeur du test + 2, HH = phase + 1) :
   **parfois** jusqu'à la photo suivante (reproduit 1 fois sur 3 environ). P → Av → P (trois fois,
   notre remise du nom passe aussi par là) : jamais. Cause non établie : à comparer avec T13-FN7
   (même enchaînement), et à tester avec un délai entre l'avance et la molette.
+
+### Démarrage de QuickViewController et retour automatique (analyse statique, 2026-10-31)
+
+- Démarrage `0x531cbde4` : état `+0x16c` = 6, puis `0x531cb7bc(this, mode)` avec mode = identifiant
+  du contrôleur − 0x0800000c (`0x531cb028`, `0x5316d8d4`) ; l'écran ouvert par l'action
+  `0x53226738` est 0x0800000c, donc mode 0. Si l'état final ≤ 1 : `0x531caa7c`.
+- `0x531caa7c` = retour automatique natif (vue simple) : durée de Rec Review (`+0x900` de
+  l'enregistrement par `0x532462d0`) ; 0 → aussitôt `+0x180 = 1` et visée (`0x5316c9d8(this,
+  0x08000000, 0x10000000)`, exactement comme Next shot) ; −1 → rien (maintien) ; sinon minuterie
+  `0x5322b468` rangée en `+0x178`, traitée par `0x531ca86c` (même retour). `0x531cbe78` (publie 0xf1)
+  y mène aussi.
+- Conséquence : notre fermeture (Next shot juste après le démarrage) a la même forme que le retour
+  immédiat natif « Rec Review Off ». La course supposée n'est donc pas démontrée par le code ; la
+  différence tient à l'état de multi-exposition (écran de décision affiché) au moment du retour.
+- Piste retenue : appuyer sur Next shot au premier événement reçu par l'écran après son démarrage
+  (gestionnaire `0x531cbfc4`, entrée 10 de la table), c'est-à-dire quand l'écran est actif, comme un
+  appui réel.
