@@ -257,4 +257,13 @@ describe.skipIf(!input)('GR III film roll (film mode phase 3.1)', () => {
     const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'dir6' });
     expect(built.report.revision).toBe('T14-DIR6');
   }, 240000);
+  it('gives the screen no buttons in film mode (T14-DIR7)', async () => {
+    const dir6 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'dir6' });
+    const dir7 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'dir7' });
+    expect(dir7.sites.find(s => s.address === 0x531cbe2c)!).toMatchObject({ expected: '0310a013', reason: expect.stringMatching(/no Next \/ Retake \/ Complete buttons/) });
+    expect(dir7.sites.some(s => s.address === 0x531cbe4c)).toBe(false);
+    expect(dir7.sites.length).toBe(dir6.sites.length);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'dir7' });
+    expect(built.report.revision).toBe('T14-DIR7');
+  }, 240000);
 });

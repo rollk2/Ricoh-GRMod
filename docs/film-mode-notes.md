@@ -1574,3 +1574,14 @@ Lecture (attention : MM = valeur du test + 2, HH = phase + 1) :
   drapeau d'ouverture), la présentation 0 (aperçu simple) est imposée ; plus aucun Next shot de notre
   part.
 - Vérifié en émulateur (120 cas, registres, pile) ; T14-DIR5 reconstruit identique ; sondes repassées.
+- T14-DIR6 sur le boîtier : boutons toujours présents (la multi-exposition utilise déjà la
+  présentation 0 ; Rec Review de l'utilisateur : Hold).
+
+### Build de test T14-DIR7 : pas de boutons
+
+- Démarrage de l'écran : `bl 0x53233930` (modèle, octet +6 : multi-exposition en cours), `cmp r0,r5`,
+  `movne r1,#3` / `moveq r1,r5` (`0x531cbe2c`), puis `0x5316d354(this, jeu, [this + 0x15c])` : jeu de
+  boutons 3 (Next shot / Retake / Complete) ou 0 (aucun, comme après une photo simple). En mode
+  pellicule (après une vue, drapeau d'ouverture), le jeu 0 est imposé.
+- Vérifié en émulateur (240 cas, avec et sans multi-exposition, registres et pile) ; T14-DIR6
+  reconstruit identique ; sondes repassées.

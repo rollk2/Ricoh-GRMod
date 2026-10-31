@@ -110,7 +110,7 @@ export interface Gr3xRollProgram {
   patch(address: number, expected: number, replacement: number, reason: string): void;
 }
 
-export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuRatio[], folders = false, diag = false, filmMenu = false, keys: false | 'sequence' | 'boot' | 'shot' = false, noReview: false | 'skip' | 'live' | 'next' | 'armed' | 'deferred' | 'logged' | 'posted' | 'closed' | 'timed' | 'timedNext' | 'plain' = false, folderName = false) {
+export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuRatio[], folders = false, diag = false, filmMenu = false, keys: false | 'sequence' | 'boot' | 'shot' = false, noReview: false | 'skip' | 'live' | 'next' | 'armed' | 'deferred' | 'logged' | 'posted' | 'closed' | 'timed' | 'timedNext' | 'plain' | 'noButtons' = false, folderName = false) {
   const rec = (label: string) => records(label, filmMenu);
   const free = (at: number) => { if (p.sites.some(s => s.address === at)) throw new FirmwareError('unexpected-instruction', `IIIx film roll: ${at.toString(16)} already patched`); };
   const entries: Record<string, number> = {};
@@ -215,6 +215,7 @@ export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuR
   if (noReview === 'live') installReviewToLive(p, free, entries);
   if (noReview === 'next' || noReview === 'armed' || noReview === 'deferred' || noReview === 'logged') installReviewNext(p, free, entries, noReview !== 'next', noReview === 'deferred' || noReview === 'logged', noReview === 'logged');
   if (noReview === 'plain') installReviewPlain(p, free, entries);
+  if (noReview === 'noButtons') installReviewNoButtons(p, free, entries);
   if (noReview === 'timed' || noReview === 'timedNext') installReviewTimer(p, free, entries, noReview === 'timedNext');
   if (noReview === 'posted' || noReview === 'closed') installReviewHalfPress(p, free, entries, noReview === 'posted' ? GR3X_DELETE_EVENT : GR3X_REVIEW_CLOSE_EVENT);
   return { entries, exposure };
@@ -747,4 +748,26 @@ function installReviewPlain(p: Gr3xRollProgram, free: (at: number) => void, entr
     pop {r0,r1,r2,r3,r4,lr};mov r1,#0;b #${GR3X_REVIEW_LAYOUT + 4};
     keep:pop {r0,r1,r2,r3,r4,lr};mov r1,r0;b #${GR3X_REVIEW_LAYOUT + 4};`);
   p.patch(GR3X_REVIEW_LAYOUT, 0xe1a01000, branchWord(GR3X_REVIEW_LAYOUT, entries.filmReviewLayout), 'film roll: a single picture\'s review layout in film mode');
+}
+
+/** In QuickViewController's start: `cmp r0,r5` (r0 = 0x53233930(model): a multi-exposure going on),
+ * then `movne r1,#3` / `moveq r1,r5 (0)` the set of buttons (3 Next shot / Retake / Complete, 0 none)
+ * for 0x5316d354(this, set, [this + 0x15c]) at 0x531cbe34. */
+export const GR3X_REVIEW_BUTTONS = 0x531cbe2c;
+
+/**
+ * Form 'dir7' (T14-DIR7): in film mode (after a shot, as 'armed'), the screen gets no buttons (set 0,
+ * as after a single picture): the picture alone, closed by a half press (or Rec Review's timer).
+ */
+function installReviewNoButtons(p: Gr3xRollProgram, free: (at: number) => void, entries: Record<string, number>) {
+  for (const at of [GR3X_REVIEW_BUTTONS, GR3X_OPEN_REVIEW]) free(at);
+  entries.filmReviewArm = p.code(`push {r0};movw ip,#${lo(REVIEW_ARM)};movt ip,#${hi(REVIEW_ARM)};mov r0,#1;strb r0,[ip];pop {r0};mov ip,sp;b #${GR3X_OPEN_REVIEW + 4};`);
+  p.patch(GR3X_OPEN_REVIEW, 0xe1a0c00d, branchWord(GR3X_OPEN_REVIEW, entries.filmReviewArm), 'film roll: the Next / Retake / Complete screen opened after a shot');
+  entries.filmReviewButtons = p.code(`movne r1,#3;moveq r1,#0;push {r0,r1,r2,r3,r4,lr};
+    movw ip,#${lo(REVIEW_ARM)};movt ip,#${hi(REVIEW_ARM)};ldrb r0,[ip];mov r1,#0;strb r1,[ip];cmp r0,#0;beq keep;${records('keep', true)}
+    movw r0,#${lo(SINGLETON)};movt r0,#${hi(SINGLETON)};ldr r0,[r0];${ram('r0', 'keep')}
+    ldr r0,[r0,#0x518];${ram('r0', 'keep')}ldr r0,[r0];${ram('r0', 'keep')}ldrb r0,[r0,#0x6c0];cmp r0,#2;bne keep;
+    pop {r0,r1,r2,r3,r4,lr};mov r1,#0;b #${GR3X_REVIEW_BUTTONS + 8};
+    keep:pop {r0,r1,r2,r3,r4,lr};b #${GR3X_REVIEW_BUTTONS + 8};`);
+  p.patch(GR3X_REVIEW_BUTTONS, 0x13a01003, branchWord(GR3X_REVIEW_BUTTONS, entries.filmReviewButtons), 'film roll: no Next / Retake / Complete buttons in film mode');
 }
