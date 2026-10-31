@@ -110,7 +110,7 @@ export interface Gr3xRollProgram {
   patch(address: number, expected: number, replacement: number, reason: string): void;
 }
 
-export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuRatio[], folders = false, diag = false, filmMenu = false, keys: false | 'sequence' | 'boot' | 'shot' = false, noReview: false | 'skip' | 'live' | 'next' | 'armed' | 'deferred' = false, folderName = false) {
+export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuRatio[], folders = false, diag = false, filmMenu = false, keys: false | 'sequence' | 'boot' | 'shot' = false, noReview: false | 'skip' | 'live' | 'next' | 'armed' | 'deferred' | 'logged' = false, folderName = false) {
   const rec = (label: string) => records(label, filmMenu);
   const free = (at: number) => { if (p.sites.some(s => s.address === at)) throw new FirmwareError('unexpected-instruction', `IIIx film roll: ${at.toString(16)} already patched`); };
   const entries: Record<string, number> = {};
@@ -213,7 +213,7 @@ export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuR
   if (keys) installKeys(p, free, entries, keys === 'boot' || keys === 'shot', keys === 'shot');
   if (noReview === 'skip') installNoReview(p, free, entries);
   if (noReview === 'live') installReviewToLive(p, free, entries);
-  if (noReview === 'next' || noReview === 'armed' || noReview === 'deferred') installReviewNext(p, free, entries, noReview !== 'next', noReview === 'deferred');
+  if (noReview === 'next' || noReview === 'armed' || noReview === 'deferred' || noReview === 'logged') installReviewNext(p, free, entries, noReview !== 'next', noReview === 'deferred' || noReview === 'logged', noReview === 'logged');
   return { entries, exposure };
 }
 
@@ -507,7 +507,7 @@ const UI_TASK = 0x5320ad88, UI_QUEUE = 0x5320aefc;
  * entry stack, ip = sp), then Next shot on the screen (r0 = this): the live view again, with the
  * frame shown over it, as when Next shot is chosen. Elsewhere the start runs alone.
  */
-function installReviewNext(p: Gr3xRollProgram, free: (at: number) => void, entries: Record<string, number>, armed = false, deferred = false) {
+function installReviewNext(p: Gr3xRollProgram, free: (at: number) => void, entries: Record<string, number>, armed = false, deferred = false, log = false) {
   free(GR3X_REVIEW_START);
   // 'armed' (T13-FN7): only a start that follows the opening action (UI event 0x90, after a shot);
   // the flag is raised there and falls at the start (and at each exposure, GR3X_REVIEW_ARM_CLEAR).
@@ -522,17 +522,38 @@ function installReviewNext(p: Gr3xRollProgram, free: (at: number) => void, entri
     // pressed when that screen gets its first UI event (its handler, table entry 10), after the
     // native handling of that event: the screen is then the active one, as for a real press.
     free(GR3X_REVIEW_EVENT);
-    entries.filmReviewNext = p.code(`push {r0,r1,r2,r3,r4,lr};mov r4,r0;movw ip,#${lo(REVIEW_PENDING)};movt ip,#${hi(REVIEW_PENDING)};mov r0,#0;str r0,[ip];
+    // log (T14-DG1): the screen's events from its start to its stop (REVIEW_LOG: first two codes,
+    // count), cleared at the start, frozen at the stop, shown in the pictures' date.
+    const clearLog = log ? `str r0,[ip,#4];str r0,[ip,#8];` : '';
+    const logEvent = log ? `push {r1,r2,r3};movw ip,#${lo(REVIEW_LOG)};movt ip,#${hi(REVIEW_LOG)};ldrb r2,[ip,#5];cmp r2,#0;bne logged;
+      ldrb r2,[ip,#4];ldrh r3,[r1];cmp r2,#0;strheq r3,[ip];cmp r2,#1;strheq r3,[ip,#2];cmp r2,#255;addlo r2,r2,#1;strb r2,[ip,#4];
+      logged:pop {r1,r2,r3};` : '';
+    entries.filmReviewNext = p.code(`push {r0,r1,r2,r3,r4,lr};mov r4,r0;movw ip,#${lo(REVIEW_PENDING)};movt ip,#${hi(REVIEW_PENDING)};mov r0,#0;str r0,[ip];${clearLog}
       ${arm}${records('alone', true)}
       movw r0,#${lo(SINGLETON)};movt r0,#${hi(SINGLETON)};ldr r0,[r0];${ram('r0', 'alone')}
       ldr r0,[r0,#0x518];${ram('r0', 'alone')}ldr r0,[r0];${ram('r0', 'alone')}ldrb r0,[r0,#0x6c0];cmp r0,#2;bne alone;
       movw ip,#${lo(REVIEW_PENDING)};movt ip,#${hi(REVIEW_PENDING)};str r4,[ip];
       alone:pop {r0,r1,r2,r3,r4,lr};mov ip,sp;b #${GR3X_REVIEW_START + 4};`);
     p.patch(GR3X_REVIEW_START, 0xe1a0c00d, branchWord(GR3X_REVIEW_START, entries.filmReviewNext), 'film roll: Next / Retake / Complete noted for Next shot in film mode');
-    entries.filmReviewEvent = p.code(`push {r1};movw ip,#${lo(REVIEW_PENDING)};movt ip,#${hi(REVIEW_PENDING)};ldr r1,[ip];cmp r1,r0;bne native;
+    entries.filmReviewEvent = p.code(`${logEvent}push {r1};movw ip,#${lo(REVIEW_PENDING)};movt ip,#${hi(REVIEW_PENDING)};ldr r1,[ip];cmp r1,r0;bne native;
       mov r1,#0;str r1,[ip];pop {r1};push {r0,lr};mov ip,sp;bl #${GR3X_REVIEW_EVENT + 4};pop {r0,lr};b #${GR3X_NEXT_SHOT};
       native:pop {r1};mov ip,sp;b #${GR3X_REVIEW_EVENT + 4};`);
     p.patch(GR3X_REVIEW_EVENT, 0xe1a0c00d, branchWord(GR3X_REVIEW_EVENT, entries.filmReviewEvent), 'film roll: Next shot at the screen\'s first event in film mode');
+    if (log) {
+      free(GR3X_REVIEW_STOP);
+      entries.filmReviewStop = p.code(`push {r0};movw ip,#${lo(REVIEW_LOG)};movt ip,#${hi(REVIEW_LOG)};mov r0,#1;strb r0,[ip,#5];pop {r0};mov ip,sp;b #${GR3X_REVIEW_STOP + 4};`);
+      p.patch(GR3X_REVIEW_STOP, 0xe1a0c00d, branchWord(GR3X_REVIEW_STOP, entries.filmReviewStop), 'film roll review probe: the screen\'s stop');
+      // 20YY.MM.DD HH:mm: HH:mm the first code (HH * 60 + mm), YY the second % 100 and DD 1 + its
+      // hundreds, MM 1 + the count (at most 11).
+      entries.filmProbeTime = p.code(`movw r3,#${lo(POINTER)};movt r3,#${hi(POINTER)};ldr r3,[r3];cmp r3,#0;beq clock;
+        movw ip,#${lo(REVIEW_LOG)};movt ip,#${hi(REVIEW_LOG)};
+        ldrh r0,[ip,#2];mov r2,#0;hund:cmp r0,#100;subhs r0,r0,#100;addhs r2,r2,#1;bhs hund;
+        add r0,r0,#2000;strb r0,[r1];mov r0,r0,lsr #8;strb r0,[r1,#1];cmp r2,#30;movhi r2,#30;add r2,r2,#1;strb r2,[r1,#3];
+        ldrb r0,[ip,#4];cmp r0,#11;movhi r0,#11;add r0,r0,#1;strb r0,[r1,#2];
+        ldrh r0,[ip];mov r2,#0;hour:cmp r0,#60;subhs r0,r0,#60;addhs r2,r2,#1;bhs hour;cmp r2,#23;movhi r2,#23;strb r2,[r1,#4];strb r0,[r1,#5];
+        bx lr;
+        clock:b #${GR3X_GET_TIME};`);
+    }
     return;
   }
   entries.filmReviewNext = p.code(`push {r0,r1,r2,r3,r4,lr};${arm}${records('alone', true)}
@@ -617,3 +638,8 @@ const REVIEW_PENDING = KEY_LAST + 12;
 const ADVANCE_ONCE = KEY_LAST + 10;
 /** That flag cleared at each exposure (every register kept but ip). */
 export const GR3X_ADVANCE_ONCE_CLEAR = `push {r0};movw ip,#${lo(ADVANCE_ONCE)};movt ip,#${hi(ADVANCE_ONCE)};mov r0,#0;strb r0,[ip];pop {r0};`;
+
+/** QuickViewController's stop (its table entry 8). */
+export const GR3X_REVIEW_STOP = 0x531cab24;
+/** T14-DG1: the screen's event log (halfwords: first code, second code; bytes: count, frozen). */
+const REVIEW_LOG = KEY_LAST + 16;

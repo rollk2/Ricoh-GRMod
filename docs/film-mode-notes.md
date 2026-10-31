@@ -1493,3 +1493,13 @@ Lecture (attention : MM = valeur du test + 2, HH = phase + 1) :
   automatique.
 - C (écran natif) : un appui à mi-course sur le déclencheur ferme l'écran et revient en visée avec la
   transparence (comme Photo suivante ; code `0x531cbf5c` → `0x531cbf98`, identique à Next shot).
+
+### Build de diagnostic T14-DG1 : les événements reçus par l'écran
+
+- T14-DIR3, plus un journal (`0x558043a0`) des événements reçus par QuickViewController
+  (gestionnaire `0x531cbfc4`, code = demi-mot pointé par r1) : effacé au démarrage, figé à l'arrêt
+  (`0x531cab24`, entrée 8 de la table) ; premier et deuxième codes, nombre.
+- Date des photos : HH:mm = premier code (HH × 60 + mm) ; 20YY = deuxième code % 100, DD = 1 +
+  centaines ; MM = 1 + nombre (au plus 11).
+- But : comparer la fermeture native (appui de l'utilisateur) et la nôtre (premier événement), et
+  le 3e cycle où l'affichage se perd.
