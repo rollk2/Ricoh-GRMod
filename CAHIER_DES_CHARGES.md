@@ -50,14 +50,20 @@ Pour des photos normales, on passe en P, Av, Tv ou M, jamais touchés par le mod
 La longueur se déduit du ratio mémorisé : aucune donnée supplémentaire à stocker.
 Le ratio 3:4 vertical (3000 x 4000, recadrage central) est à ajouter.
 
-### Verrou pendant un rouleau
+### Clôture au lieu du verrou (décision du 2026-10-31)
+Pas de verrou des menus. Changer l'Image Control ou le format pendant un rouleau **clôt** le rouleau : la vue suivante démarre un nouveau rouleau, dans un nouveau dossier (nom et longueur suivent les nouveaux réglages). Le reste des réglages reste libre. Le format JPEG n'est pas imposé (décision du 2026-10-31).
+
+### Rembobiner (décision du 2026-10-31)
+Une ligne « Rembobiner » sous Save Settings (Customize Settings), avec un écran de confirmation Oui / Non ; Oui clôt le rouleau du mode U actif.
+
+### Verrou pendant un rouleau (abandonné le 2026-10-31, gardé pour mémoire)
 Réglages bloqués : Image Control, ratio, recadrage, format de fichier (JPEG seul ; **à étudier** : imposer le JPEG au démarrage du rouleau, comme Save Interim Images, sachant que la multi-exposition native accepte le RAW : superposition finale en DNG constatée le 2026-10-27), taille JPEG, balance des blancs, mode de déclenchement (multi-exposition), Save Interim Images (forcé à Off au chargement).
 C'est exactement la liste que le GR bloque nativement pendant une multi-exposition (manuel p. 78). Le verrou consiste à étendre cette condition native : « multi-exposition en cours OU rouleau chargé ». **Constat (2026-10-27) :** ouvrir le MENU pendant une multi-exposition termine la séquence (comme Complete) ; le menu principal n'a donc pas de verrou natif et devra être verrouillé par le mod pendant un rouleau.
 
 ### Stockage
 - Un dossier par rouleau, créé au démarrage du rouleau (première vue). Méthode testée : nom sur 5 caractères puis demande de nouveau dossier, ou numéro imposé à `SetFilePath` (un dossier imposé qui n'existe pas est créé).
 - L'état du rouleau (mode pellicule, rouleau entamé, numéro de vue, numéro de dossier) est rangé dans des octets libres de l'enregistrement des réglages : il suit la BOX (Save Settings, rappel par U1 à U3).
-- Nom du dossier : numéro + code du film sur 5 caractères (exemples : `101CCHRM`, `102LEICA`, `103XPAN_`). Version 1 : nom natif, code du film ensuite.
+- Nom du dossier (décision du 2026-10-31) : `NNN` (numéro attribué par le boîtier) + code de l'Image Control sur 3 caractères + longueur du rouleau sur 2 chiffres, par exemple `112NEG36`, `113POS12`, `114MON21`. Codes des Image Control d'origine : STD, VIV, MON, SMO (Soft Monotone), HMO (Hard Monotone), HCB (Hi-Contrast B&W), POS, BLB (Bleach Bypass), RET, HDR, CRP (Cross Processing), NEG. Films ajoutés par GR Mod : un code fixé par film, demandé à l'utilisateur dans l'application GR Mod à l'ajout du film. État actuel : nom natif (`110RICOH`).
 - Chaque mode U mémorise le numéro de son dossier. En revenant sur un mode U, ses photos repartent dans son dossier.
 
 ### Modes U
@@ -66,7 +72,8 @@ C'est exactement la liste que le GR bloque nativement pendant une multi-expositi
 - Passer d'un mode U à l'autre ne perd rien : chaque rouleau reprend où il en était.
 
 ### Cas particuliers
-- Carte changée ou dossier supprimé en cours de rouleau : on crée un nouveau dossier et le rouleau continue, compteur intact. C'est l'équivalent d'une pellicule sortie puis rechargée.
+- Carte changée ou dossier supprimé en cours de rouleau : le rouleau est considéré comme perdu (pellicule voilée) ; le compteur repart à 1 dans un nouveau dossier (décision du 2026-10-31).
+- Le mod doit rester maintenable avec GR Mod : code organisé comme les autres fonctions de GR Mod, réglable depuis son application, sans les sondes des builds de test, et facile à fusionner avec les évolutions de GR Mod.
 
 ## Réglages natifs recommandés
 - Multi-exposition, mode de composition **Additif** (accumulation de lumière, comme le film). Comme en argentique, sous-exposer d'environ 1 IL pour une double exposition.

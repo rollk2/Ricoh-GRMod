@@ -1370,3 +1370,16 @@ Lecture (attention : MM = valeur du test + 2, HH = phase + 1) :
 - **Phase 6 (avance par une touche, sans écran après chaque vue) : validée sur le boîtier.**
 - Conclusion : le chemin du menu redémarrait QuickViewController sans passer par l'action
   d'ouverture `0x53226738` ; le drapeau suffit.
+
+### Décisions du 2026-10-31 (suite de la phase 6)
+
+- Dossier : `NNN` + code Image Control (3) + longueur (2), par exemple `112NEG36` ; codes STD, VIV,
+  MON, SMO, HMO, HCB, POS, BLB, RET, HDR, CRP, NEG ; films de GR Mod : code fixé par film, saisi
+  dans l'application à l'ajout du film.
+- Pas de verrou : changer l'Image Control ou le format clôt le rouleau. JPEG non imposé.
+- Ligne « Rembobiner » sous Save Settings, avec confirmation Oui / Non.
+- Carte changée ou dossier supprimé : rouleau perdu, compteur à 1 dans un nouveau dossier.
+- Maintenabilité avec GR Mod : fonction intégrée comme les autres (application, build livrable sans
+  sondes).
+- Priorités : nom du dossier, puis extinction ou changement de mode pendant une vue, puis fin de
+  rouleau.
