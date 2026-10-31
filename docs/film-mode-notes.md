@@ -1273,3 +1273,24 @@ Plus grand dossier au départ : `109`.
 - Date des photos : 20YY = + 0 ; MM = 1 + (+ 1) ; DD = 1 + (+ 2) ; HH = + 3 ; mm = 10 × (+ 6) + (+ 5).
 - Vérifié en émulateur (chaque crochet, registres et drapeaux rendus, horloge) ; T13-FN5 reconstruit
   identique ; sondes repassées.
+
+### Résultats sur le boîtier (build T13-RT1, 2026-10-31)
+
+Lecture (attention : MM = valeur du test + 2, HH = phase + 1) :
+
+| Photo | Date | Notre code (+6 / +5) | Retake du modèle | Test d'état | Retake de la machine | Phase |
+|---|---|---|---|---|---|---|
+| B6 (mode pellicule, 1 appui gauche) | 2004.04.05 03:44 | 4 appels / 4 appuis | 4 | 2 (accepté) | 4 | 2 |
+| C4 (natif, Retake sur l'écran) | 2005.04.06 02:44 | inchangé | 5 (+1) | 2 | 5 (+1) | 1 |
+
+- **Un appui sur la touche gauche appelle `GetEventCustomize` 4 fois** (4 « appuis » comptés, 4
+  Retake). Film Advance est donc aussi appelé 4 fois par appui ; sans conséquence pour l'avance (le
+  modèle refuse la fin dès que l'état n'est plus 2), mais à filtrer pour Retake.
+- Notre Retake va jusqu'au bout de la chaîne : modèle (état 2 accepté), commande, machine à états.
+  Pourtant la vue n'est pas retirée (B : compteur 2 → 3, comme une avance normale).
+- Différence avec le natif : la phase. Natif (C) : phase 1 (première vue en attente), Retake → état
+  0, la vue est bien retirée (C4 : le livre seul). Mode pellicule (B) : phase 2, Retake → état 2.
+- Conclusion (probable) : une vue validée par Next shot (automatique depuis T13-FN4) ne peut plus
+  être retirée ; le Retake natif ne retire que la vue en attente de décision.
+- `0x532a838c` (appelé à l'arrêt de l'écran sans Next shot) : remise en état de CaptureReadyModel
+  (publie 0x66 et 0x15a), pas un retrait de vue.
