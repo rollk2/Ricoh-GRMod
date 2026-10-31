@@ -217,4 +217,12 @@ describe.skipIf(!input)('GR III film roll (film mode phase 3.1)', () => {
     const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'dg1' });
     expect(built.report.revision).toBe('T14-DG1');
   }, 240000);
+  it('posts a half press to the screen instead of Next shot (T14-DG2)', async () => {
+    const dg1 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'dg1' });
+    const dg2 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'dg2' });
+    expect(dg2.sites.map(s => s.address).sort()).toEqual(dg1.sites.map(s => s.address).sort());
+    expect(dg2.sites.find(s => s.address === 0x531cbde4)!.reason).toMatch(/half press posted/);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'dg2' });
+    expect(built.report.revision).toBe('T14-DG2');
+  }, 240000);
 });

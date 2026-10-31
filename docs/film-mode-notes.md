@@ -1503,3 +1503,23 @@ Lecture (attention : MM = valeur du test + 2, HH = phase + 1) :
   centaines ; MM = 1 + nombre (au plus 11).
 - But : comparer la fermeture native (appui de l'utilisateur) et la nôtre (premier événement), et
   le 3e cycle où l'affichage se perd.
+
+### Résultats T14-DG1 (2026-10-31)
+
+| Cycle | Date | Lecture |
+|---|---|---|
+| 1, 2, 3 (mode pellicule, vue puis avance ; perte au 3e) | 2068.03.03 06:39 | 2 événements : 0x18F puis 0x10C (identiques aux trois cycles) |
+| Référence native (Film Roll Mode Off, attente 2 s, Complete) | 2000.01.01 00:00 | journal vide à l'encodage (probablement effacé par un nouveau démarrage de l'écran après Complete) |
+
+- Le gestionnaire de l'écran ne traite ni 0x18F ni 0x10C en propre (cas par défaut `0x531cb3cc`).
+- Il traite **0xE7 → `0x531cbf5c`** (retour en visée comme Next shot) : c'est l'événement de l'appui
+  à mi-course (test C). Natif : le retour passe par la file des événements, après ceux du démarrage.
+
+### Build de test T14-DG2 : un appui à mi-course publié
+
+- T14-DIR3 sans Next shot appelé ; au démarrage de l'écran en mode pellicule (après une vue, même
+  drapeau d'ouverture), le démarrage natif est appelé puis l'événement 0xE7 est publié
+  (`0x532288b0(0x5320aefc(0x5320ad88()), 0xe7, 0, 0)`) ; l'écran le reçoit dans sa file. Journal de
+  T14-DG1 conservé.
+- Vérifié en émulateur : démarrage seul hors du bon cas (117 cas), démarrage puis publication de 0xE7
+  dans le bon cas ; journal, horloge ; sondes repassées ; T14-DG1 reconstruit identique.
