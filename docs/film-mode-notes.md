@@ -1246,3 +1246,15 @@ Plus grand dossier au départ : `109`.
   publier l'événement. C'est la jumelle de l'action Complete `0x532270f4`. Le reste est T13-FN4.
 - Vérifié en émulateur : l'action appelée seulement dans le bon cas, sur les deux chemins ; T13-FN4
   reconstruit identique octet pour octet ; sondes de T13-FN1, T13-FN4 et du garde-fou repassées.
+
+### Résultats sur le boîtier (build T13-FN5, 2026-10-31)
+
+- D2 : Retake par l'action `0x532270d4` toujours sans effet (D3 compteur 1 ; E2 lampe, fenêtre,
+  livre ; F2 avance 1 → 2 ; G2 les trois vues sur la photo).
+- `QuickViewController` à l'arrêt (table [8] `0x531cab24`) : si Next shot n'a pas été choisi
+  (+0x180 = 0), il appelle `0x532a838c` sur le modèle `0x5320b61c` ; avec Next shot, rien.
+- Hypothèse (non établie) : le Retake natif n'annule que la vue en attente de décision ; une fois
+  Next shot passé (automatiquement dans T13-FN4 et T13-FN5), la vue est acceptée et Retake n'a plus
+  rien à annuler, ou bien le Retake du modèle refuse l'état. À trancher par une sonde : appels du
+  Retake du modèle `0x5323a1a4`, résultat de son test d'état (`0x535493ac`), appels de la machine à
+  états `0x5346a8d8`.
