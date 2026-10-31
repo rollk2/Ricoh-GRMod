@@ -1317,3 +1317,6 @@ Lecture (attention : MM = valeur du test + 2, HH = phase + 1) :
   hors de l'état 2 (sinon l'avance aurait eu lieu).
 - Conclusion provisoire : l'annulation agit sur la machine à états, mais pas sur l'image de
   transparence en visée. À établir : le contenu de la photo de E (lampe et fenêtre comprises ou non).
+- **Bogue majeur signalé (2026-10-31)** : en mode pellicule, après Menu puis retour, l'affichage de
+  prise de vue a disparu (plus de collimateur ni d'informations), alors qu'une vue reste possible.
+  Déjà vu en T13-FN5. Cause inconnue ; à cerner (mode P, mode pellicule sans vue, avec vue).
