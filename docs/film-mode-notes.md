@@ -1430,3 +1430,14 @@ Lecture (attention : MM = valeur du test + 2, HH = phase + 1) :
   deux setters en direct) et repassée.
 - Inconnue : la création du dossier lit-elle bien les valeurs en direct (et non l'enregistrement) ?
   T10-FILMPROBE5 passait par les setters complets.
+
+### Résultats sur le boîtier (build T14-DIR1, 2026-10-31, test guidé)
+
+- U3 (Negative Film, 3:2), Save Settings : 1/36 ; deux vues avancées : 3/36 ; P une photo ; U3 une vue
+  avancée : 4 puis 5. Carte : **dossier `137NEG36`** avec les 4 vues du rouleau ; la photo de P dans
+  un dossier au nom habituel (`NNNRICOH`). **Nom du dossier du rouleau : validé sur le boîtier**
+  (les valeurs en direct suffisent ; le réglage enregistré est intact).
+- Anomalie : en arrivant sur P depuis U3 (après vue et avance), l'affichage de visée manque
+  **parfois** jusqu'à la photo suivante (reproduit 1 fois sur 3 environ). P → Av → P (trois fois,
+  notre remise du nom passe aussi par là) : jamais. Cause non établie : à comparer avec T13-FN7
+  (même enchaînement), et à tester avec un délai entre l'avance et la molette.
