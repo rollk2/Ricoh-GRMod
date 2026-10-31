@@ -1533,3 +1533,18 @@ Lecture (attention : MM = valeur du test + 2, HH = phase + 1) :
   `0x531cc124` : `+0x180 = 1` et retour en visée. C'est un chemin officiel.
 - T14-DG3 : comme T14-DG2, avec 0xB6. Vérifié en émulateur ; T14-DG2 reconstruit identique ; sondes
   repassées.
+
+### Résultats T14-DG3, tests X / Y et build T14-DIR4 (2026-10-31)
+
+- T14-DG3 (0xB6 publié) : visée directe, mais affichage perdu au 3e cycle, comme avant.
+- T13-FN1 (écran gardé) : X (vue, Complete sur l'écran, × 4) et Y (vue, Photo suivante, Film Advance,
+  × 4) : **jamais perdu**. Ni la sauvegarde du rouleau ni Film Advance depuis la visée ne sont en
+  cause ; seule la fermeture rapide de l'écran (quel que soit le chemin) l'est. Hypothèse : l'écran
+  doit finir son affichage (aperçu) avant d'être refermé.
+- Rec Review, en millisecondes (`0x5332cdb8` : 0, 500, 1000, 2000, 3000, −1 maintien), réglage
+  `+0x900` par `0x53243478`.
+- T14-DIR4 = T14-DIR3 sans Next shot : après le démarrage de l'écran en mode pellicule (mêmes
+  conditions), la minuterie d'aperçu de l'écran est lancée à 500 ms si aucune ne tourne
+  (`0x5322b468(0x5320b01c(0x5320ad88()), 500, this + 0x158)`, rangée en `+0x178`) ; à l'échéance,
+  `0x531ca86c` revient en visée si l'état `+0x16c` ≤ 1 (sinon l'écran reste : mi-course possible).
+- Vérifié en émulateur (240 cas, minuterie déjà lancée ou non) ; T14-DG3 reconstruit identique.
