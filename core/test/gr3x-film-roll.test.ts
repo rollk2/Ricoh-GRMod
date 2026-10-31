@@ -149,4 +149,16 @@ describe.skipIf(!input)('GR III film roll (film mode phase 3.1)', () => {
     const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'fn5' });
     expect(built.report.revision).toBe('T13-FN5');
   }, 240000);
+  it('adds the Retake probe to the T13-FN5 form (T13-RT1)', async () => {
+    const fn5 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'fn5' });
+    const rt1 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'rt1' });
+    for (const [at, expected] of [[0x5323a1a4, '0dc0a0e1'], [0x5323a1d0, '020050e3'], [0x5346a8d8, '0dc0a0e1'], [0x5346a910, '0dc0a0e1']] as const) {
+      expect(fn5.sites.some(s => s.address === at)).toBe(false);
+      expect(rt1.sites.find(s => s.address === at)!).toMatchObject({ expected, reason: expect.stringMatching(/^film roll retake probe/) });
+    }
+    expect(rt1.sites.length).toBe(fn5.sites.length + 4);
+    expect((rt1.entries as Record<string, number>).filmProbeTime).toBeGreaterThan(0x53000000);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'rt1' });
+    expect(built.report.revision).toBe('T13-RT1');
+  }, 240000);
 });

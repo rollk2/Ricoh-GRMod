@@ -365,7 +365,7 @@ export interface Gr3xFnProgram extends Gr3xRollProgram {
  *    advances the film when a U mode with Film Roll Mode on has a frame exposed (the end poster
  *    0x531a4d80, as Complete), then the camera goes on as for Off (function 0): nothing else happens.
  */
-export function installGr3xFilmAdvanceFn(p: Gr3xFnProgram, text: number, retake: false | 'event' | 'action' = false) {
+export function installGr3xFilmAdvanceFn(p: Gr3xFnProgram, text: number, retake: false | 'event' | 'action' | 'probe' = false) {
   const fail = (what: string) => { throw new FirmwareError('unexpected-layout', `IIIx film advance: ${what}`); };
   const free = (at: number) => { if (p.sites.some(s => s.address === at)) throw new FirmwareError('unexpected-instruction', `IIIx film advance: ${at.toString(16)} already patched`); };
   const official = p.read(GR3X_FN_TABLE, GR3X_FN_COUNT);
@@ -394,10 +394,12 @@ export function installGr3xFilmAdvanceFn(p: Gr3xFnProgram, text: number, retake:
   // The retake (43), when a frame is exposed (state 2): 'event' (T13-FN4) posts UI event 0xb7, as the
   // screen's Retake shot (ignored in the live view on the camera); 'action' (T13-FN5) calls that
   // event's action 0x532270d4 (the shooting model's Retake 0x5323a1a4, which checks the state too).
-  const retakeCode = (label: string) => `push {r0,r1,r2,r3,ip,lr};${records(label, true)}
+  // 'probe' (T13-RT1): 'action', counting the presses (+ 5) and the calls (+ 6) in the Retake probe.
+  const tally = (n: number) => retake === 'probe' ? retakeTally(n, 'r0') : '';
+  const retakeCode = (label: string) => `push {r0,r1,r2,r3,ip,lr};${tally(5)}${records(label, true)}
     movw r0,#${lo(SINGLETON)};movt r0,#${hi(SINGLETON)};ldr r0,[r0];${ram('r0', label)}
     ldr r0,[r0,#0x518];${ram('r0', label)}ldr r0,[r0];${ram('r0', label)}ldrb r0,[r0,#0x6c0];cmp r0,#2;bne ${label};
-    ${retake === 'action' ? `bl #${GR3X_RETAKE_ACTION};` : `bl #${UI_TASK};bl #${UI_QUEUE};mov r1,#0xb7;mov r2,#0;mov r3,#0;bl #${GR3X_POST_EVENT};`}${label}:pop {r0,r1,r2,r3,ip,lr};`;
+    ${retake === 'action' || retake === 'probe' ? `${tally(6)}bl #${GR3X_RETAKE_ACTION};` : `bl #${UI_TASK};bl #${UI_QUEUE};mov r1,#0xb7;mov r2,#0;mov r3,#0;bl #${GR3X_POST_EVENT};`}${label}:pop {r0,r1,r2,r3,ip,lr};`;
   const retakeCustom = retake ? `cmp r2,#${GR3X_FILM_RETAKE};bne native;${retakeCode('rkept')}mov r2,#0;b native;` : '';
   const retakeWlan = retake ? `cmp r6,#${GR3X_FILM_RETAKE};bne go;${retakeCode('rkept')}mov r6,#0;b go;` : '';
   entries.filmFnCustom = p.code(`cmp r2,#${GR3X_FILM_ADVANCE};bne ${retake ? 'other' : 'native'};${advance('kept')}mov r2,#0;${retake ? `b native;other:${retakeCustom}` : ''}native:mov ip,sp;b #${GR3X_FN_CUSTOM + 4};`);
@@ -466,4 +468,43 @@ function installReviewNext(p: Gr3xRollProgram, free: (at: number) => void, entri
     pop {r0,r1,r2,r3,r4,lr};push {r0,lr};mov ip,sp;bl #${GR3X_REVIEW_START + 4};pop {r0,lr};b #${GR3X_NEXT_SHOT};
     alone:pop {r0,r1,r2,r3,r4,lr};mov ip,sp;b #${GR3X_REVIEW_START + 4};`);
   p.patch(GR3X_REVIEW_START, 0xe1a0c00d, branchWord(GR3X_REVIEW_START, entries.filmReviewNext), 'film roll: Next / Retake / Complete closes by itself (Next shot) in film mode');
+}
+
+/** The shooting model's Retake (0x5323a1a4) tests the capture state at 0x5323a1d0 (`cmp r0,#2`); the
+ * capture state machine's Retake is 0x5346a8d8, its end of a sequence 0x5346a910. */
+export const GR3X_MODEL_RETAKE = 0x5323a1a4, GR3X_MODEL_RETAKE_TEST = 0x5323a1d0, GR3X_MACHINE_RETAKE = 0x5346a8d8, GR3X_MACHINE_END = 0x5346a910;
+/** Byte n of the Retake probe + 1 (at most 255), with `r` and ip free. */
+const retakeTally = (n: number, r: string) => `movw ip,#${lo(KEY_LAST)};movt ip,#${hi(KEY_LAST)};ldrb ${r},[ip,#${n}];cmp ${r},#255;addlo ${r},${r},#1;strb ${r},[ip,#${n}];`;
+
+/**
+ * Form 'rt1' (T13-RT1, test builds only): where Retake stops. Bytes at 0x55804390 (zero at start-up):
+ * + 0 the model's Retake calls, + 1 its state test's value + 1 (last), + 2 the capture machine's
+ * Retake calls, + 3 its phase (+ 4 of its object) + 1 (last), + 4 the machine's ends, + 5 presses of
+ * function 43 in film mode... (every press), + 6 its action calls. The date of the pictures:
+ * 20YY.MM.DD HH:mm, YY + 0, MM 1 + (+ 1, at most 11), DD 1 + (+ 2, at most 30), HH + 3 (at most 23),
+ * mm 10 x (+ 6, at most 5) + (+ 5, at most 9).
+ */
+export function installGr3xRetakeProbe(p: Gr3xRollProgram) {
+  const free = (at: number) => { if (p.sites.some(s => s.address === at)) throw new FirmwareError('unexpected-instruction', `IIIx retake probe: ${at.toString(16)} already patched`); };
+  const entries: Record<string, number> = {};
+  for (const at of [GR3X_MODEL_RETAKE, GR3X_MODEL_RETAKE_TEST, GR3X_MACHINE_RETAKE, GR3X_MACHINE_END]) free(at);
+  entries.filmProbeModelRetake = p.code(`push {r0};${retakeTally(0, 'r0')}pop {r0};mov ip,sp;b #${GR3X_MODEL_RETAKE + 4};`);
+  p.patch(GR3X_MODEL_RETAKE, 0xe1a0c00d, branchWord(GR3X_MODEL_RETAKE, entries.filmProbeModelRetake), 'film roll retake probe: the model\'s Retake');
+  entries.filmProbeRetakeTest = p.code(`push {r1};movw ip,#${lo(KEY_LAST)};movt ip,#${hi(KEY_LAST)};add r1,r0,#1;strb r1,[ip,#1];pop {r1};cmp r0,#2;b #${GR3X_MODEL_RETAKE_TEST + 4};`);
+  p.patch(GR3X_MODEL_RETAKE_TEST, 0xe3500002, branchWord(GR3X_MODEL_RETAKE_TEST, entries.filmProbeRetakeTest), 'film roll retake probe: the model\'s state test');
+  entries.filmProbeMachineRetake = p.code(`push {r1};${retakeTally(2, 'r1')}ldr r1,[r0,#4];add r1,r1,#1;strb r1,[ip,#3];pop {r1};mov ip,sp;b #${GR3X_MACHINE_RETAKE + 4};`);
+  p.patch(GR3X_MACHINE_RETAKE, 0xe1a0c00d, branchWord(GR3X_MACHINE_RETAKE, entries.filmProbeMachineRetake), 'film roll retake probe: the capture machine\'s Retake');
+  entries.filmProbeMachineEnd = p.code(`push {r1};${retakeTally(4, 'r1')}pop {r1};mov ip,sp;b #${GR3X_MACHINE_END + 4};`);
+  p.patch(GR3X_MACHINE_END, 0xe1a0c00d, branchWord(GR3X_MACHINE_END, entries.filmProbeMachineEnd), 'film roll retake probe: the capture machine\'s end');
+  const cap = (n: number, max: number) => `ldrb r0,[ip,#${n}];cmp r0,#${max};movhi r0,#${max};`;
+  entries.filmProbeTime = p.code(`movw r3,#${lo(POINTER)};movt r3,#${hi(POINTER)};ldr r3,[r3];cmp r3,#0;beq clock;
+    movw ip,#${lo(KEY_LAST)};movt ip,#${hi(KEY_LAST)};
+    ldrb r0,[ip];${mod('r0', 100, 'year')}add r0,r0,#2000;strb r0,[r1];mov r0,r0,lsr #8;strb r0,[r1,#1];
+    ${cap(1, 11)}add r0,r0,#1;strb r0,[r1,#2];
+    ${cap(2, 30)}add r0,r0,#1;strb r0,[r1,#3];
+    ${cap(3, 23)}strb r0,[r1,#4];
+    ${cap(6, 5)}add r0,r0,r0,lsl #2;mov r2,r0,lsl #1;${cap(5, 9)}add r0,r0,r2;strb r0,[r1,#5];
+    bx lr;
+    clock:b #${GR3X_GET_TIME};`);
+  return entries;
 }

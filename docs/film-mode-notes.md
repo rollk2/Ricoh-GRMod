@@ -1258,3 +1258,18 @@ Plus grand dossier au départ : `109`.
   rien à annuler, ou bien le Retake du modèle refuse l'état. À trancher par une sonde : appels du
   Retake du modèle `0x5323a1a4`, résultat de son test d'état (`0x535493ac`), appels de la machine à
   états `0x5346a8d8`.
+- Observation de l'utilisateur (T13-FN5) : après un passage par le menu (pour vérifier la touche
+  gauche) puis retour, l'affichage de prise de vue (collimateur, informations) avait disparu, mais
+  une vue restait possible en superposition et la vue précédente restait en transparence (pas
+  d'avance). Natif : ouvrir le menu pendant une multi-exposition fait Complete (phase 2.6). À
+  comprendre (sortie de QuickViewController sans passage par l'arrêt normal ?).
+
+### Build de test T13-RT1 : où s'arrête le Retake
+
+- T13-FN5, plus une sonde (octets à `0x55804390`, nuls au démarrage) : + 0 appels du Retake du
+  modèle (`0x5323a1a4`), + 1 valeur de son test d'état + 1 (`0x5323a1d0`, `cmp r0,#2`), + 2 appels du
+  Retake de la machine à états (`0x5346a8d8`), + 3 sa phase (+ 4 de son objet) + 1, + 4 fins de
+  séquence (`0x5346a910`), + 5 appuis sur la fonction 43, + 6 appels de l'action Retake par notre code.
+- Date des photos : 20YY = + 0 ; MM = 1 + (+ 1) ; DD = 1 + (+ 2) ; HH = + 3 ; mm = 10 × (+ 6) + (+ 5).
+- Vérifié en émulateur (chaque crochet, registres et drapeaux rendus, horloge) ; T13-FN5 reconstruit
+  identique ; sondes repassées.
