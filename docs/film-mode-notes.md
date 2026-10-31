@@ -1512,8 +1512,7 @@ Lecture (attention : MM = valeur du test + 2, HH = phase + 1) :
 | Référence native (Film Roll Mode Off, attente 2 s, Complete) | 2000.01.01 00:00 | journal vide à l'encodage (probablement effacé par un nouveau démarrage de l'écran après Complete) |
 
 - Le gestionnaire de l'écran ne traite ni 0x18F ni 0x10C en propre (cas par défaut `0x531cb3cc`).
-- Il traite **0xE7 → `0x531cbf5c`** (retour en visée comme Next shot) : c'est l'événement de l'appui
-  à mi-course (test C). Natif : le retour passe par la file des événements, après ceux du démarrage.
+- Il traite **0xE7 → `0x531cbf5c`** ; supposé (à tort, voir T14-DG2) être l'appui à mi-course. Natif : le retour passe par la file des événements, après ceux du démarrage.
 
 ### Build de test T14-DG2 : un appui à mi-course publié
 
@@ -1523,3 +1522,14 @@ Lecture (attention : MM = valeur du test + 2, HH = phase + 1) :
   T14-DG1 conservé.
 - Vérifié en émulateur : démarrage seul hors du bon cas (117 cas), démarrage puis publication de 0xE7
   dans le bon cas ; journal, horloge ; sondes repassées ; T14-DG1 reconstruit identique.
+
+### Résultat T14-DG2 et build T14-DG3 (2026-10-31)
+
+- T14-DG2 sur le boîtier : après la vue, **le dialogue de suppression (Cancel / Delete)** s'affiche en
+  bas à droite, puis la photo en transparence. 0xE7 n'est donc pas l'appui à mi-course mais la touche
+  de suppression (`0x531cbf5c` → `0x531cb7bc(this, 4)`). Test arrêté, rien supprimé.
+- **0xB6 = « Photo suivante » de la commande à distance** (`0x5328eca8` publie 0xB6, 0xB7 Retake,
+  0xB8 Complete ; aucune action globale pour 0xB6, `0x53228520`). Sur l'écran, 0xB6 et 0xB7 mènent à
+  `0x531cc124` : `+0x180 = 1` et retour en visée. C'est un chemin officiel.
+- T14-DG3 : comme T14-DG2, avec 0xB6. Vérifié en émulateur ; T14-DG2 reconstruit identique ; sondes
+  repassées.

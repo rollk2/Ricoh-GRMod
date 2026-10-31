@@ -221,8 +221,14 @@ describe.skipIf(!input)('GR III film roll (film mode phase 3.1)', () => {
     const dg1 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'dg1' });
     const dg2 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'dg2' });
     expect(dg2.sites.map(s => s.address).sort()).toEqual(dg1.sites.map(s => s.address).sort());
-    expect(dg2.sites.find(s => s.address === 0x531cbde4)!.reason).toMatch(/half press posted/);
+    expect(dg2.sites.find(s => s.address === 0x531cbde4)!.reason).toMatch(/UI event e7 posted/);
     const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'dg2' });
     expect(built.report.revision).toBe('T14-DG2');
+  }, 240000);
+  it('posts the remote Next shot (0xb6) to the screen (T14-DG3)', async () => {
+    const dg3 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'dg3' });
+    expect(dg3.sites.find(s => s.address === 0x531cbde4)!.reason).toMatch(/UI event b6 posted/);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'dg3' });
+    expect(built.report.revision).toBe('T14-DG3');
   }, 240000);
 });

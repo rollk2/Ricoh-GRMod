@@ -110,7 +110,7 @@ export interface Gr3xRollProgram {
   patch(address: number, expected: number, replacement: number, reason: string): void;
 }
 
-export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuRatio[], folders = false, diag = false, filmMenu = false, keys: false | 'sequence' | 'boot' | 'shot' = false, noReview: false | 'skip' | 'live' | 'next' | 'armed' | 'deferred' | 'logged' | 'posted' = false, folderName = false) {
+export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuRatio[], folders = false, diag = false, filmMenu = false, keys: false | 'sequence' | 'boot' | 'shot' = false, noReview: false | 'skip' | 'live' | 'next' | 'armed' | 'deferred' | 'logged' | 'posted' | 'closed' = false, folderName = false) {
   const rec = (label: string) => records(label, filmMenu);
   const free = (at: number) => { if (p.sites.some(s => s.address === at)) throw new FirmwareError('unexpected-instruction', `IIIx film roll: ${at.toString(16)} already patched`); };
   const entries: Record<string, number> = {};
@@ -214,7 +214,7 @@ export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuR
   if (noReview === 'skip') installNoReview(p, free, entries);
   if (noReview === 'live') installReviewToLive(p, free, entries);
   if (noReview === 'next' || noReview === 'armed' || noReview === 'deferred' || noReview === 'logged') installReviewNext(p, free, entries, noReview !== 'next', noReview === 'deferred' || noReview === 'logged', noReview === 'logged');
-  if (noReview === 'posted') installReviewHalfPress(p, free, entries);
+  if (noReview === 'posted' || noReview === 'closed') installReviewHalfPress(p, free, entries, noReview === 'posted' ? GR3X_DELETE_EVENT : GR3X_REVIEW_CLOSE_EVENT);
   return { entries, exposure };
 }
 
@@ -645,17 +645,18 @@ export const GR3X_REVIEW_STOP = 0x531cab24;
 /** T14-DG1: the screen's event log (halfwords: first code, second code; bytes: count, frozen). */
 const REVIEW_LOG = KEY_LAST + 16;
 
-/** The UI event of a half press on QuickViewController (its handler: 0xe7 → 0x531cbf5c, which goes
- * back to the live view as Next shot does). */
-export const GR3X_HALF_PRESS_EVENT = 0xe7;
+/** UI events on QuickViewController (its handler 0x531cbfc4): 0xe7 → 0x531cbf5c opens the delete
+ * dialog (Cancel / Delete, seen on the camera with T14-DG2: not the half press); 0xb6 (no global
+ * action, 0x53228520) → 0x531cc124: + 0x180 = 1 and back to the live view, as Next shot. */
+export const GR3X_DELETE_EVENT = 0xe7, GR3X_REVIEW_CLOSE_EVENT = 0xb6;
 
 /**
- * Form 'dg2' (T14-DG2): in film mode (after a shot, as 'armed'), the screen's start is followed by
- * the UI event of a half press, posted to the queue: the screen gets it after its own start-up
- * events and goes back to the live view itself, as when the shutter is half pressed on it. The
- * screen's events are logged as in T14-DG1.
+ * Forms 'dg2' / 'dg3' (T14-DG2 / T14-DG3): in film mode (after a shot, as 'armed'), the screen's
+ * start is followed by a UI event posted to the queue (dg2 0xe7, which proved to be the delete
+ * dialog; dg3 0xb6, the screen's own way back to the live view): the screen gets it after its own
+ * start-up events. The screen's events are logged as in T14-DG1.
  */
-function installReviewHalfPress(p: Gr3xRollProgram, free: (at: number) => void, entries: Record<string, number>) {
+function installReviewHalfPress(p: Gr3xRollProgram, free: (at: number) => void, entries: Record<string, number>, event: number) {
   for (const at of [GR3X_REVIEW_START, GR3X_OPEN_REVIEW, GR3X_REVIEW_EVENT, GR3X_REVIEW_STOP]) free(at);
   entries.filmReviewArm = p.code(`push {r0};movw ip,#${lo(REVIEW_ARM)};movt ip,#${hi(REVIEW_ARM)};mov r0,#1;strb r0,[ip];pop {r0};mov ip,sp;b #${GR3X_OPEN_REVIEW + 4};`);
   p.patch(GR3X_OPEN_REVIEW, 0xe1a0c00d, branchWord(GR3X_OPEN_REVIEW, entries.filmReviewArm), 'film roll: the Next / Retake / Complete screen opened after a shot');
@@ -664,9 +665,9 @@ function installReviewHalfPress(p: Gr3xRollProgram, free: (at: number) => void, 
     movw r0,#${lo(SINGLETON)};movt r0,#${hi(SINGLETON)};ldr r0,[r0];${ram('r0', 'alone')}
     ldr r0,[r0,#0x518];${ram('r0', 'alone')}ldr r0,[r0];${ram('r0', 'alone')}ldrb r0,[r0,#0x6c0];cmp r0,#2;bne alone;
     pop {r0,r1,r2,r3,r4,lr};push {r0,lr};mov ip,sp;bl #${GR3X_REVIEW_START + 4};
-    bl #${UI_TASK};bl #${UI_QUEUE};mov r1,#${GR3X_HALF_PRESS_EVENT};mov r2,#0;mov r3,#0;bl #${GR3X_POST_EVENT};pop {r0,lr};bx lr;
+    bl #${UI_TASK};bl #${UI_QUEUE};mov r1,#${event};mov r2,#0;mov r3,#0;bl #${GR3X_POST_EVENT};pop {r0,lr};bx lr;
     alone:pop {r0,r1,r2,r3,r4,lr};mov ip,sp;b #${GR3X_REVIEW_START + 4};`);
-  p.patch(GR3X_REVIEW_START, 0xe1a0c00d, branchWord(GR3X_REVIEW_START, entries.filmReviewNext), 'film roll: a half press posted to Next / Retake / Complete in film mode');
+  p.patch(GR3X_REVIEW_START, 0xe1a0c00d, branchWord(GR3X_REVIEW_START, entries.filmReviewNext), `film roll: UI event ${event.toString(16)} posted to Next / Retake / Complete in film mode`);
   entries.filmReviewEvent = p.code(`push {r1,r2,r3};movw ip,#${lo(REVIEW_LOG)};movt ip,#${hi(REVIEW_LOG)};ldrb r2,[ip,#5];cmp r2,#0;bne logged;
     ldrb r2,[ip,#4];ldrh r3,[r1];cmp r2,#0;strheq r3,[ip];cmp r2,#1;strheq r3,[ip,#2];cmp r2,#255;addlo r2,r2,#1;strb r2,[ip,#4];
     logged:pop {r1,r2,r3};mov ip,sp;b #${GR3X_REVIEW_EVENT + 4};`);
