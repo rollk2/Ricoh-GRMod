@@ -1560,3 +1560,6 @@ Lecture (attention : MM = valeur du test + 2, HH = phase + 1) :
   suivante, comme l'appui de l'utilisateur au test Y.
 - Vérifié en émulateur (démarrages, note, gestionnaire : trois cas natifs, un cas Next shot) ;
   T14-DIR4 reconstruit identique ; sondes repassées.
+- T14-DIR5 sur le boîtier : l'écran s'affiche et reste. Notre Next shot à l'échéance n'a pas lieu :
+  soit une minuterie native tournait déjà (`+0x178` non nul, notre minuterie n'est alors pas lancée),
+  soit la minuterie n'arrive pas au gestionnaire `0x531ca86c`. Non établi.
