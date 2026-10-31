@@ -1401,3 +1401,15 @@ Lecture (attention : MM = valeur du test + 2, HH = phase + 1) :
   les valeurs en direct** à la fin du modèle en mode pellicule et au rappel d'un mode U pellicule ;
   remettre le nom et le type enregistrés au rappel d'un autre mode et quand Film Roll Mode passe à
   Off. Le réglage enregistré de l'utilisateur n'est jamais modifié.
+
+### Nom des fichiers (analyse statique en cours, 2026-10-31)
+
+- Décision : fichiers du mode pellicule `NEG_6857.JPG` (code du film + `_` + numérotation continue du
+  boîtier).
+- Réglage d'origine File Name : 2 octets à `+0x93d` (copiés dans les huit enregistrements par
+  `0x5326cacc`), transmis aux valeurs en direct par `0x5326cb1c` → `0x5354d168(live, nom)`
+  (élément 0xfe). Le nom de fichier natif `R0016855` = préfixe de 2 caractères + 6 chiffres : ce
+  réglage seul ne permet pas 4 caractères.
+- Format `"%s%04d.%s"` (`0x53d26c14`) utilisé par `0x535b87f0` (préfixe de 4 caractères pris dans une
+  structure de fichier, numéro sur 4 chiffres) : semble servir à la lecture des fichiers existants ;
+  le point de fabrication du nom d'un nouveau fichier reste à trouver.
