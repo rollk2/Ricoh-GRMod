@@ -110,7 +110,7 @@ export interface Gr3xRollProgram {
   patch(address: number, expected: number, replacement: number, reason: string): void;
 }
 
-export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuRatio[], folders = false, diag = false, filmMenu = false, keys: false | 'sequence' | 'boot' | 'shot' = false, noReview: false | 'skip' | 'live' | 'next' | 'armed' | 'deferred' | 'logged' | 'posted' | 'closed' | 'timed' = false, folderName = false) {
+export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuRatio[], folders = false, diag = false, filmMenu = false, keys: false | 'sequence' | 'boot' | 'shot' = false, noReview: false | 'skip' | 'live' | 'next' | 'armed' | 'deferred' | 'logged' | 'posted' | 'closed' | 'timed' | 'timedNext' = false, folderName = false) {
   const rec = (label: string) => records(label, filmMenu);
   const free = (at: number) => { if (p.sites.some(s => s.address === at)) throw new FirmwareError('unexpected-instruction', `IIIx film roll: ${at.toString(16)} already patched`); };
   const entries: Record<string, number> = {};
@@ -214,7 +214,7 @@ export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuR
   if (noReview === 'skip') installNoReview(p, free, entries);
   if (noReview === 'live') installReviewToLive(p, free, entries);
   if (noReview === 'next' || noReview === 'armed' || noReview === 'deferred' || noReview === 'logged') installReviewNext(p, free, entries, noReview !== 'next', noReview === 'deferred' || noReview === 'logged', noReview === 'logged');
-  if (noReview === 'timed') installReviewTimer(p, free, entries);
+  if (noReview === 'timed' || noReview === 'timedNext') installReviewTimer(p, free, entries, noReview === 'timedNext');
   if (noReview === 'posted' || noReview === 'closed') installReviewHalfPress(p, free, entries, noReview === 'posted' ? GR3X_DELETE_EVENT : GR3X_REVIEW_CLOSE_EVENT);
   return { entries, exposure };
 }
@@ -695,18 +695,32 @@ export const GR3X_TIMER_QUEUE = 0x5320b01c, GR3X_TIMER_START = 0x5322b468, GR3X_
  * the screen's own review timer (GR3X_FILM_REVIEW_MS) when none runs: the screen shows for that time,
  * then goes back to the live view by itself, as after a single picture with Rec Review on.
  */
-function installReviewTimer(p: Gr3xRollProgram, free: (at: number) => void, entries: Record<string, number>) {
+function installReviewTimer(p: Gr3xRollProgram, free: (at: number) => void, entries: Record<string, number>, next = false) {
   for (const at of [GR3X_REVIEW_START, GR3X_OPEN_REVIEW]) free(at);
+  // next (T14-DIR5): the timer's handler ignores the multi-exposure screen (state + 0x16c above 1), so
+  // our timer is noted (the screen in REVIEW_PENDING) and its expiry presses Next shot on that screen.
+  const note = next ? `movw ip,#${lo(REVIEW_PENDING)};movt ip,#${hi(REVIEW_PENDING)};str r4,[ip];` : '';
+  const clearNote = next ? `movw ip,#${lo(REVIEW_PENDING)};movt ip,#${hi(REVIEW_PENDING)};mov r0,#0;str r0,[ip];` : '';
+  if (next) {
+    free(GR3X_REVIEW_TIMER);
+    entries.filmReviewTimer = p.code(`push {r2};movw ip,#${lo(REVIEW_PENDING)};movt ip,#${hi(REVIEW_PENDING)};ldr r2,[ip];cmp r2,r0;bne native;
+      ldr r2,[r0,#0x178];cmp r2,r1;bne native;mov r2,#0;str r2,[ip];str r2,[r0,#0x178];pop {r2};b #${GR3X_NEXT_SHOT};
+      native:pop {r2};ldr r2,[r0,#0x178];b #${GR3X_REVIEW_TIMER + 4};`);
+    p.patch(GR3X_REVIEW_TIMER, 0xe5902178, branchWord(GR3X_REVIEW_TIMER, entries.filmReviewTimer), 'film roll: Next shot when our review timer expires');
+  }
   entries.filmReviewArm = p.code(`push {r0};movw ip,#${lo(REVIEW_ARM)};movt ip,#${hi(REVIEW_ARM)};mov r0,#1;strb r0,[ip];pop {r0};mov ip,sp;b #${GR3X_OPEN_REVIEW + 4};`);
   p.patch(GR3X_OPEN_REVIEW, 0xe1a0c00d, branchWord(GR3X_OPEN_REVIEW, entries.filmReviewArm), 'film roll: the Next / Retake / Complete screen opened after a shot');
-  entries.filmReviewNext = p.code(`push {r0,r1,r2,r3,r4,lr};
+  entries.filmReviewNext = p.code(`push {r0,r1,r2,r3,r4,lr};${clearNote}
     movw ip,#${lo(REVIEW_ARM)};movt ip,#${hi(REVIEW_ARM)};ldrb r0,[ip];mov r1,#0;strb r1,[ip];cmp r0,#0;beq alone;${records('alone', true)}
     movw r0,#${lo(SINGLETON)};movt r0,#${hi(SINGLETON)};ldr r0,[r0];${ram('r0', 'alone')}
     ldr r0,[r0,#0x518];${ram('r0', 'alone')}ldr r0,[r0];${ram('r0', 'alone')}ldrb r0,[r0,#0x6c0];cmp r0,#2;bne alone;
     pop {r0,r1,r2,r3,r4,lr};push {r4,lr};mov r4,r0;mov ip,sp;bl #${GR3X_REVIEW_START + 4};
     ldr r0,[r4,#0x178];cmp r0,#0;bne done;
-    bl #${UI_TASK};bl #${GR3X_TIMER_QUEUE};movw r1,#${GR3X_FILM_REVIEW_MS};add r2,r4,#0x158;bl #${GR3X_TIMER_START};str r0,[r4,#0x178];
+    bl #${UI_TASK};bl #${GR3X_TIMER_QUEUE};movw r1,#${GR3X_FILM_REVIEW_MS};add r2,r4,#0x158;bl #${GR3X_TIMER_START};str r0,[r4,#0x178];${note}
     done:pop {r4,pc};
     alone:pop {r0,r1,r2,r3,r4,lr};mov ip,sp;b #${GR3X_REVIEW_START + 4};`);
   p.patch(GR3X_REVIEW_START, 0xe1a0c00d, branchWord(GR3X_REVIEW_START, entries.filmReviewNext), 'film roll: the screen\'s review timer in film mode');
 }
+
+/** QuickViewController's timer handler (table entry 15; first instruction `ldr r2,[r0,#0x178]`). */
+export const GR3X_REVIEW_TIMER = 0x531ca86c;

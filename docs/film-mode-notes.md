@@ -1548,3 +1548,15 @@ Lecture (attention : MM = valeur du test + 2, HH = phase + 1) :
   (`0x5322b468(0x5320b01c(0x5320ad88()), 500, this + 0x158)`, rangée en `+0x178`) ; à l'échéance,
   `0x531ca86c` revient en visée si l'état `+0x16c` ≤ 1 (sinon l'écran reste : mi-course possible).
 - Vérifié en émulateur (240 cas, minuterie déjà lancée ou non) ; T14-DG3 reconstruit identique.
+- T14-DIR4 sur le boîtier : l'écran reste (la minuterie tourne, mais son gestionnaire ignore l'écran
+  de multi-exposition, état `+0x16c` > 1).
+
+### Build de test T14-DIR5 : Next shot à l'échéance de notre minuterie
+
+- T14-DIR4, plus : l'écran est noté (`0x5580439c`) quand notre minuterie est lancée ; le gestionnaire
+  de minuterie (`0x531ca86c`, première instruction `ldr r2,[r0,#0x178]`) appelle Next shot quand
+  c'est notre minuterie sur l'écran noté (identifiant en r1 = `+0x178`), après avoir effacé la note
+  et `+0x178` ; sinon il continue tel quel. Effet attendu : écran visible environ 0,5 s, puis Photo
+  suivante, comme l'appui de l'utilisateur au test Y.
+- Vérifié en émulateur (démarrages, note, gestionnaire : trois cas natifs, un cas Next shot) ;
+  T14-DIR4 reconstruit identique ; sondes repassées.
