@@ -200,4 +200,12 @@ describe.skipIf(!input)('GR III film roll (film mode phase 3.1)', () => {
     const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'dir2' });
     expect(built.report.revision).toBe('T14-DIR2');
   }, 240000);
+  it('posts one Complete per frame from Film Advance (T14-DIR3)', async () => {
+    const dir2 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'dir2' });
+    const dir3 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'dir3' });
+    expect(dir3.sites.map(s => s.address)).toEqual(dir2.sites.map(s => s.address));
+    expect(dir3.append.bytes).not.toBe(dir2.append.bytes);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'dir3' });
+    expect(built.report.revision).toBe('T14-DIR3');
+  }, 240000);
 });

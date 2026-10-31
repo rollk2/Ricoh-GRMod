@@ -398,7 +398,7 @@ export interface Gr3xFnProgram extends Gr3xRollProgram {
  *    advances the film when a U mode with Film Roll Mode on has a frame exposed (the end poster
  *    0x531a4d80, as Complete), then the camera goes on as for Off (function 0): nothing else happens.
  */
-export function installGr3xFilmAdvanceFn(p: Gr3xFnProgram, text: number, retake: false | 'event' | 'action' | 'probe' | 'cancel' = false, clamp = false) {
+export function installGr3xFilmAdvanceFn(p: Gr3xFnProgram, text: number, retake: false | 'event' | 'action' | 'probe' | 'cancel' = false, clamp = false, once = false) {
   // clamp (T13-FN7): a function above the last one (43 saved by an earlier build) reads as Off.
   const high = (r: string) => clamp ? `cmp ${r},#${GR3X_FILM_ADVANCE + 1};movhs ${r},#0;` : '';
   const fail = (what: string) => { throw new FirmwareError('unexpected-layout', `IIIx film advance: ${what}`); };
@@ -425,7 +425,10 @@ export function installGr3xFilmAdvanceFn(p: Gr3xFnProgram, text: number, retake:
   entries.filmFnIcon = p.code(`${high('r1')}cmp r1,#${GR3X_FILM_ADVANCE};movweq r0,#${GR3X_FILM_ADVANCE_ICON};bxeq lr;${retakeIcon}cmp r1,#0;b #${GR3X_FN_ICON + 4};`);
   p.patch(GR3X_FN_ICON, 0xe3510000, branchWord(GR3X_FN_ICON, entries.filmFnIcon), 'film advance: its icon');
   // The advance (every register kept but the function's, which becomes Off).
-  const advance = (label: string) => `push {r0,r1,r2,r3,ip,lr};${records(label, true)}bl #${END_POSTER};${label}:pop {r0,r1,r2,r3,ip,lr};`;
+  // once (T14-DIR3): a press runs this 4 times; only the first posts Complete until the next exposure
+  // (GR3X_ADVANCE_ONCE_CLEAR), so the live view gets one end of sequence, not four.
+  const single = (label: string) => once ? `movw ip,#${lo(ADVANCE_ONCE)};movt ip,#${hi(ADVANCE_ONCE)};ldrb r0,[ip];cmp r0,#0;bne ${label};mov r0,#1;strb r0,[ip];` : '';
+  const advance = (label: string) => `push {r0,r1,r2,r3,ip,lr};${records(label, true)}${single(label)}bl #${END_POSTER};${label}:pop {r0,r1,r2,r3,ip,lr};`;
   // The retake (43), when a frame is exposed (state 2): 'event' (T13-FN4) posts UI event 0xb7, as the
   // screen's Retake shot (ignored in the live view on the camera); 'action' (T13-FN5) calls that
   // event's action 0x532270d4 (the shooting model's Retake 0x5323a1a4, which checks the state too).
@@ -609,3 +612,8 @@ const FOLDER_NAME = GR3X_ROLL_DIAG + 0x20;
 export const GR3X_REVIEW_EVENT = 0x531cbfc4;
 /** T14-DIR2: the screen waiting for Next shot (a word, zero at start-up, the key probe's area). */
 const REVIEW_PENDING = KEY_LAST + 12;
+
+/** T14-DIR3: Complete posted since the last exposure (a byte, zero at start-up, the key probe's area). */
+const ADVANCE_ONCE = KEY_LAST + 10;
+/** That flag cleared at each exposure (every register kept but ip). */
+export const GR3X_ADVANCE_ONCE_CLEAR = `push {r0};movw ip,#${lo(ADVANCE_ONCE)};movt ip,#${hi(ADVANCE_ONCE)};mov r0,#0;strb r0,[ip];pop {r0};`;

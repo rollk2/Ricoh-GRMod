@@ -1470,3 +1470,15 @@ Lecture (attention : MM = valeur du test + 2, HH = phase + 1) :
 - Vérifié en émulateur : 120 cas de démarrage, gestionnaire inchangé pour un autre écran, appel du
   gestionnaire puis de Next shot pour l'écran noté ; T14-DIR1 reconstruit identique ; sondes
   repassées.
+- Résultat T14-DIR2 : vue sans écran, visée directe ; mais en enchaînant vue et Film Advance, l'affichage
+  est perdu à la 3e ou 4e fois. Le report de Next shot ne suffit pas.
+
+### Build de test T14-DIR3 : un seul Complete par vue
+
+- Hypothèse : un appui appelle `GetEventCustomize` 4 fois (T13-RT1), donc Film Advance publiait 4 fois
+  l'événement 0xb8 (l'émetteur `0x531a4d80` ne teste que l'état, qui change plus tard) ; le modèle
+  refuse les suivants, mais la visée reçoit quatre fins de séquence.
+- T14-DIR3 = T14-DIR2 et un drapeau (`0x5580439a`) : levé au premier envoi de Complete en mode
+  pellicule, il bloque les suivants jusqu'à l'exposition suivante (préfixe du crochet d'exposition).
+- Vérifié en émulateur : 4 appels, 1 seul envoi, sur les deux chemins ; rien hors mode pellicule ;
+  drapeau baissé par l'exposition ; T14-DIR2 et T13-FN1 reconstruits identiques ; sondes repassées.
