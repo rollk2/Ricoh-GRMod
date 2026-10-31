@@ -1563,3 +1563,14 @@ Lecture (attention : MM = valeur du test + 2, HH = phase + 1) :
 - T14-DIR5 sur le boîtier : l'écran s'affiche et reste. Notre Next shot à l'échéance n'a pas lieu :
   soit une minuterie native tournait déjà (`+0x178` non nul, notre minuterie n'est alors pas lancée),
   soit la minuterie n'arrive pas au gestionnaire `0x531ca86c`. Non établi.
+
+### Build de test T14-DIR6 : l'aperçu d'une photo simple (demande de l'utilisateur)
+
+- Demande : garder l'écran avec la photo, sans Next shot / Retake / Complete ; mi-course pour revenir
+  en visée et superposer ; touche droite pour finaliser.
+- Démarrage de l'écran : `bl 0x531cb028` donne la présentation (identifiant − 0x0800000c), puis
+  `mov r1,r0` (`0x531cbe4c`) et `0x531cb7bc(this, présentation)` qui pose l'état `+0x16c` ; un état
+  ≤ 1 suit Rec Review (`0x531caa7c`) comme après une photo simple. En mode pellicule (après une vue,
+  drapeau d'ouverture), la présentation 0 (aperçu simple) est imposée ; plus aucun Next shot de notre
+  part.
+- Vérifié en émulateur (120 cas, registres, pile) ; T14-DIR5 reconstruit identique ; sondes repassées.
