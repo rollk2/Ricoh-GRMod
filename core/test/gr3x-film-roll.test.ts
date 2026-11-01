@@ -363,4 +363,10 @@ describe.skipIf(!input)('GR III film roll (film mode phase 3.1)', () => {
     const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'clo3' });
     expect(built.report.revision).toBe('T16-CLO3');
   }, 240000);
+  it('checks the roll only when a menu screen goes back to the live view (T16-CLO4)', async () => {
+    const clo4 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'clo4' });
+    expect((clo4.entries as Record<string, number>).filmMessageSwitch).toBeGreaterThan(0x53000000);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'clo4' });
+    expect(built.report.revision).toBe('T16-CLO4');
+  }, 240000);
 });

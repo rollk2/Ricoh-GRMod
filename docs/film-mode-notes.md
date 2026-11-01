@@ -1813,3 +1813,13 @@ Lecture (attention : MM = valeur du test + 2, HH = phase + 1) :
 - Compteur : vues enregistrées (`vue - 1`), 0 pour un rouleau neuf, terminé ou non entamé ;
   `0/12` ... `12/12`, puis `0/12`.
 - Vérifié en émulateur ; T16-CLO2 reconstruit identique ; sondes repassées.
+- Résultats T16-CLO3 : compteur à partir de 0 validé ; mais toujours un message en passant sur P.
+
+### Build de test T16-CLO4
+
+- Le contrôle au retour en visée ne se fait que si l'écran qui revient est un écran de menu
+  (identifiant `[this + 0x124]` de la famille 0x02xxxxxx, comme 0x0200004a). Le changement de mode
+  par la molette n'est plus concerné ; le retour sur la BOX reste traité au rappel du mode U.
+- Vérifié en émulateur (menu : clôture et message ; visée, revue, gestionnaire : rien) ; T16-CLO3
+  reconstruit identique ; sondes repassées. Inconnues : que la sortie du menu passe bien par l'écran
+  de menu lui-même, et que le message sur P ne venait pas d'ailleurs.

@@ -906,7 +906,7 @@ export const GR3X_FILM_NEW_ROLL_NAMES: readonly string[] = [
  * T15-END1: the message screen 0x08000007 shows our text (`text`) instead of its own while a film mode
  * message waits (the byte is then cleared): `movw r1,#0x2be` at 0x531ce174 becomes that choice.
  */
-export function installGr3xFilmMessage(p: Gr3xRollProgram, text: number, redirect = false, guard = false, probe = guard, check = 0) {
+export function installGr3xFilmMessage(p: Gr3xRollProgram, text: number, redirect = false, guard = false, probe = guard, check = 0, fromMenu = false) {
   if (p.sites.some(s => s.address === GR3X_MESSAGE_TEXT_AT)) throw new FirmwareError('unexpected-instruction', 'IIIx film message: already patched');
   const entries: Record<string, number> = {};
   entries.filmMessageText = p.code(`movw ip,#${lo(NEW_ROLL_MESSAGE)};movt ip,#${hi(NEW_ROLL_MESSAGE)};ldrb r1,[ip];cmp r1,#0;movweq r1,#0x2be;beq back;
@@ -929,7 +929,9 @@ export function installGr3xFilmMessage(p: Gr3xRollProgram, text: number, redirec
       movw r2,#${lo(GR3X_MESSAGE_TIMER_RETURN)};movt r2,#${hi(GR3X_MESSAGE_TIMER_RETURN)};cmp lr,r2;beq free;pop {r2,r3};mov r0,#0;bx lr;free:` : '';
     // check (T16-CLO1): with no message waiting, a way back to the live view first checks the roll
     // (filmRollCheck: the film or the format changed → the roll ends); it then goes to the message.
-    const closing = check ? `bne waiting;cmp r1,#0x8000000;bne native;push {r0,r1,ip,lr};bl #${check};mov r2,r0;pop {r0,r1,ip,lr};cmp r2,#0;beq native;
+    // fromMenu (T16-CLO4): only a menu screen's way back (its id at + 0x124 in the 0x02 family).
+    const menuOnly = fromMenu ? 'ldr r2,[r0,#0x124];mov r2,r2,lsr #24;cmp r2,#2;bne native;' : '';
+    const closing = check ? `bne waiting;cmp r1,#0x8000000;bne native;${menuOnly}push {r0,r1,ip,lr};bl #${check};mov r2,r0;pop {r0,r1,ip,lr};cmp r2,#0;beq native;
       mov r2,#1;strb r2,[ip];mov r1,#${GR3X_MESSAGE_SCREEN & 0xff};movt r1,#${GR3X_MESSAGE_SCREEN >>> 16};b native;waiting:` : 'beq native;';
     entries.filmMessageSwitch = p.code(`push {r2,r3};movw ip,#${lo(NEW_ROLL_MESSAGE)};movt ip,#${hi(NEW_ROLL_MESSAGE)};ldrb r2,[ip];cmp r2,#0;${closing}${log}
       cmp r1,#0x8000000;bne native;${hold}ldr r3,[r0];
