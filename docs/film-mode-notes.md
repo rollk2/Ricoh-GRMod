@@ -1649,3 +1649,8 @@ Lecture (attention : MM = valeur du test + 2, HH = phase + 1) :
 - Résultats sur le boîtier (T14-DIR10, 2026-11-01) : Off → 100 ms, 6 cycles, visée complète avec
   transparence à chaque fois ; Garder : la photo reste affichée jusqu'à une action (comportement
   d'origine). **Réglage retenu : seul Off est remplacé, par 100 ms.**
+
+### Build de test T14-DIR11 (demande de l'utilisateur)
+
+- Comme T14-DIR10, avec Off remplacé par **25 ms** en mode pellicule (quasiment Off). Garder reste
+  Garder. Vérifié en émulateur ; T14-DIR10 reconstruit identique ; sondes repassées.
