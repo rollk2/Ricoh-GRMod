@@ -48,7 +48,7 @@ LOOK_CODES={11:'STD',12:'VIV',13:'MON',14:'SMO',15:'HMO',16:'HCB',17:'POS',18:'B
 
 class RollProbe(Probe):
     def __init__(self,data,manifest):
-        super().__init__(data,manifest);self.writes=[];self.box_native=0;self.next=0;self.next_calls=0;self.sfp_ret=None;self.sfp_calls=0;self.entry_sp=None;self.prints=[];self.setters=[];self.ui=[];self.real_post=False;self.fn_stubs=False;self.posters=0;self.model_no=0;self.events=[];self.qv_stubs=False;self.qv=[];self.dir_stubs=False;self.live=[];self.timer_stubs=False;self.timers=[];self.end_stubs=False;self.opens=[]
+        super().__init__(data,manifest);self.writes=[];self.box_native=0;self.next=0;self.next_calls=0;self.sfp_ret=None;self.sfp_calls=0;self.entry_sp=None;self.prints=[];self.setters=[];self.ui=[];self.real_post=False;self.fn_stubs=False;self.posters=0;self.model_no=0;self.events=[];self.qv_stubs=False;self.qv=[];self.dir_stubs=False;self.live=[];self.timer_stubs=False;self.timers=[];self.end_stubs=False;self.opens=[];self.menu_stubs=False
         for at in range(0x63040000,0x63059000,0x1000):
             try:self.uc.mem_map(at,0x1000)
             except Exception:pass
@@ -98,6 +98,10 @@ class RollProbe(Probe):
             self.qv.append(('next',r(0),cpu.reg_read(reg.UC_ARM_REG_SP)));ret(1)
         elif self.fn_stubs and at==0x531a4d80:
             self.posters+=1;ret(0x5a)
+        elif self.menu_stubs and at==0x5320c09c:
+            ret(0xc0c1)
+        elif self.menu_stubs and at==0x532dbee8:
+            assert r(0)==0xc0c1;ret(self.model_no)
         elif self.fn_stubs and at==0x5320c09c:
             assert r(0)==0xa0a0;ret(0xc0c0)
         elif self.fn_stubs and at==0x532dbee8:
@@ -124,15 +128,15 @@ def verify(data,manifest,seed=3101):
     count=lambda k:cases.__setitem__(k,cases.get(k,0)+1)
     cpu.mem_write(OBJ+8,struct.pack('<I',STORE))
     cpu.mem_write(LIVE_CELL,struct.pack('<I',LIVE_OBJ))
-    if manifest['filmRoll'] in ('dir1','dir2','dir3','dg1','dg2','dg3','dir4','dir5','dir6','dir7','dir8','dir9','dir10','dir11','dir12','dir13','dir14','end1','end2','end3','clo1','clo2','clo3','clo4','msg1','rwd1'):p.dir_stubs=True
-    if manifest['filmRoll'] in ('end1','end2','end3','clo1','clo2','clo3','clo4','msg1','rwd1'):p.end_stubs=True
+    if manifest['filmRoll'] in ('dir1','dir2','dir3','dg1','dg2','dg3','dir4','dir5','dir6','dir7','dir8','dir9','dir10','dir11','dir12','dir13','dir14','end1','end2','end3','clo1','clo2','clo3','clo4','msg1','rwd1','hide1','hide1'):p.dir_stubs=True
+    if manifest['filmRoll'] in ('end1','end2','end3','clo1','clo2','clo3','clo4','msg1','rwd1','hide1','hide1'):p.end_stubs=True
     p.film_close=False   # guard_probe's own stubs for T16-CLO2 (this probe has its own)
     def roll_name(rec):
         L=LENGTHS.get(rec[RATIO],36) if rec[RATIO]<=max_id else 36
         return (LOOK_CODES.get(rec[0x1c2],'FLM')+'%02d'%L).encode()+b'\0'
-    fromzero=manifest['filmRoll'] in ('clo3','clo4','msg1','rwd1')
-    late=manifest['filmRoll'] in ('dir14','end1','end2','end3','clo1','clo2','clo3','clo4','msg1','rwd1');end1=manifest['filmRoll'] in ('end1','end2','end3','clo1','clo2','clo3','clo4','msg1','rwd1');end2=manifest['filmRoll'] in ('end2','end3','clo1','clo2','clo3','clo4','msg1','rwd1');end3=manifest['filmRoll']=='end3';hold=manifest['filmRoll'] in ('end3','clo1','clo2','clo3','clo4','msg1','rwd1');clo1=manifest['filmRoll'] in ('clo1','clo2','clo3','clo4','msg1','rwd1');clo2=manifest['filmRoll'] in ('clo2','clo3','clo4','msg1','rwd1');clo3=manifest['filmRoll'] in ('clo3','clo4','msg1','rwd1');clo4=manifest['filmRoll'] in ('clo4','msg1','rwd1');msg1=manifest['filmRoll'] in ('msg1','rwd1');rwd1=manifest['filmRoll']=='rwd1';PEND_FRAME=0x5580439b;MSG=0x55804397
-    menu_form=manifest['filmRoll'] in ('menu','keys','fn','fn2','fn3','fn4','fn5','rt1','fn6','fn7','dir1','dir2','dir3','dg1','dg2','dg3','dir4','dir5','dir6','dir7','dir8','dir9','dir10','dir11','dir12','dir13','dir14','end1','end2','end3','clo1','clo2','clo3','clo4','msg1','rwd1');keys_form=manifest['filmRoll']=='keys';fn_form=manifest['filmRoll'] in ('fn','fn2','fn3','fn4','fn5','rt1','fn6','fn7','dir1','dir2','dir3','dg1','dg2','dg3','dir4','dir5','dir6','dir7','dir8','dir9','dir10','dir11','dir12','dir13','dir14','end1','end2','end3','clo1','clo2','clo3','clo4','msg1','rwd1');fn2=manifest['filmRoll']=='fn2';fn3=manifest['filmRoll']=='fn3';fn4=manifest['filmRoll'] in ('fn4','fn5','rt1','fn6','fn7','dir1');fn7=manifest['filmRoll'] in ('fn7','dir1','dir2','dir3','dg1','dg2','dg3','dir4','dir5','dir6','dir7','dir8','dir9','dir10','dir11','dir12','dir13','dir14','end1','end2','end3','clo1','clo2','clo3','clo4','msg1','rwd1');dir1=manifest['filmRoll'] in ('dir1','dir2','dir3','dg1','dg2','dg3','dir4','dir5','dir6','dir7','dir8','dir9','dir10','dir11','dir12','dir13','dir14','end1','end2','end3','clo1','clo2','clo3','clo4','msg1','rwd1');dir4=manifest['filmRoll'] in ('dir4','dir5');dir6=manifest['filmRoll']=='dir6';dir7=manifest['filmRoll']=='dir7';dir8=manifest['filmRoll'] in ('dir8','dir9','dir10','dir11','dir12','dir13','dir14','end1','end2','end3','clo1','clo2','clo3','clo4','msg1','rwd1');dir9=manifest['filmRoll'] in ('dir9','dir10','dir11','dir12','dir13','dir14','end1','end2','end3','clo1','clo2','clo3','clo4','msg1','rwd1');dir10=manifest['filmRoll'] in ('dir10','dir11','dir12','dir13','dir14','end1','end2','end3','clo1','clo2','clo3','clo4','msg1','rwd1');dir11=manifest['filmRoll']=='dir11';dir12=manifest['filmRoll']=='dir12';dir13=manifest['filmRoll'] in ('dir13','dir14','end1','end2','end3','clo1','clo2','clo3','clo4','msg1','rwd1');dir14=manifest['filmRoll'] in ('dir14','end1','end2','end3','clo1','clo2','clo3','clo4','msg1','rwd1');dir5=manifest['filmRoll']=='dir5';dir2=manifest['filmRoll'] in ('dir2','dir3','dg1');dir3=manifest['filmRoll'] in ('dir3','dg1','dg2','dg3','dir4','dir5','dir6','dir7','dir8','dir9','dir10','dir11','dir12','dir13','dir14','end1','end2','end3','clo1','clo2','clo3','clo4','msg1','rwd1');dg2=manifest['filmRoll'] in ('dg2','dg3');dg3=manifest['filmRoll']=='dg3';dg1=manifest['filmRoll'] in ('dg1','dg2','dg3');fn5=manifest['filmRoll'] in ('fn5','rt1','fn6');rt1=manifest['filmRoll']=='rt1';fn6=manifest['filmRoll']=='fn6'
+    fromzero=manifest['filmRoll'] in ('clo3','clo4','msg1','rwd1','hide1','hide1')
+    late=manifest['filmRoll'] in ('dir14','end1','end2','end3','clo1','clo2','clo3','clo4','msg1','rwd1','hide1','hide1');end1=manifest['filmRoll'] in ('end1','end2','end3','clo1','clo2','clo3','clo4','msg1','rwd1','hide1','hide1');end2=manifest['filmRoll'] in ('end2','end3','clo1','clo2','clo3','clo4','msg1','rwd1','hide1','hide1');end3=manifest['filmRoll']=='end3';hold=manifest['filmRoll'] in ('end3','clo1','clo2','clo3','clo4','msg1','rwd1','hide1','hide1');clo1=manifest['filmRoll'] in ('clo1','clo2','clo3','clo4','msg1','rwd1','hide1','hide1');clo2=manifest['filmRoll'] in ('clo2','clo3','clo4','msg1','rwd1','hide1','hide1');clo3=manifest['filmRoll'] in ('clo3','clo4','msg1','rwd1','hide1','hide1');clo4=manifest['filmRoll'] in ('clo4','msg1','rwd1','hide1','hide1');msg1=manifest['filmRoll'] in ('msg1','rwd1','hide1','hide1');rwd1=manifest['filmRoll'] in ('rwd1','hide1');hide1=manifest['filmRoll']=='hide1';PEND_FRAME=0x5580439b;MSG=0x55804397
+    menu_form=manifest['filmRoll'] in ('menu','keys','fn','fn2','fn3','fn4','fn5','rt1','fn6','fn7','dir1','dir2','dir3','dg1','dg2','dg3','dir4','dir5','dir6','dir7','dir8','dir9','dir10','dir11','dir12','dir13','dir14','end1','end2','end3','clo1','clo2','clo3','clo4','msg1','rwd1','hide1','hide1');keys_form=manifest['filmRoll']=='keys';fn_form=manifest['filmRoll'] in ('fn','fn2','fn3','fn4','fn5','rt1','fn6','fn7','dir1','dir2','dir3','dg1','dg2','dg3','dir4','dir5','dir6','dir7','dir8','dir9','dir10','dir11','dir12','dir13','dir14','end1','end2','end3','clo1','clo2','clo3','clo4','msg1','rwd1','hide1','hide1');fn2=manifest['filmRoll']=='fn2';fn3=manifest['filmRoll']=='fn3';fn4=manifest['filmRoll'] in ('fn4','fn5','rt1','fn6','fn7','dir1');fn7=manifest['filmRoll'] in ('fn7','dir1','dir2','dir3','dg1','dg2','dg3','dir4','dir5','dir6','dir7','dir8','dir9','dir10','dir11','dir12','dir13','dir14','end1','end2','end3','clo1','clo2','clo3','clo4','msg1','rwd1','hide1','hide1');dir1=manifest['filmRoll'] in ('dir1','dir2','dir3','dg1','dg2','dg3','dir4','dir5','dir6','dir7','dir8','dir9','dir10','dir11','dir12','dir13','dir14','end1','end2','end3','clo1','clo2','clo3','clo4','msg1','rwd1','hide1','hide1');dir4=manifest['filmRoll'] in ('dir4','dir5');dir6=manifest['filmRoll']=='dir6';dir7=manifest['filmRoll']=='dir7';dir8=manifest['filmRoll'] in ('dir8','dir9','dir10','dir11','dir12','dir13','dir14','end1','end2','end3','clo1','clo2','clo3','clo4','msg1','rwd1','hide1','hide1');dir9=manifest['filmRoll'] in ('dir9','dir10','dir11','dir12','dir13','dir14','end1','end2','end3','clo1','clo2','clo3','clo4','msg1','rwd1','hide1','hide1');dir10=manifest['filmRoll'] in ('dir10','dir11','dir12','dir13','dir14','end1','end2','end3','clo1','clo2','clo3','clo4','msg1','rwd1','hide1','hide1');dir11=manifest['filmRoll']=='dir11';dir12=manifest['filmRoll']=='dir12';dir13=manifest['filmRoll'] in ('dir13','dir14','end1','end2','end3','clo1','clo2','clo3','clo4','msg1','rwd1','hide1','hide1');dir14=manifest['filmRoll'] in ('dir14','end1','end2','end3','clo1','clo2','clo3','clo4','msg1','rwd1','hide1','hide1');dir5=manifest['filmRoll']=='dir5';dir2=manifest['filmRoll'] in ('dir2','dir3','dg1');dir3=manifest['filmRoll'] in ('dir3','dg1','dg2','dg3','dir4','dir5','dir6','dir7','dir8','dir9','dir10','dir11','dir12','dir13','dir14','end1','end2','end3','clo1','clo2','clo3','clo4','msg1','rwd1','hide1','hide1');dg2=manifest['filmRoll'] in ('dg2','dg3');dg3=manifest['filmRoll']=='dg3';dg1=manifest['filmRoll'] in ('dg1','dg2','dg3');fn5=manifest['filmRoll'] in ('fn5','rt1','fn6');rt1=manifest['filmRoll']=='rt1';fn6=manifest['filmRoll']=='fn6'
     def setup(mode,cur=None,box=None,model=True,pointer=True,state=2,film=True):
         cur=bytearray(rng.randrange(256) for _ in range(SIZE)) if cur is None else bytearray(cur)
         # Form 'menu': the record in use's Film Roll Mode (bit 0 of 0x9b1) on unless asked off.
@@ -261,7 +265,7 @@ def verify(data,manifest,seed=3101):
             assert got[DRIVE]==(3 if forced else src[DRIVE]),(mode,got[DRIVE])
             assert bytes(cpu.mem_read(RECS+(1+mode)*0x1000,SIZE))==src
     # 6. Form 'folders': the roll's folder at SetFilePath's entry.
-    folders=manifest['filmRoll'] in ('folders','folders-diag','menu','keys','fn','fn2','fn3','fn4','fn5','rt1','fn6','fn7','dir1','dir2','dir3','dg1','dg2','dg3','dir4','dir5','dir6','dir7','dir8','dir9','dir10','dir11','dir12','dir13','dir14','end1','end2','end3','clo1','clo2','clo3','clo4','msg1','rwd1');diag=manifest['filmRoll']=='folders-diag'
+    folders=manifest['filmRoll'] in ('folders','folders-diag','menu','keys','fn','fn2','fn3','fn4','fn5','rt1','fn6','fn7','dir1','dir2','dir3','dg1','dg2','dg3','dir4','dir5','dir6','dir7','dir8','dir9','dir10','dir11','dir12','dir13','dir14','end1','end2','end3','clo1','clo2','clo3','clo4','msg1','rwd1','hide1','hide1');diag=manifest['filmRoll']=='folders-diag'
     D=0x55804390
     def diag_check(given,code_want,next_want,ret,calls_before):
         d=bytes(cpu.mem_read(D,8))
@@ -998,6 +1002,44 @@ def verify(data,manifest,seed=3101):
         assert struct.unpack_from('<I',D,0x8c+16)[0]==e['filmRewindLine'] and struct.unpack_from('<I',D,0x254+16)[0]==RV
         p.ui=[];p.run(e['filmRewindLine'],STOP,{0:0x1234,1:ROW});count('rewind line')
         assert p.ui[0]==('icon',ROW,0) and p.ui[1][0]=='title' and p.ui[1][2]==p.ui[1][3] and len(p.ui)==2,p.ui
+    # 32. Form 'hide1': the menu's lines built again at each opening (the camera's own tab builder), and
+    # each tab's place kept within its pages and lines.
+    if hide1:
+        MENU=0x63053000;REB=e['menuRebuild'];p.menu_stubs=True;cpu.ctl_flush_tb()
+        def tabs():
+            m=bytes(cpu.mem_read(MENU,0x13bc))
+            return [(m[0x384*t+0x290],list(m[0x384*t+0x2a8:0x384*t+0x2a8+m[0x384*t+0x290]]),m[0x384*t+0x2b3],
+                     [struct.unpack_from('<I',m,0x384*t+0x3e4+4*k)[0] for k in range(m[0x384*t+0x2b3])]) for t in range(5)]
+        # The menu table (0x55001eb8, five tabs) as the start-up copy leaves it.
+        cpu.mem_write(0x55001eb8,bytes(cpu.mem_read(0x5407d3f8,20)))
+        got={}
+        for mode,film in ((3,True),(0,True),(3,False)):
+            setup(mode,film=film);cpu.mem_write(MENU,bytes(0x13bc));cpu.ctl_flush_tb()
+            p.run(REB,0x53199eb0,{0:MENU});count('menu rebuilt')
+            assert cpu.reg_read(reg.UC_ARM_REG_R0)==MENU
+            got[(mode,film)]=tabs()
+        # Customize Settings is the menu table's 4th tab (0x55001ec4).
+        u_on,p_on,u_off=got[(3,True)][3],got[(0,True)][3],got[(3,False)][3]
+        assert u_on[3][:3]==[0x020000e1,0x020001b0,0x020001b1] and u_on[1]==[0,6,15] and u_on[2]==24,u_on[:3]
+        assert u_off[3][:2]==[0x020000e1,0x020001b0] and 0x020001b1 not in u_off[3] and u_off[1]==[0,5,14] and u_off[2]==23,u_off[:3]
+        assert 0x020001b0 not in p_on[3] and 0x020001b1 not in p_on[3] and p_on[1]==[0,4,13] and p_on[2]==22,p_on[:3]
+        assert p_on[3]==[i for i in u_on[3] if i not in (0x020001b0,0x020001b1)]
+        for t in range(5):
+            if t!=3:assert got[(3,True)][t]==got[(0,True)][t],t
+        setup(0,film=True)
+        # The places in P (C tab: pages from 0, 4, 13; 22 lines): within → kept; else the page's first line.
+        for page,pos,line,want in ((0,0x30,3,(0,0x30,3)),(0,0x50,5,(0,0,0)),(1,0x40,12,(1,0x40,12)),(1,0x40,13,(1,0,4)),
+                                   (2,0x20,21,(2,0x20,21)),(2,0x20,23,(2,0,13)),(2,0x20,3,(2,0,13)),(3,0x40,1,(0,0x40,1)),(5,0x40,9,(0,0,0))):
+            cpu.mem_write(MENU,bytes(0x13bc))
+            for t in range(5):
+                st=MENU+0x1b4+0xc*t;cpu.mem_write(st,bytes([page]));cpu.mem_write(st+4,struct.pack('<I',pos));cpu.mem_write(st+8,struct.pack('<H',line))
+            cpu.ctl_flush_tb();p.run(REB,0x53199eb0,{0:MENU});count('menu place')
+            st=MENU+0x1b4+0xc*3;m=bytes(cpu.mem_read(st,12))
+            assert (m[0],struct.unpack_from('<I',m,4)[0],struct.unpack_from('<H',m,8)[0])==want,(page,pos,line,m.hex())
+        w=struct.unpack('<I',bytes(cpu.mem_read(0x53199f3c,4)))[0];off=(w&0xffffff)<<2
+        if off&0x2000000:off-=0x4000000
+        assert w>>24==0xeb and 0x53199f3c+8+off==REB
+        p.menu_stubs=False;cpu.ctl_flush_tb()
     # 29. Form 'clo2': the check at a U mode's recall ends a roll whose film changed and opens the message.
     if clo2:
         RECALL=e['filmRollRecall'];LK,RT=0x9c2,0x9c3
@@ -1122,7 +1164,7 @@ def verify(data,manifest,seed=3101):
         cpu.mem_write(K,bytes([9,3,0,0, 10,3,0,0, 11,2,0,0, 130,40,0,0])+bytes(1));assert clock()==date(130,40,9,3)
         cpu.mem_write(K,bytes([9,3,0,0, 10,7,0,0, 11,2,0,0])+bytes(5));assert clock()==date(10,7,9,3)
         cpu.mem_write(K,bytes([200,1,0,0])+bytes(13));assert clock()==date(200,1,0,0)
-    return dict(schema=1,revision='T17-RWD3' if rwd1 else 'T17-MSG1' if msg1 else 'T16-CLO4' if clo4 else 'T16-CLO3' if clo3 else 'T16-CLO2' if clo2 else 'T16-CLO1' if clo1 else 'T15-END3' if end3 else 'T15-END2' if end2 else 'T15-END1' if end1 else 'T14-DIR14' if dir14 else 'T14-DIR13' if dir13 else 'T14-DIR12' if dir12 else 'T14-DIR11' if dir11 else 'T14-DIR10' if dir10 else 'T14-DIR9' if dir9 else 'T14-DIR8' if dir8 else 'T14-DIR7' if dir7 else 'T14-DIR6' if dir6 else 'T14-DIR5' if dir5 else 'T14-DIR4' if dir4 else 'T14-DG3' if dg3 else 'T14-DG2' if dg2 else 'T14-DG1' if dg1 else 'T14-DIR3' if dir3 else 'T14-DIR2' if dir2 else 'T14-DIR1' if dir1 else 'T13-FN7' if fn7 else 'T13-FN6' if fn6 else 'T13-RT1' if rt1 else 'T13-FN5' if fn5 else 'T13-FN4' if fn4 else 'T13-FN3' if fn3 else 'T13-FN2' if fn2 else 'T13-FN1' if fn_form else 'T12-KEYS2' if keys_form else 'T12-MENU2' if menu_form else 'T11-ROLL2D' if diag else 'T11-ROLL3' if folders else 'T11-ROLL1',rtos_sha256=hashlib.sha256(data).hexdigest(),cases=cases,seed=seed,hardware_tested=False,
+    return dict(schema=1,revision='T18-HIDE1' if hide1 else 'T17-RWD3' if rwd1 else 'T17-MSG1' if msg1 else 'T16-CLO4' if clo4 else 'T16-CLO3' if clo3 else 'T16-CLO2' if clo2 else 'T16-CLO1' if clo1 else 'T15-END3' if end3 else 'T15-END2' if end2 else 'T15-END1' if end1 else 'T14-DIR14' if dir14 else 'T14-DIR13' if dir13 else 'T14-DIR12' if dir12 else 'T14-DIR11' if dir11 else 'T14-DIR10' if dir10 else 'T14-DIR9' if dir9 else 'T14-DIR8' if dir8 else 'T14-DIR7' if dir7 else 'T14-DIR6' if dir6 else 'T14-DIR5' if dir5 else 'T14-DIR4' if dir4 else 'T14-DG3' if dg3 else 'T14-DG2' if dg2 else 'T14-DG1' if dg1 else 'T14-DIR3' if dir3 else 'T14-DIR2' if dir2 else 'T14-DIR1' if dir1 else 'T13-FN7' if fn7 else 'T13-FN6' if fn6 else 'T13-RT1' if rt1 else 'T13-FN5' if fn5 else 'T13-FN4' if fn4 else 'T13-FN3' if fn3 else 'T13-FN2' if fn2 else 'T13-FN1' if fn_form else 'T12-KEYS2' if keys_form else 'T12-MENU2' if menu_form else 'T11-ROLL2D' if diag else 'T11-ROLL3' if folders else 'T11-ROLL1',rtos_sha256=hashlib.sha256(data).hexdigest(),cases=cases,seed=seed,hardware_tested=False,
         scope='Hooks run from their patched sites (firmware storage and the native BOX save body substituted); the recall runs natively.')
 
 if __name__=='__main__':

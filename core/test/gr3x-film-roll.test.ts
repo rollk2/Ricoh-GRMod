@@ -391,4 +391,12 @@ describe.skipIf(!input)('GR III film roll (film mode phase 3.1)', () => {
     const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'rwd1' });
     expect(built.report.revision).toBe('T17-RWD3');
   }, 240000);
+  it('builds the menu again at each opening (T18-HIDE1)', async () => {
+    const rwd1 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'rwd1' });
+    const hide1 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'hide1' });
+    expect((hide1.entries as Record<string, number>).menuRebuild).toBeGreaterThan(0x53000000);
+    expect(hide1.sites.map(s => s.address).filter(a => !rwd1.sites.some(s => s.address === a))).toEqual([0x53199f3c]);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'hide1' });
+    expect(built.report.revision).toBe('T18-HIDE1');
+  }, 240000);
 });

@@ -1974,3 +1974,24 @@ Certitude : lu dans le code ; recherche non exhaustive.
 - Le constructeur d'onglets `0x5319a778` n'est appelé que par le constructeur du menu, une seule
   fois (emplacement `+0x74` de la fabrique). Piste pour masquer en P : le rappeler à chaque ouverture
   du menu ; risque à étudier : la position mémorisée du curseur dans le menu C.
+
+### Masquer une ligne : menu reconstruit à chaque ouverture (T18-HIDE1)
+
+Certitude : lu dans le code et émulé (vrai constructeur d'onglets), à tester sur le boîtier.
+
+- Demande de l'utilisateur : apprendre à masquer (brique réutilisable pour retirer plus tard la
+  partie vidéo du menu).
+- Démarrage du menu `0x53199f04` : `0x53199334(menu, id)` restaure ou remet à zéro la place de chaque
+  onglet (à zéro si l'id vaut `0x0200004a` ou si le réglage `0x5324645c` le demande ; sinon
+  `0x531991cc` relit les réglages TopMenu*), puis `0x53199eb0` (défilement à la première ligne de la
+  page), `0x531999b4`, `0x53199ba4` (nombre de lignes de l'onglet, puis `0x53395224(liste,
+  position, ligne)`, **sans aucune vérification** de la ligne).
+- État d'un onglet t (à `menu + 0x384 × t`) : pages `+0x290`, première ligne de chaque page
+  `+0x2a8 + page`, nombre de lignes `+0x2b3`, identifiants `+0x3e4 + 4 × ligne`. Place de l'onglet
+  (à `menu + 0xc × t`) : page `+0x1b4`, position `+0x1b8`, ligne de l'onglet `+0x1bc`.
+- Mise en œuvre (`installGr3xMenuRebuild`) : en `0x53199f3c` (`bl 0x53199eb0`), on rappelle d'abord le
+  constructeur d'onglets `0x5319a778`, puis on ramène chaque place dans ses limites (page hors des
+  pages → page 0 ; ligne hors de sa page → première ligne de la page, position 0).
+- Émulation : en U avec Film Roll Mode sur On, onglet C = 24 lignes (pages 0, 6, 15) ; sur Off,
+  23 lignes, Rembobiner absent ; en P, les 22 lignes d'origine ; autres onglets identiques ; 9 cas de
+  place vérifiés. T17-RWD3 reconstruit identique ; garde-fou et tests passés.

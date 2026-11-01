@@ -1043,6 +1043,36 @@ export function installGr3xFilmRewind(p: Gr3xRollProgram, question: number, done
   return entries;
 }
 
+/** The menu controller (built once, factory slot + 0x74): its start 0x53199f04 restores each tab's
+ * place (0x53199334), then sets the page's line count (`bl 0x53199eb0` at 0x53199f3c). The tab
+ * builder 0x5319a778(menu) copies each tab's visible lines (at + 0x384 × tab: the page count + 0x290,
+ * each page's first line + 0x2a8 + page, the line count + 0x2b3, the ids + 0x3e4 + 4 × line); each
+ * tab's place: page (byte + 0x1b4 + 0xc × tab), list position (word + 0x1b8) and focused line (the
+ * tab's line, halfword + 0x1bc). */
+export const GR3X_MENU_START_LINES = 0x53199f3c, GR3X_MENU_LINES = 0x53199eb0, GR3X_MENU_BUILDER = 0x5319a778;
+
+/**
+ * T18-HIDE1: the menu's lines are built again at each opening of the menu, so each line's visibility
+ * (Film Roll Mode and Rewind Film: a U mode) is asked each time, not only at the first opening after
+ * power-on. The camera then sets the list from each tab's remembered place without any check: a page
+ * beyond the tab's pages becomes the first, a focused line outside its page the page's first line
+ * (list position 0).
+ */
+export function installGr3xMenuRebuild(p: Gr3xRollProgram) {
+  if (p.sites.some(s => s.address === GR3X_MENU_START_LINES)) throw new FirmwareError('unexpected-instruction', 'IIIx menu rebuild: already patched');
+  const entries: Record<string, number> = {};
+  entries.menuRebuild = p.code(`push {r4,r5,r6,r7,r8,lr};mov r4,r0;bl #${GR3X_MENU_BUILDER};
+    mov r5,#0;mov r0,r4;mov r1,r4;
+    tab:ldrb r3,[r0,#0x290];ldrb r2,[r1,#0x1b4];cmp r2,r3;movhs r2,#0;strbhs r2,[r1,#0x1b4];
+    add r6,r0,r2;ldrb r7,[r6,#0x2a8];add r2,r2,#1;cmp r2,r3;ldrblo r8,[r6,#0x2a9];ldrbhs r8,[r0,#0x2b3];
+    add r6,r1,#0x1bc;ldrh r2,[r6];cmp r2,r7;blo top;cmp r2,r8;blo next;
+    top:strh r7,[r6];mov r2,#0;str r2,[r1,#0x1b8];
+    next:add r0,r0,#0x384;add r1,r1,#0xc;add r5,r5,#1;cmp r5,#5;bne tab;
+    mov r0,r4;pop {r4,r5,r6,r7,r8,lr};b #${GR3X_MENU_LINES};`);
+  p.patch(GR3X_MENU_START_LINES, bl(GR3X_MENU_START_LINES, GR3X_MENU_LINES), bl(GR3X_MENU_START_LINES, entries.menuRebuild), 'menu: lines built again at each opening, places kept within them');
+  return entries;
+}
+
 /** The tables of methods of QuickViewController (the review) and of the message screens. */
 export const GR3X_REVIEW_VTABLE = 0x53b41380, GR3X_MESSAGE_VTABLE = 0x53b41ca8;
 /** T15-END2: the message byte cleared at each exposure (every register kept but ip). */
