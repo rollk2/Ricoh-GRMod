@@ -1640,3 +1640,9 @@ Lecture (attention : MM = valeur du test + 2, HH = phase + 1) :
 - P (photo, menu) puis retour en U3 : normal.
 - **Prise de vue sans écran Next / Retake / Complete : validée sur le boîtier (T14-DIR9).** Le build
   garde le nom de dossier (T14-DIR1) et un seul Complete par vue (T14-DIR3).
+
+### Build de test T14-DIR10 (demande de l'utilisateur)
+
+- Seul Affichage immédiat **Off** est remplacé en mode pellicule, par **100 ms** ; Garder reste
+  Garder ; les autres durées et les autres modes sont inchangés.
+- Vérifié en émulateur (300 cas) ; T14-DIR9 reconstruit identique ; sondes repassées.
