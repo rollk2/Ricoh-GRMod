@@ -1607,3 +1607,15 @@ Lecture (attention : MM = valeur du test + 2, HH = phase + 1) :
   simple, sans boutons, Rec Review). Plus aucun autre crochet sur l'écran.
 - Vérifié en émulateur (240 cas, valeurs 0, 3, 4, 5) ; T14-DIR7 reconstruit identique ; sondes
   repassées. Inconnue principale : la multi-exposition continue-t-elle après cet aperçu.
+
+### Résultats T14-DIR8 (2026-11-01)
+
+- Après une vue : **visée sans indications** (ni collimateur, ni cadre, ni informations) avec la vue
+  en transparence ; mi-course : mise au point, rien d'autre ; nouvelle vue puis Film Advance : les
+  indications reviennent ; la photo superpose bien les 2 vues.
+- Séquence détaillée de l'utilisateur : vue → indications perdues ; vue → retrouvées ; vue → gardées ;
+  avance (+1) ; quatre vues → gardées ; vue → perdues. Impression : dépend de la vitesse à laquelle on
+  déclenche la vue suivante.
+- Lecture : l'état « visée sans indications » est l'aperçu (Rec Review Hold) superposé à la visée ;
+  il bascule selon que l'aperçu est encore ouvert ou non au déclenchement suivant. Le bogue « affichage
+  perdu » des builds T13-FN4 à T14-DG3 est très probablement ce même état, resté ouvert.
