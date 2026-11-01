@@ -389,6 +389,6 @@ describe.skipIf(!input)('GR III film roll (film mode phase 3.1)', () => {
     expect(GR3X_FILM_REWIND_NAMES).toHaveLength(21);
     expect(GR3X_FILM_REWIND_QUESTIONS).toHaveLength(21);
     const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'rwd1' });
-    expect(built.report.revision).toBe('T17-RWD1');
+    expect(built.report.revision).toBe('T17-RWD2');
   }, 240000);
 });

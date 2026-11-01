@@ -1938,3 +1938,6 @@ Construit sur T17-MSG1 (forme `rwd1`). Certitude : vérifié en émulateur, à t
   constructeur `0x5319aa68`, seul appelant du constructeur d'onglets `0x5319a778`) ; les fonctions
   de visibilité ne sont donc évaluées qu'à la première ouverture du menu depuis l'allumage. La note
   « reconstruit à chaque ouverture » de T12 était fausse.
+- Build T17-RWD2 : T17-RWD1 avec le correctif du gel (même forme `rwd1`, révision renommée).
+  Vérifié en émulateur, garde-fou repassé, tests du mode pellicule passés.
+- Demande de l'utilisateur : garder les mêmes lignes en P mais **grisées**. À analyser.
