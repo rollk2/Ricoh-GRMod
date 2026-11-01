@@ -1882,3 +1882,22 @@ Certitude : lu dans le code.
   l'ouverture (deux en T15-END3), ce qui fermait le message aussitôt.
 - Touche ADJ poussée : code d'événement inconnu pour cet écran (peut-être 0xd8, à mesurer).
 - Pas d'horloge système trouvée simplement ; on peut s'en passer avec la minuterie de l'écran.
+
+### Build de test T17-MSG1 : message de 2 s, fermé par OK ou ADJ après 0,5 s
+
+- Traduction des touches pour l'écran de message (`0x53221a1c` émulé avec l'écran courant
+  `0x08000007`, certitude : émulé) : **OK (touche 50) et ADJ enfoncé (14) donnent tous deux 0xd8**,
+  comme ADJ gauche / droite (11, 10), le pavé droit (35, la touche Film Advance) et une dizaine
+  d'autres ; la touche 57 (parasite à chaque prise de vue) donne 0x8b. Pour le dialogue
+  `0x02000128`, 14 et 50 donnent aussi 0xd8. Rien à ajouter pour ADJ.
+- Explication probable des demandes de fermeture parasites de T15-END3 : la touche Film Advance
+  (pavé droit) donne 0xd8 sur l'écran de message, donc l'appui qui ouvre le message peut le fermer.
+- Mise en œuvre (`installGr3xFilmMessage`, option `quick`, forme `msg1`) :
+  - armement `0x531ce2d0` : pour notre message, minuterie de 500 ms et étape 1 (octet
+    `0x5580439d`, nul au démarrage) ; sinon 5000 ms comme avant ;
+  - rappel `0x531cdd58` : à l'étape 1, étape 2 et nouvelle minuterie de 1500 ms, sans fermer ;
+  - garde : à l'étape 2, le retour en visée venant de OK (adresse de retour `0x531cddc0`) passe.
+- Vérifié en émulateur (section 30 de `film_roll_check.py` : OK retenu aux étapes 0 et 1, fermeture
+  à l'étape 2, 500 / 5000 ms à l'armement, réarmement de 1500 ms) ; T16-CLO4 reconstruit identique ;
+  `guard_probe.py` repassé ; tests du mode pellicule passés (les 5 échecs de `npm test` viennent de
+  fichiers privés absents, `official.decoded` et `B.bin`, et existaient déjà).

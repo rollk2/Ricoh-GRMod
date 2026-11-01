@@ -906,7 +906,7 @@ export const GR3X_FILM_NEW_ROLL_NAMES: readonly string[] = [
  * T15-END1: the message screen 0x08000007 shows our text (`text`) instead of its own while a film mode
  * message waits (the byte is then cleared): `movw r1,#0x2be` at 0x531ce174 becomes that choice.
  */
-export function installGr3xFilmMessage(p: Gr3xRollProgram, text: number, redirect = false, guard = false, probe = guard, check = 0, fromMenu = false) {
+export function installGr3xFilmMessage(p: Gr3xRollProgram, text: number, redirect = false, guard = false, probe = guard, check = 0, fromMenu = false, quick = false) {
   if (p.sites.some(s => s.address === GR3X_MESSAGE_TEXT_AT)) throw new FirmwareError('unexpected-instruction', 'IIIx film message: already patched');
   const entries: Record<string, number> = {};
   entries.filmMessageText = p.code(`movw ip,#${lo(NEW_ROLL_MESSAGE)};movt ip,#${hi(NEW_ROLL_MESSAGE)};ldrb r1,[ip];cmp r1,#0;movweq r1,#0x2be;beq back;
@@ -926,7 +926,9 @@ export function installGr3xFilmMessage(p: Gr3xRollProgram, text: number, redirec
       movw r0,#${lo(MESSAGE_LOG)};movt r0,#${hi(MESSAGE_LOG)};ldrb r1,[r0,#1];strb r1,[r0];strb r2,[r0,#1];ldrb r1,[r0,#2];cmp r1,#255;addlo r1,r1,#1;strb r1,[r0,#2];
       pop {r0,r1,r2,r3};` : '';
     const hold = guard ? `ldr r3,[r0];movw r2,#${lo(GR3X_MESSAGE_VTABLE)};movt r2,#${hi(GR3X_MESSAGE_VTABLE)};cmp r3,r2;bne free;
-      movw r2,#${lo(GR3X_MESSAGE_TIMER_RETURN)};movt r2,#${hi(GR3X_MESSAGE_TIMER_RETURN)};cmp lr,r2;beq free;pop {r2,r3};mov r0,#0;bx lr;free:` : '';
+      movw r2,#${lo(GR3X_MESSAGE_TIMER_RETURN)};movt r2,#${hi(GR3X_MESSAGE_TIMER_RETURN)};cmp lr,r2;beq free;
+      ${quick ? `movw r2,#${lo(GR3X_MESSAGE_OK_RETURN)};movt r2,#${hi(GR3X_MESSAGE_OK_RETURN)};cmp lr,r2;bne held;ldrb r2,[ip,#${MESSAGE_STAGE - NEW_ROLL_MESSAGE}];cmp r2,#2;beq free;held:` : ''}
+      pop {r2,r3};mov r0,#0;bx lr;free:` : '';
     // check (T16-CLO1): with no message waiting, a way back to the live view first checks the roll
     // (filmRollCheck: the film or the format changed → the roll ends); it then goes to the message.
     // fromMenu (T16-CLO4): only a menu screen's way back (its id at + 0x124 in the 0x02 family).
@@ -940,6 +942,22 @@ export function installGr3xFilmMessage(p: Gr3xRollProgram, text: number, redirec
       other:movw r2,#${lo(GR3X_MESSAGE_VTABLE)};movt r2,#${hi(GR3X_MESSAGE_VTABLE)};cmp r3,r2;moveq r2,#0;strbeq r2,[ip];
       native:pop {r2,r3};mov ip,sp;b #${GR3X_SCREEN_SWITCH + 4};`);
     p.patch(GR3X_SCREEN_SWITCH, 0xe1a0c00d, branchWord(GR3X_SCREEN_SWITCH, entries.filmMessageSwitch), 'film roll: the review gives way to the waiting message');
+  }
+  // quick (T17-MSG1, with the guard): our message lasts 2 s instead of 5 and OK closes it after 0.5 s.
+  // Its timer is first armed for 0.5 s (stage 1, the switches the screen asks by itself at its opening
+  // stay held); when it fires, stage 2 and the timer again for 1.5 s; from then on the guard lets the
+  // OK key's way back (the screen's event 0xd8, return address 0x531cddc0) through.
+  if (quick) {
+    if (!guard) throw new FirmwareError('unexpected-instruction', 'IIIx film message: quick needs the guard');
+    const stage = `movw ip,#${lo(MESSAGE_STAGE)};movt ip,#${hi(MESSAGE_STAGE)};`;
+    entries.filmMessageArm = p.code(`movw ip,#${lo(NEW_ROLL_MESSAGE)};movt ip,#${hi(NEW_ROLL_MESSAGE)};ldrb r1,[ip];cmp r1,#0;movweq r1,#${GR3X_MESSAGE_MS};beq arm;
+      mov r1,#1;strb r1,[ip,#${MESSAGE_STAGE - NEW_ROLL_MESSAGE}];movw r1,#${GR3X_FILM_MESSAGE_GRACE_MS};arm:b #${GR3X_MESSAGE_TIMER_ARM + 4};`);
+    p.patch(GR3X_MESSAGE_TIMER_ARM, 0xe3011388, branchWord(GR3X_MESSAGE_TIMER_ARM, entries.filmMessageArm), 'film roll: the message timer, first its grace (0.5 s)');
+    entries.filmMessageFire = p.code(`${stage}ldrb r2,[ip];cmp r2,#1;bne native;ldr r2,[r0,#0x168];cmp r2,r1;bne native;mov r2,#2;strb r2,[ip];
+      push {r4,lr};mov r4,r0;bl #${APP};bl #${GR3X_TIMER_QUEUE};movw r1,#${GR3X_FILM_MESSAGE_MS - GR3X_FILM_MESSAGE_GRACE_MS};add r2,r4,#0x158;
+      bl #${GR3X_TIMER_START};str r0,[r4,#0x168];pop {r4,pc};
+      native:mov ip,sp;b #${GR3X_MESSAGE_TIMER_FIRE + 4};`);
+    p.patch(GR3X_MESSAGE_TIMER_FIRE, 0xe1a0c00d, branchWord(GR3X_MESSAGE_TIMER_FIRE, entries.filmMessageFire), 'film roll: the message timer, after its grace the rest (1.5 s)');
   }
   if (probe) entries.filmProbeTime = p.code(`movw r3,#${lo(POINTER)};movt r3,#${hi(POINTER)};ldr r3,[r3];cmp r3,#0;beq clock;
     movw ip,#${lo(MESSAGE_LOG)};movt ip,#${hi(MESSAGE_LOG)};
@@ -960,6 +978,15 @@ export const GR3X_MESSAGE_CLEAR = `push {r0};movw ip,#${lo(NEW_ROLL_MESSAGE)};mo
 
 /** The message screen's own timer, back to the live view: return address of its switch call. */
 export const GR3X_MESSAGE_TIMER_RETURN = 0x531cdd80;
+/** The message screen's OK key (event 0xd8 at 0x531cdd94), back to the live view: return address. */
+export const GR3X_MESSAGE_OK_RETURN = 0x531cddc0;
+/** The message screen's timer: armed at 0x531ce2d0 (`movw r1,#0x1388`, 5000 ms; 0x5322b468(service,
+ * ms, this + 0x158), the id kept at + 0x168), fired at 0x531cdd58 (this, id). */
+export const GR3X_MESSAGE_TIMER_ARM = 0x531ce2d0, GR3X_MESSAGE_TIMER_FIRE = 0x531cdd58, GR3X_MESSAGE_MS = 5000;
+/** T17-MSG1: our message's length, and its first part during which OK is held. */
+export const GR3X_FILM_MESSAGE_MS = 2000, GR3X_FILM_MESSAGE_GRACE_MS = 500;
+/** T17-MSG1: the message timer's stage (1 grace, 2 OK closes; a byte, zero at start-up). */
+const MESSAGE_STAGE = KEY_LAST + 13;
 /** T15-END3: the switch log (bytes: previous, last, count; zero at start-up, the key probe's area). */
 const MESSAGE_LOG = KEY_LAST + 16;
 
