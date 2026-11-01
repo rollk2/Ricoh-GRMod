@@ -467,4 +467,11 @@ describe.skipIf(!input)('GR III film roll (film mode phase 3.1)', () => {
     const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'name1' });
     expect(built.report.revision).toBe('T22-NAME1');
   }, 240000);
+  it('uses 4-letter file codes and one folder for the free modes (T22-NAME2)', async () => {
+    const name1 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'name1' });
+    const name2 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'name2' });
+    expect(name2.sites.map(s => s.address)).toEqual(name1.sites.map(s => s.address));
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'name2' });
+    expect(built.report.revision).toBe('T22-NAME2');
+  }, 240000);
 });

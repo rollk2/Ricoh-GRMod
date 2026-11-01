@@ -2199,3 +2199,22 @@ Certitude : lu dans le code et émulé.
 - Résultats T22-NAME1 (2026-11-01) : photo du rouleau `NEG_xxxx.JPG`, photo P `R00xxxxx.JPG`,
   numérotation continue entre les deux, fichiers lisibles sur l'ordinateur et en lecture sur le
   boîtier. **Noms de fichiers du mode pellicule : validés.**
+
+### Codes de 4 lettres et dossier unique des modes libres (T22-NAME2)
+
+- Demandes de l'utilisateur (2026-11-01) : récupérer le « _ » pour un code de film de 4 lettres
+  (fichiers `NEGF6857.JPG`, dossiers inchangés `112NEG12`) ; un seul dossier pour P (et les autres
+  modes libres), un dossier par pellicule.
+- Codes de fichiers : STND, VIVD, MONO, SMON, HMON, HCBW, POSF, BLBP, RETR, HDRT, XPRO, NEGF ; FILM
+  pour un film inconnu (films de GR Mod : code à saisir dans l'application).
+- Dossier des modes libres : demi-mot `0x906` (octets `0x906`, `0x907` : bourrage, profil identique
+  à `0x9c2`/`0x9c3` d'après `settings_layout_probe.py` : aucun accès exact par un pointeur
+  d'enregistrement, lecture de mot à `+0x904` par un dump, recopiés au rappel), écrit dans
+  l'enregistrement en cours et les huit enregistrements stockés. Au choix du dossier d'une photo en
+  mode libre (chemin `free` du crochet de SetFilePath) : le dossier mémorisé s'il est sur la carte et
+  n'est pas celui d'un rouleau entamé ; sinon le plus grand s'il n'est pas un rouleau, sinon le
+  prochain nouveau dossier ; celui-ci est mémorisé. Certitude des octets : supposé (même méthode
+  que les octets du rouleau, validés).
+- Limite : en mode libre, « Create New Folder » est sans effet (le dossier mémorisé reste choisi).
+- Vérifié : émulation (678 cas de dossier, modes libres, Film Roll Mode Off, préfixes de 4 lettres) ;
+  T21-TAB1 reconstruit identique ; garde-fou et tests passés.
