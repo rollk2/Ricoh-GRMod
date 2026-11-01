@@ -2071,3 +2071,6 @@ Certitude : lu dans le code.
 - Build T20-VID1 (forme `vid1`, sur T19-CARD3) : premier mot du descripteur Movie Settings
   (`0x53b37514`) vers une fonction qui renvoie 0. Émulation : visibilité des 5 onglets (seul
   l'onglet vidéo à 0) ; T19-CARD3 reconstruit identique ; garde-fou et tests passés.
+- Résultats T20-VID1 (2026-11-01) : en P, l'onglet Movie Settings n'apparaît plus (navigation et
+  barre des onglets correctes) ; en mode vidéo, le menu s'ouvre normalement sans onglet vidéo.
+  **Masquage de l'onglet vidéo : validé.**
