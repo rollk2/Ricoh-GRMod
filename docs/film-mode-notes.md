@@ -1762,3 +1762,9 @@ Lecture (attention : MM = valeur du test + 2, HH = phase + 1) :
   étiquette × 32 + identifiant & 31, étiquette 1 revue, 2 message, 3 autre). Date des photos :
   HH:mm = avant-dernier (HH × 60 + mm), 20YY = dernier % 100, DD = 1 + centaines, MM = 1 + nombre.
 - Vérifié en émulateur ; T15-END2 reconstruit identique ; sondes repassées.
+- Résultats T15-END3 (2026-11-01) : message lisible environ 5 s, retour seul en visée. Date de la photo
+  suivante `2064.05.01 01:04` : 4 changements d'écran pendant le message ; les deux derniers sont
+  « écran de message → visée » (code 64) : l'écran de message demandait lui-même un retour en visée
+  autrement que par sa minuterie (probablement l'événement 0xd8) ; la garde l'a retenu.
+  **Message de fin de rouleau : validé.** Conséquence : pendant ces 5 s, l'appui à mi-course ne ferme
+  plus le message. Le mouchard (date des photos) est à retirer du build suivant.
