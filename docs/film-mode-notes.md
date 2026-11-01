@@ -2026,3 +2026,13 @@ Certitude : lu dans le code et émulé (vrai constructeur d'onglets), à tester 
   de suivant, 5 numéro déjà fourni, 6 nouveau dossier en mode libre, 7 rouleau perdu, 12 aucun),
   jour 1 = pas d'entrée sinon 2 + quartet bas de l'état, heure = quartet haut, minute = dossier du
   rouleau % 60. Vérifié en émulateur (576 cas de journal, horloge) ; T19-CARD1 reconstruit identique.
+- Résultats T19-CARD2 (2026-11-01), carte A remise (dossier du rouleau 104, créé sur la carte B) :
+  compteur 1/xx à l'allumage ; vue + Film Advance : compteur resté à 1 ; vue suivante : 2.
+  Dates : `2000.12.01 00:44` (aucun appel encore : la date est posée **avant** SetFilePath ; dossier
+  du rouleau 104) puis `2002.05.01 00:48` (2 appels, le dernier avec un numéro déjà fourni : deux
+  appels par photo ; dossier du rouleau 108).
+- Lecture (certitude : forte) : **le rouleau perdu fonctionne** (carte B : vue 1 dans 104 ; carte A :
+  vue 1 dans 108). Le défaut est l'affichage : le compteur est dessiné à l'avance (fin du modèle),
+  avant SetFilePath ; la remise à la vue 1 n'apparaît qu'au dessin suivant (4/xx affiché sur la carte
+  B, 1/xx relu à l'allumage). Reste à rafraîchir le compteur après un rouleau perdu, ou à décider la
+  perte avant l'avance.
