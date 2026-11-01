@@ -51,7 +51,7 @@ La longueur se déduit du ratio mémorisé : aucune donnée supplémentaire à s
 Le ratio 3:4 vertical (3000 x 4000, recadrage central) est à ajouter.
 
 ### Clôture au lieu du verrou (décision du 2026-10-31)
-Pas de verrou des menus. Changer l'Image Control ou le format pendant un rouleau **clôt** le rouleau : la vue suivante démarre un nouveau rouleau, dans un nouveau dossier (nom et longueur suivent les nouveaux réglages). Le reste des réglages reste libre. Le format JPEG n'est pas imposé (décision du 2026-10-31).
+Pas de verrou des menus. Changer l'Image Control ou le format pendant un rouleau **clôt** le rouleau (validé sur le boîtier avec `T16-CLO4` : contrôle à la sortie du menu et au retour sur le mode U, message « Nouvelle pellicule chargée. ») : la vue suivante démarre un nouveau rouleau, dans un nouveau dossier (nom et longueur suivent les nouveaux réglages). Le reste des réglages reste libre. Le format JPEG n'est pas imposé (décision du 2026-10-31).
 
 ### Rembobiner (décision du 2026-10-31)
 Une ligne « Rembobiner » sous Save Settings (Customize Settings), avec un écran de confirmation Oui / Non ; Oui clôt le rouleau du mode U actif.

@@ -1823,3 +1823,6 @@ Lecture (attention : MM = valeur du test + 2, HH = phase + 1) :
 - Vérifié en émulateur (menu : clôture et message ; visée, revue, gestionnaire : rien) ; T16-CLO3
   reconstruit identique ; sondes repassées. Inconnues : que la sortie du menu passe bien par l'écran
   de menu lui-même, et que le message sur P ne venait pas d'ailleurs.
+- Résultats T16-CLO4 (2026-11-01) : changement d'Image Control puis sortie du menu : message, compteur
+  0 ; une vue ; P : pas de message ; retour U3 : message, compteur 0. **Clôture quand le film ou le
+  format change (point 3) : validée sur le boîtier.**
