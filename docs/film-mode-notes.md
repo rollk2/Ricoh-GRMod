@@ -1768,3 +1768,18 @@ Lecture (attention : MM = valeur du test + 2, HH = phase + 1) :
   autrement que par sa minuterie (probablement l'événement 0xd8) ; la garde l'a retenu.
   **Message de fin de rouleau : validé.** Conséquence : pendant ces 5 s, l'appui à mi-course ne ferme
   plus le message. Le mouchard (date des photos) est à retirer du build suivant.
+
+### Décision et build de test T16-CLO1 : clôture quand le film ou le format change
+
+- Décision (2026-11-01) : changer l'Image Control ou le format fait sauter la pellicule, sans Save
+  Settings ; le retour sur la BOX ne ramène pas l'ancien rouleau (il est clos).
+- Octets libres `0x9c2` (film) et `0x9c3` (format) de l'enregistrement (bourrage, aucun accès exact du
+  firmware, seulement une lecture de mot à +0x9c0 par une fonction de débogage `0x537381d4`) : notés
+  au démarrage du rouleau, dans les deux enregistrements.
+- `filmRollCheck` : rouleau en cours (entamé, vue ≠ 0) dont le film ou le format diffère de ceux
+  notés → vue 0 (rouleau terminé), sauvegarde des deux enregistrements, renvoie 1. Un rouleau sans
+  note (0x9c2 = 0, démarré avant ce build) prend les réglages actuels.
+- Crochet du changement d'écran : sans message en attente, un retour en visée appelle d'abord ce
+  contrôle ; s'il clôt, le message attend et l'écran de message s'ouvre à la place de la visée.
+- Mouchard de T15-END3 retiré (dates des photos normales) ; garde du message conservée.
+- Vérifié en émulateur ; T15-END3 reconstruit identique ; sondes repassées.

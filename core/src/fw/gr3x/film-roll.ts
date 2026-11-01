@@ -110,7 +110,7 @@ export interface Gr3xRollProgram {
   patch(address: number, expected: number, replacement: number, reason: string): void;
 }
 
-export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuRatio[], folders = false, diag = false, filmMenu = false, keys: false | 'sequence' | 'boot' | 'shot' = false, noReview: false | 'skip' | 'live' | 'next' | 'armed' | 'deferred' | 'logged' | 'posted' | 'closed' | 'timed' | 'timedNext' | 'plain' | 'noButtons' | 'plainId' | 'plainReview' | 'plainOff' | 'plainOff25' | 'plainOff10' | 'plainOff1' = false, folderName = false, late = false, rollEnd = false) {
+export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuRatio[], folders = false, diag = false, filmMenu = false, keys: false | 'sequence' | 'boot' | 'shot' = false, noReview: false | 'skip' | 'live' | 'next' | 'armed' | 'deferred' | 'logged' | 'posted' | 'closed' | 'timed' | 'timedNext' | 'plain' | 'noButtons' | 'plainId' | 'plainReview' | 'plainOff' | 'plainOff25' | 'plainOff10' | 'plainOff1' = false, folderName = false, late = false, rollEnd = false, closure = false) {
   const rec = (label: string) => records(label, filmMenu);
   const free = (at: number) => { if (p.sites.some(s => s.address === at)) throw new FirmwareError('unexpected-instruction', `IIIx film roll: ${at.toString(16)} already patched`); };
   const entries: Record<string, number> = {};
@@ -126,7 +126,9 @@ export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuR
   const exposure = `${keys === 'shot' ? keyClear : ''}push {r0,r1,r2,r3};${late ? `${pendingAt}mov r0,#0;strb r0,[ip];` : ''}${rec('rollkept')}${late ? `${pendingAt}strb r1,[ip];` : ''}
     ldrb r0,[r2,#${GR3X_ROLL_FLAGS}];tst r0,#${GR3X_ROLL_STARTED};${rollEnd ? `beq rollstart;ldrb r0,[r2,#${GR3X_ROLL_FRAME}];cmp r0,#0;bne rollkept;
     rollstart:ldrb r0,[r2,#${GR3X_ROLL_FLAGS}];` : 'bne rollkept;'}
-    orr r0,r0,#${GR3X_ROLL_STARTED};bic r0,r0,#${FOLDER_HIGH};strb r0,[r2,#${GR3X_ROLL_FLAGS}];
+    orr r0,r0,#${GR3X_ROLL_STARTED};bic r0,r0,#${FOLDER_HIGH};strb r0,[r2,#${GR3X_ROLL_FLAGS}];${closure ? `
+    ldrb r0,[r2,#${GR3X_LOOK}];strb r0,[r2,#${GR3X_ROLL_LOOK}];strb r0,[r3,#${GR3X_ROLL_LOOK}];ldrb r0,[r2,#${GR3X_RATIO}];strb r0,[r2,#${GR3X_ROLL_RATIO}];strb r0,[r3,#${GR3X_ROLL_RATIO}];
+    ldrb r0,[r2,#${GR3X_ROLL_FLAGS}];` : ''}
     ldrb r0,[r3,#${GR3X_ROLL_FLAGS}];orr r0,r0,#${GR3X_ROLL_STARTED};bic r0,r0,#${FOLDER_HIGH};strb r0,[r3,#${GR3X_ROLL_FLAGS}];
     mov r0,#1;strb r0,[r2,#${GR3X_ROLL_FRAME}];strb r0,[r3,#${GR3X_ROLL_FRAME}];
     mov r0,#0;strb r0,[r2,#${GR3X_ROLL_FOLDER}];strb r0,[r3,#${GR3X_ROLL_FOLDER}];
@@ -234,6 +236,20 @@ export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuR
       sub r0,r5,#1;cmp r0,#5;bhi restore;ldrb r0,[r4,#${GR3X_ROLL_FLAGS}];tst r0,#${GR3X_FILM_ON};bne done;
       restore:mov r0,r4;bl #${entries.filmFolderNameRestore};done:pop {r4,r5,r6,pc};`);
   }
+  // closure (T16-CLO1): r0 = 1 when the roll of the U mode in use was going (started, frame not 0) and
+  // its film or format (noted at its start, 0x9c2 / 0x9c3) is no longer the record's: the roll ends
+  // (frame 0, both records saved; the next exposure starts a new roll). A roll noted before (0x9c2 = 0)
+  // takes the record's film and format. Registers r4..r11 kept.
+  if (closure) entries.filmRollCheck = p.code(`push {r4,r5,r6,lr};${rec('none')}
+    ldrb r0,[r2,#${GR3X_ROLL_FLAGS}];tst r0,#${GR3X_ROLL_STARTED};beq none;ldrb r0,[r2,#${GR3X_ROLL_FRAME}];cmp r0,#0;beq none;
+    ldrb r0,[r2,#${GR3X_ROLL_LOOK}];cmp r0,#0;bne compare;
+    ldrb r0,[r2,#${GR3X_LOOK}];strb r0,[r2,#${GR3X_ROLL_LOOK}];strb r0,[r3,#${GR3X_ROLL_LOOK}];ldrb r0,[r2,#${GR3X_RATIO}];strb r0,[r2,#${GR3X_ROLL_RATIO}];strb r0,[r3,#${GR3X_ROLL_RATIO}];b none;
+    compare:ldrb r4,[r2,#${GR3X_LOOK}];cmp r0,r4;bne close;ldrb r0,[r2,#${GR3X_ROLL_RATIO}];ldrb r4,[r2,#${GR3X_RATIO}];cmp r0,r4;beq none;
+    close:mov r0,#0;strb r0,[r2,#${GR3X_ROLL_FRAME}];strb r0,[r3,#${GR3X_ROLL_FRAME}];mov r4,r1;mov r5,r2;mov r6,r3;
+    bl #${GR3X_APP_DATA};ldr r0,[r0,#8];mov r1,#1;movw r2,#${RECORD};mov r3,r5;bl #${GR3X_APP_DATA_WRITE};
+    bl #${GR3X_APP_DATA};ldr r0,[r0,#8];add r1,r4,#2;movw r2,#${RECORD};mov r3,r6;bl #${GR3X_APP_DATA_WRITE};
+    mov r0,#1;pop {r4,r5,r6,pc};
+    none:mov r0,#0;pop {r4,r5,r6,pc};`);
   if (folders) installFolders(p, free, entries, diag, filmMenu, late);
   if (filmMenu) installMenu(p, entries, folderName ? entries.filmFolderNameRestore : 0);
   if (keys) installKeys(p, free, entries, keys === 'boot' || keys === 'shot', keys === 'shot');
@@ -875,7 +891,7 @@ export const GR3X_FILM_NEW_ROLL_NAMES: readonly string[] = [
  * T15-END1: the message screen 0x08000007 shows our text (`text`) instead of its own while a film mode
  * message waits (the byte is then cleared): `movw r1,#0x2be` at 0x531ce174 becomes that choice.
  */
-export function installGr3xFilmMessage(p: Gr3xRollProgram, text: number, redirect = false, guard = false) {
+export function installGr3xFilmMessage(p: Gr3xRollProgram, text: number, redirect = false, guard = false, probe = guard, check = 0) {
   if (p.sites.some(s => s.address === GR3X_MESSAGE_TEXT_AT)) throw new FirmwareError('unexpected-instruction', 'IIIx film message: already patched');
   const entries: Record<string, number> = {};
   entries.filmMessageText = p.code(`movw ip,#${lo(NEW_ROLL_MESSAGE)};movt ip,#${hi(NEW_ROLL_MESSAGE)};ldrb r1,[ip];cmp r1,#0;movweq r1,#0x2be;beq back;
@@ -890,13 +906,17 @@ export function installGr3xFilmMessage(p: Gr3xRollProgram, text: number, redirec
     // live view only from its own 5 s timer (return address 0x531cdd80); every switch asked meanwhile
     // is logged (the last two: tag × 32 + id & 31, tag 1 review, 2 message, 3 other; and a count) for
     // the pictures' date.
-    const log = guard ? `push {r0,r1,r2,r3};ldr r3,[r0];mov r2,#3;movw r0,#${lo(GR3X_REVIEW_VTABLE)};movt r0,#${hi(GR3X_REVIEW_VTABLE)};cmp r3,r0;moveq r2,#1;
+    const log = probe ? `push {r0,r1,r2,r3};ldr r3,[r0];mov r2,#3;movw r0,#${lo(GR3X_REVIEW_VTABLE)};movt r0,#${hi(GR3X_REVIEW_VTABLE)};cmp r3,r0;moveq r2,#1;
       movw r0,#${lo(GR3X_MESSAGE_VTABLE)};movt r0,#${hi(GR3X_MESSAGE_VTABLE)};cmp r3,r0;moveq r2,#2;and r1,r1,#31;add r2,r1,r2,lsl #5;
       movw r0,#${lo(MESSAGE_LOG)};movt r0,#${hi(MESSAGE_LOG)};ldrb r1,[r0,#1];strb r1,[r0];strb r2,[r0,#1];ldrb r1,[r0,#2];cmp r1,#255;addlo r1,r1,#1;strb r1,[r0,#2];
       pop {r0,r1,r2,r3};` : '';
     const hold = guard ? `ldr r3,[r0];movw r2,#${lo(GR3X_MESSAGE_VTABLE)};movt r2,#${hi(GR3X_MESSAGE_VTABLE)};cmp r3,r2;bne free;
       movw r2,#${lo(GR3X_MESSAGE_TIMER_RETURN)};movt r2,#${hi(GR3X_MESSAGE_TIMER_RETURN)};cmp lr,r2;beq free;pop {r2,r3};mov r0,#0;bx lr;free:` : '';
-    entries.filmMessageSwitch = p.code(`push {r2,r3};movw ip,#${lo(NEW_ROLL_MESSAGE)};movt ip,#${hi(NEW_ROLL_MESSAGE)};ldrb r2,[ip];cmp r2,#0;beq native;${log}
+    // check (T16-CLO1): with no message waiting, a way back to the live view first checks the roll
+    // (filmRollCheck: the film or the format changed → the roll ends); it then goes to the message.
+    const closing = check ? `bne waiting;cmp r1,#0x8000000;bne native;push {r0,r1,ip,lr};bl #${check};mov r2,r0;pop {r0,r1,ip,lr};cmp r2,#0;beq native;
+      mov r2,#1;strb r2,[ip];mov r1,#${GR3X_MESSAGE_SCREEN & 0xff};movt r1,#${GR3X_MESSAGE_SCREEN >>> 16};b native;waiting:` : 'beq native;';
+    entries.filmMessageSwitch = p.code(`push {r2,r3};movw ip,#${lo(NEW_ROLL_MESSAGE)};movt ip,#${hi(NEW_ROLL_MESSAGE)};ldrb r2,[ip];cmp r2,#0;${closing}${log}
       cmp r1,#0x8000000;bne native;${hold}ldr r3,[r0];
       movw r2,#${lo(GR3X_REVIEW_VTABLE)};movt r2,#${hi(GR3X_REVIEW_VTABLE)};cmp r3,r2;bne other;
       mov r1,#${GR3X_MESSAGE_SCREEN & 0xff};movt r1,#${GR3X_MESSAGE_SCREEN >>> 16};b native;
@@ -904,7 +924,7 @@ export function installGr3xFilmMessage(p: Gr3xRollProgram, text: number, redirec
       native:pop {r2,r3};mov ip,sp;b #${GR3X_SCREEN_SWITCH + 4};`);
     p.patch(GR3X_SCREEN_SWITCH, 0xe1a0c00d, branchWord(GR3X_SCREEN_SWITCH, entries.filmMessageSwitch), 'film roll: the review gives way to the waiting message');
   }
-  if (guard) entries.filmProbeTime = p.code(`movw r3,#${lo(POINTER)};movt r3,#${hi(POINTER)};ldr r3,[r3];cmp r3,#0;beq clock;
+  if (probe) entries.filmProbeTime = p.code(`movw r3,#${lo(POINTER)};movt r3,#${hi(POINTER)};ldr r3,[r3];cmp r3,#0;beq clock;
     movw ip,#${lo(MESSAGE_LOG)};movt ip,#${hi(MESSAGE_LOG)};
     ldrb r0,[ip,#1];mov r2,#0;hund:cmp r0,#100;subhs r0,r0,#100;addhs r2,r2,#1;bhs hund;
     add r0,r0,#2000;strb r0,[r1];mov r0,r0,lsr #8;strb r0,[r1,#1];add r2,r2,#1;strb r2,[r1,#3];
@@ -925,3 +945,7 @@ export const GR3X_MESSAGE_CLEAR = `push {r0};movw ip,#${lo(NEW_ROLL_MESSAGE)};mo
 export const GR3X_MESSAGE_TIMER_RETURN = 0x531cdd80;
 /** T15-END3: the switch log (bytes: previous, last, count; zero at start-up, the key probe's area). */
 const MESSAGE_LOG = KEY_LAST + 16;
+
+/** T16-CLO1: the roll's film (look) and format (ratio), noted at its start: two padding bytes of the
+ * record (no exact access by the firmware; one word read at + 0x9c0 by a debug dump, 0x537381d4). */
+export const GR3X_ROLL_LOOK = 0x9c2, GR3X_ROLL_RATIO = 0x9c3;
