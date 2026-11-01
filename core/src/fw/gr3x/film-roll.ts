@@ -81,6 +81,8 @@ export const GR3X_NEXT_FOLDER = 0x535b742c;
 const FOLDER_HIGH = 0xc;
 /** Diagnostic words (T11-ROLL2D): round 10's zero-filled sbrk area, after its six words (round10.ts). */
 export const GR3X_ROLL_DIAG = 0x55804390;
+/** T19-CARD2: the folder log (3 bytes; the area's last free bytes, + 0x28 .. + 0x2f; zero at start-up). */
+const FOLDER_LOG = GR3X_ROLL_DIAG + 0x28;
 const mod = (r: string, n: number, label: string) => `${label}:cmp ${r},#${n};subhs ${r},${r},#${n};bhs ${label};`;
 const MODEL = 0x55063f30, POINTER = MODEL + 4, STORED = MODEL + 8, RECORD = 0xb26;
 const SINGLETON = 0x553458b0;
@@ -111,7 +113,7 @@ export interface Gr3xRollProgram {
   patch(address: number, expected: number, replacement: number, reason: string): void;
 }
 
-export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuRatio[], folders = false, diag = false, filmMenu = false, keys: false | 'sequence' | 'boot' | 'shot' = false, noReview: false | 'skip' | 'live' | 'next' | 'armed' | 'deferred' | 'logged' | 'posted' | 'closed' | 'timed' | 'timedNext' | 'plain' | 'noButtons' | 'plainId' | 'plainReview' | 'plainOff' | 'plainOff25' | 'plainOff10' | 'plainOff1' = false, folderName = false, late = false, rollEnd = false, closure: boolean | 'recall' = false, fromZero = false, rewind = false, lost = false) {
+export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuRatio[], folders = false, diag = false, filmMenu = false, keys: false | 'sequence' | 'boot' | 'shot' = false, noReview: false | 'skip' | 'live' | 'next' | 'armed' | 'deferred' | 'logged' | 'posted' | 'closed' | 'timed' | 'timedNext' | 'plain' | 'noButtons' | 'plainId' | 'plainReview' | 'plainOff' | 'plainOff25' | 'plainOff10' | 'plainOff1' = false, folderName = false, late = false, rollEnd = false, closure: boolean | 'recall' = false, fromZero = false, rewind = false, lost: boolean | 'probe' = false) {
   const rec = (label: string) => records(label, filmMenu);
   const free = (at: number) => { if (p.sites.some(s => s.address === at)) throw new FirmwareError('unexpected-instruction', `IIIx film roll: ${at.toString(16)} already patched`); };
   const entries: Record<string, number> = {};
@@ -292,7 +294,11 @@ export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuR
 }
 
 /** The roll's folder at SetFilePath's entry (r0 service, r2 path); every register kept. */
-function installFolders(p: Gr3xRollProgram, free: (at: number) => void, entries: Record<string, number>, diag: boolean, film: boolean, late = false, lost = false) {
+function installFolders(p: Gr3xRollProgram, free: (at: number) => void, entries: Record<string, number>, diag: boolean, film: boolean, late = false, lost: boolean | 'probe' = false) {
+  // 'probe' (T19-CARD2): a log of the last call (bytes at FOLDER_LOG: call count, path taken, the roll
+  // folder's table entry: 0 none, else its state byte + 0xe plus 1) shown in the picture's date.
+  const L = FOLDER_LOG, lat = `movw ip,#${lo(L)};movt ip,#${hi(L)};`;
+  const lcode = (n: number) => lost === 'probe' ? `${lat}mov lr,#${n};strb lr,[ip,#1];` : '';
   free(GR3X_SET_FILE_PATH);
   const D = GR3X_ROLL_DIAG, at = `movw ip,#${lo(D)};movt ip,#${hi(D)};`;
   const code = (n: number) => diag ? `${at}mov lr,#${n};strb lr,[ip,#2];` : '';
@@ -317,28 +323,41 @@ function installFolders(p: Gr3xRollProgram, free: (at: number) => void, entries:
     movw r3,#${lo(STORED)};movt r3,#${hi(STORED)};ldr r3,[r3,r0,lsl #2];${ram('r3', 'usual')}mov r2,r3;mov r1,r0;
     ldrb r0,[r2,#${GR3X_ROLL_FLAGS}];tst r0,#${GR3X_ROLL_STARTED};bne roll;usual:`;
   const folderOf = (rec: string) => `ldrb r1,[${rec},#${GR3X_ROLL_FLAGS}];mov r1,r1,lsr #2;and r1,r1,#3;ldrb r0,[${rec},#${GR3X_ROLL_FOLDER}];orr r0,r0,r1,lsl #8;`;
-  entries.filmRollFolder = p.code(`push {r0,r1,r2,r3,r4,r5,r6,lr};mov r4,r2;mov r5,r0;${enter}
+  const lenter = lost === 'probe' ? `${lat}ldrb lr,[ip];add lr,lr,#1;strb lr,[ip];mov lr,#0;strb lr,[ip,#1];strb lr,[ip,#2];` : '';
+  const lentry = lost === 'probe' ? `${lat}mov lr,#0;cmp r1,#0;beq lnull;${ram('r1', 'lnull')}ldrb lr,[r1,#0xe];add lr,lr,#1;cmp lr,#255;movhi lr,#255;lnull:strb lr,[ip,#2];` : '';
+  entries.filmRollFolder = p.code(`push {r0,r1,r2,r3,r4,r5,r6,lr};mov r4,r2;mov r5,r0;${enter}${lenter}
     ldrh r0,[r4,#4];cmp r0,#0;bne given;
     ${late ? lateFolder : ''}${records('free', film)}ldrb r0,[r2,#${GR3X_ROLL_FLAGS}];tst r0,#${GR3X_ROLL_STARTED};beq free;
     roll:${folderOf('r2')}cmp r0,#100;blo new;movw r1,#999;cmp r0,r1;bhi new;
     ldr r1,[r5,#8];${ram('r1', 'new')}ldr r1,[r1,#8];${ram('r1', 'new')}ldr r1,[r1,#0x10];${ram('r1', 'new')}
-    sub r6,r0,#100;ldr r1,[r1,r6,lsl #2];cmp r1,#0;beq ${lost ? 'lost' : 'new'};
-    strh r0,[r4,#4];${code(2)}b native;
-    ${lost ? `lost:ldrb r0,[r2,#${GR3X_ROLL_FRAME}];cmp r0,#0;movne r0,#2;strbne r0,[r2,#${GR3X_ROLL_FRAME}];strbne r0,[r3,#${GR3X_ROLL_FRAME}];` : ''}
-    new:${late ? 'push {r2,r3};' : ''}ldr r0,[r5,#8];bl #${GR3X_NEXT_FOLDER};${late ? 'pop {r2,r3};' : ''}${next('r0')}movs r6,r0;beq nonext;strh r6,[r4,#4];${code(3)}
+    sub r6,r0,#100;ldr r1,[r1,r6,lsl #2];${lentry}cmp r1,#0;beq ${lost ? 'lost' : 'new'};
+    strh r0,[r4,#4];${code(2)}${lcode(2)}b native;
+    ${lost ? `lost:${lcode(7)}ldrb r0,[r2,#${GR3X_ROLL_FRAME}];cmp r0,#0;movne r0,#2;strbne r0,[r2,#${GR3X_ROLL_FRAME}];strbne r0,[r3,#${GR3X_ROLL_FRAME}];` : ''}
+    new:${lost === 'probe' ? `${lat}ldrb lr,[ip,#1];cmp lr,#7;movne lr,#3;strbne lr,[ip,#1];` : ''}${late ? 'push {r2,r3};' : ''}ldr r0,[r5,#8];bl #${GR3X_NEXT_FOLDER};${late ? 'pop {r2,r3};' : ''}${next('r0')}movs r6,r0;beq nonext;strh r6,[r4,#4];${code(3)}
     ${late ? '' : records('native', film)}
     ldrb r0,[r2,#${GR3X_ROLL_FLAGS}];bic r0,r0,#${FOLDER_HIGH};mov r1,r6,lsr #8;orr r0,r0,r1,lsl #2;strb r0,[r2,#${GR3X_ROLL_FLAGS}];
     ldrb r0,[r3,#${GR3X_ROLL_FLAGS}];bic r0,r0,#${FOLDER_HIGH};orr r0,r0,r1,lsl #2;strb r0,[r3,#${GR3X_ROLL_FLAGS}];
     strb r6,[r2,#${GR3X_ROLL_FOLDER}];strb r6,[r3,#${GR3X_ROLL_FOLDER}];b native;
-    free:ldr r2,[r5,#8];${ram('r2', 'native')}ldr r2,[r2,#8];${ram('r2', 'native')}ldrh r2,[r2,#0x2a];add r2,r2,#100;mov r3,#1;
+    free:${lcode(1)}ldr r2,[r5,#8];${ram('r2', 'native')}ldr r2,[r2,#8];${ram('r2', 'native')}ldrh r2,[r2,#0x2a];add r2,r2,#100;mov r3,#1;
     loop:movw r6,#${lo(STORED)};movt r6,#${hi(STORED)};ldr r6,[r6,r3,lsl #2];${ram('r6', 'next')}
     ldrb r0,[r6,#${GR3X_ROLL_FLAGS}];tst r0,#${GR3X_ROLL_STARTED};beq next;${folderOf('r6')}cmp r0,r2;beq fresh;
     next:add r3,r3,#1;cmp r3,#6;bls loop;${code(1)}b native;
-    fresh:ldr r0,[r5,#8];bl #${GR3X_NEXT_FOLDER};${next('r0')}cmp r0,#0;strhne r0,[r4,#4];${code(6)}b native;
-    given:${code(5)}b native;
-    nonext:${code(4)}
+    fresh:${lcode(6)}ldr r0,[r5,#8];bl #${GR3X_NEXT_FOLDER};${next('r0')}cmp r0,#0;strhne r0,[r4,#4];${code(6)}b native;
+    given:${code(5)}${lcode(5)}b native;
+    nonext:${code(4)}${lcode(4)}
     native:pop {r0,r1,r2,r3,r4,r5,r6,lr};${exit}`);
   p.patch(GR3X_SET_FILE_PATH, 0xe1a0c00d, branchWord(GR3X_SET_FILE_PATH, entries.filmRollFolder), 'film roll: the roll\'s folder at SetFilePath');
+  // The date (r1 the time, record in use at POINTER): year 2000 + calls, month the path (12: none),
+  // day 1 no table entry, else 2 + its state's low nibble; hour its state's high nibble; minute the
+  // roll's folder % 60.
+  if (lost === 'probe') entries.filmProbeTime = p.code(`movw r3,#${lo(POINTER)};movt r3,#${hi(POINTER)};ldr r3,[r3];cmp r3,#0;beq clock;
+    ${lat}ldrb r0,[ip];${mod('r0', 100, 'year')}add r0,r0,#2000;strb r0,[r1];mov r0,r0,lsr #8;strb r0,[r1,#1];
+    ldrb r0,[ip,#1];cmp r0,#0;moveq r0,#12;strb r0,[r1,#2];
+    ldrb r0,[ip,#2];cmp r0,#0;moveq r2,#1;subne r0,r0,#1;andne r2,r0,#15;addne r2,r2,#2;strb r2,[r1,#3];
+    movne r2,r0,lsr #4;moveq r2,#0;strb r2,[r1,#4];
+    ldrb r2,[r3,#${GR3X_ROLL_FLAGS}];mov r2,r2,lsr #2;and r2,r2,#3;ldrb r0,[r3,#${GR3X_ROLL_FOLDER}];orr r0,r0,r2,lsl #8;${mod('r0', 60, 'minute')}strb r0,[r1,#5];
+    bx lr;
+    clock:b #${GR3X_GET_TIME};`);
   if (diag) entries.filmProbeTime = p.code(`movw r3,#${lo(POINTER)};movt r3,#${hi(POINTER)};ldr r3,[r3];cmp r3,#0;beq clock;
     push {r4,lr};movw r4,#${lo(D)};movt r4,#${hi(D)};
     ldrh r0,[r4];${mod('r0', 100, 'year')}add r0,r0,#2000;strb r0,[r1];mov r0,r0,lsr #8;strb r0,[r1,#1];

@@ -406,4 +406,10 @@ describe.skipIf(!input)('GR III film roll (film mode phase 3.1)', () => {
     const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'card1' });
     expect(built.report.revision).toBe('T19-CARD1');
   }, 240000);
+  it('logs the roll folder\'s path in the date (T19-CARD2)', async () => {
+    const card2 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'card2' });
+    expect((card2.entries as Record<string, number>).filmProbeTime).toBeGreaterThan(0x53000000);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'card2' });
+    expect(built.report.revision).toBe('T19-CARD2');
+  }, 240000);
 });

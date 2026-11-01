@@ -2013,3 +2013,16 @@ Certitude : lu dans le code et émulé (vrai constructeur d'onglets), à tester 
   (vue 0) garde son 0. Enregistré à l'avance suivante, comme le numéro du nouveau dossier.
 - Vérifié en émulateur (dossier absent 300 ajouté aux cas : vue à 2 avec `card1`, inchangée sans) ;
   T18-HIDE1 reconstruit identique ; garde-fou et tests passés.
+- Résultats T19-CARD1 (2026-11-01) : carte A, 3 vues, compteur 3/xx, dossier 167 ; carte B (sans
+  167) : 3/xx avant la vue ; après une vue et Film Advance : **4/xx** et photo dans le **dossier
+  104**. Le rouleau n'a pas été déclaré perdu.
+- Lecture du code natif : `SetFilePath` avec un numéro fourni cherche le dossier (`0x535b7480` →
+  `0x535b5b6c`, même table que nous), le crée s'il manque (`0x535b2ac4`), puis exige le bit 4 de
+  l'octet d'état `+0xe` de l'entrée (`0x535b5d3c`). Hypothèses : l'entrée de 167 n'était pas vide sur
+  la carte B (entrée réservée, ou table non remise à zéro), ou le boîtier fournissait déjà un numéro.
+- Build de diagnostic T19-CARD2 (forme `card2`, comportement de T19-CARD1) : journal à `0x558043b8`
+  (appels, chemin, octet d'état de l'entrée + 1, 0 si pas d'entrée) affiché dans la date : année
+  2000 + appels, mois = chemin (1 mode libre, 2 dossier du rouleau trouvé, 3 nouveau dossier, 4 pas
+  de suivant, 5 numéro déjà fourni, 6 nouveau dossier en mode libre, 7 rouleau perdu, 12 aucun),
+  jour 1 = pas d'entrée sinon 2 + quartet bas de l'état, heure = quartet haut, minute = dossier du
+  rouleau % 60. Vérifié en émulateur (576 cas de journal, horloge) ; T19-CARD1 reconstruit identique.
