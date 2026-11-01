@@ -2177,3 +2177,22 @@ Certitude : lu dans le code ; icônes extraites et affichées.
   avec Film Roll Mode et Rembobiner ; menu C d'origine ; Rembobiner fonctionne ; icône cartouche 135
   pour Film Advance dans Fn Button Setting ; en P, l'onglet disparaît, navigation normale.
   **Onglet Mode pellicule et icônes : validés.**
+
+### Noms des fichiers NEG_6857.JPG (T22-NAME1)
+
+Certitude : lu dans le code et émulé.
+
+- Nom d'un fichier : `sprintf("%s%04d.%s", préfixe de 4 caractères, numéro, extension)`
+  (`0x535b87f0`, format `0x53d26c14`) : le préfixe est la partie libre du nom DCF ; le numéro, les 4
+  derniers chiffres du compteur continu.
+- Préfixe d'un nouveau fichier : méthode `0x535b6b28(this, type, ...)` : types 6 et 7 (Adobe RGB) →
+  `0x53584ff4` (« _ » + 1 caractère + 2 chiffres, tampon `0x55349800`) ; sinon `0x535850a0` (les 2
+  caractères du réglage File Name, lus par `0x5354b2fc`, puis `"%s%02d"` (`0x53d216f0`) avec les 2
+  premiers chiffres du compteur, tampon `0x553497f8`). Le nom natif `R0016855` = `R001` + `6855`.
+- T22-NAME1 (forme `name1`, sur T21-TAB1) : en tête de `0x535b6b28`, en mode U avec Film Roll Mode
+  sur On, le préfixe devient le code du film (Image Control de l'enregistrement en cours, mêmes codes
+  que le dossier, FLM inconnu) + `_`, dans le tampon `0x553497f8` : `NEG_6857.JPG`, et les autres
+  extensions (DNG) pareil. Ailleurs, rien ne change. Conséquence : en mode pellicule, un fichier Adobe
+  RGB perd le `_` initial du DCF.
+- Vérifié : émulation (NEG_, STD_, FLM_ ; natif en P, en U sans Film Roll Mode, hors mode U) ;
+  T21-TAB1 reconstruit identique ; garde-fou et tests passés.

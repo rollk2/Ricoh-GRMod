@@ -1202,6 +1202,29 @@ export const GR3X_SIDE_BUTTON_NAMES: readonly (readonly [string, string, string,
 /** T20-VID4: the Fn function Framerate (16), movie only, also taken out of the button lists. */
 export const GR3X_FN_FRAMERATE = 16;
 
+/** A new file's name prefix (4 characters; the camera then writes "%s%04d.%s" with the number's last
+ * four digits, 0x535b87f0): the naming method 0x535b6b28(this, type, ...) gives 0x535850a0 (the File
+ * Name setting's 2 characters + the counter's top 2 digits, "%s%02d", buffer 0x553497f8) or, for types 6
+ * and 7 (Adobe RGB, "_" first), 0x53584ff4 (buffer 0x55349800). */
+export const GR3X_FILE_PREFIX = 0x535b6b28, GR3X_FILE_PREFIX_BUFFER = 0x553497f8;
+
+/** T22-NAME1: in a U mode with Film Roll Mode on, a new file's prefix is the film's code and "_"
+ * (NEG_6857.JPG): the record in use's look (as the roll's folder name), FLM for an unknown one. */
+export function installGr3xFilmFileNames(p: Gr3xRollProgram) {
+  if (p.sites.some(s => s.address === GR3X_FILE_PREFIX)) throw new FirmwareError('unexpected-instruction', 'IIIx file names: already patched');
+  const codes = Object.entries(GR3X_LOOK_CODES).map(([look, code]) =>
+    `cmp r0,#${look};movweq r3,#${code.charCodeAt(0) | code.charCodeAt(1) << 8};movteq r3,#${code.charCodeAt(2)};beq code;`).join('');
+  const u = GR3X_UNKNOWN_LOOK_CODE;
+  const prefix = p.code(`push {r0,r1,r2,r3,r4,lr};${records('native', true)}
+    ldrb r0,[r2,#${GR3X_LOOK}];${codes}movw r3,#${u.charCodeAt(0) | u.charCodeAt(1) << 8};movt r3,#${u.charCodeAt(2)};
+    code:movw r4,#${lo(GR3X_FILE_PREFIX_BUFFER)};movt r4,#${hi(GR3X_FILE_PREFIX_BUFFER)};
+    strb r3,[r4];mov r3,r3,lsr #8;strb r3,[r4,#1];mov r3,r3,lsr #8;strb r3,[r4,#2];mov r3,#0x5f;strb r3,[r4,#3];mov r3,#0;strb r3,[r4,#4];
+    mov ip,r4;pop {r0,r1,r2,r3,r4,lr};mov r0,ip;bx lr;
+    native:pop {r0,r1,r2,r3,r4,lr};mov ip,sp;b #${GR3X_FILE_PREFIX + 4};`);
+  p.patch(GR3X_FILE_PREFIX, 0xe1a0c00d, branchWord(GR3X_FILE_PREFIX, prefix), 'film mode: the files\' prefix is the film\'s code');
+  return { filmFilePrefix: prefix };
+}
+
 /** The tables of methods of QuickViewController (the review) and of the message screens. */
 export const GR3X_REVIEW_VTABLE = 0x53b41380, GR3X_MESSAGE_VTABLE = 0x53b41ca8;
 /** T15-END2: the message byte cleared at each exposure (every register kept but ip). */
