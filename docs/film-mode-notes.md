@@ -2093,3 +2093,20 @@ Certitude : lu dans le code ; vérifié en émulateur.
 - Résultats T20-VID2 (2026-11-01) : touche vidéo sans effet (on reste en photo) ; lecture d'une vidéo
   non testée (aucune vidéo sur la carte) ; mode U pellicule, extinction et rallumage : tout normal.
   **Blocage du mode vidéo : validé** (reste à vérifier la lecture d'une vidéo existante).
+
+### Lignes vidéo restantes (T20-VID3)
+
+Certitude : lu dans le code et émulé.
+
+- Titres des lignes lus en exécutant chaque fonction de dessin en émulation (texte passé à
+  `0x5339dc70`) : Still Image Settings ligne 19 et Movie Settings ligne 9 = **Still/Movie**
+  (`0x0200006e`, texte 0x5f) ; Playback Settings ligne 12 = **Movie Edit** (`0x04000033`).
+- Fonctions Fn (texte `0x53292ed0(modèle, f)` émulé) : **17 = Still/Movie** (16 Framerate, 0 Off ...).
+  Filtre des listes `0x531b9410(f)` (appelé trois fois par le constructeur des listes `0x531be67c`).
+- Masquage **par identifiant** (brique réutilisable) : l'appel de la visibilité d'une ligne par le
+  constructeur d'onglets (`bl 0x5319a720` en `0x5319a978`) passe par une liste d'identifiants masqués
+  (`sl` pointe alors l'identifiant de la ligne) ; fonctionne pour tous les onglets, y compris les
+  copies de descripteurs de GR Mod. Fn : le filtre refuse la fonction 17.
+- T20-VID3 (forme `vid3`, sur T20-VID2). Émulation : les deux identifiants absents de tous les
+  onglets reconstruits (présents sans `vid3`), filtre Fn (17 refusée, les autres comme le boîtier),
+  liste Fn construite sans 17 ; T20-VID2 reconstruit identique ; garde-fou et tests passés.

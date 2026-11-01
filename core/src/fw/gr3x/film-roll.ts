@@ -1143,6 +1143,28 @@ export function installGr3xBlockMovie(p: Gr3xRollProgram) {
   return { movieBlocked: still };
 }
 
+/** The tab builder's call of a line's visibility (`bl 0x5319a720` at 0x5319a978): sl then points to
+ * the line's id in the tab's descriptor. */
+export const GR3X_LINE_VISIBLE_CALL = 0x5319a978, GR3X_LINE_VISIBLE = 0x5319a720;
+/** T20-VID3: the lines hidden by id: Still Image Settings' (and Movie Settings') Still/Movie, Playback
+ * Settings' Movie Edit. */
+export const GR3X_HIDDEN_LINES = [0x0200006e, 0x04000033] as const;
+/** The Fn functions' filter 0x531b9410(f) (1: listed; the button lists' constructor asks it for each
+ * function of the table); T20-VID3 lists no Still/Movie (function 17). */
+export const GR3X_FN_FILTER = 0x531b9410, GR3X_FN_STILL_MOVIE = 17;
+
+/** T20-VID3: lines hidden by id (whatever the tab), and Fn functions taken out of the button lists. */
+export function installGr3xHideLines(p: Gr3xRollProgram, ids: readonly number[], functions: readonly number[]) {
+  if (p.sites.some(s => s.address === GR3X_LINE_VISIBLE_CALL || s.address === GR3X_FN_FILTER)) throw new FirmwareError('unexpected-instruction', 'IIIx hidden lines: already patched');
+  const entries: Record<string, number> = {};
+  entries.linesHidden = p.code(`ldr ip,[sl];${ids.map(id => `movw r3,#${lo(id)};movt r3,#${hi(id)};cmp ip,r3;beq hidden;`).join('')}
+    b #${GR3X_LINE_VISIBLE};hidden:mov r0,#0;bx lr;`);
+  p.patch(GR3X_LINE_VISIBLE_CALL, bl(GR3X_LINE_VISIBLE_CALL, GR3X_LINE_VISIBLE), bl(GR3X_LINE_VISIBLE_CALL, entries.linesHidden), 'menu: lines hidden by id');
+  entries.fnHidden = p.code(`${functions.map(f => `cmp r0,#${f};moveq r0,#0;bxeq lr;`).join('')}cmp r0,#0x16;b #${GR3X_FN_FILTER + 4};`);
+  p.patch(GR3X_FN_FILTER, 0xe3500016, branchWord(GR3X_FN_FILTER, entries.fnHidden), 'Fn: functions taken out of the button lists');
+  return entries;
+}
+
 /** The tables of methods of QuickViewController (the review) and of the message screens. */
 export const GR3X_REVIEW_VTABLE = 0x53b41380, GR3X_MESSAGE_VTABLE = 0x53b41ca8;
 /** T15-END2: the message byte cleared at each exposure (every register kept but ip). */
