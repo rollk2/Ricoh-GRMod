@@ -315,4 +315,13 @@ describe.skipIf(!input)('GR III film roll (film mode phase 3.1)', () => {
     const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'dir14' });
     expect(built.report.revision).toBe('T14-DIR14');
   }, 240000);
+  it('ends a roll with its last picture in its folder and the message (T15-END1)', async () => {
+    const dir14 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'dir14' });
+    const end1 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'end1' });
+    expect(end1.sites.find(s => s.address === 0x531ce174)!).toMatchObject({ expected: 'be1200e3', reason: expect.stringMatching(/New roll loaded/) });
+    expect(end1.sites.length).toBe(dir14.sites.length + 1);
+    expect((end1.entries as Record<string, number>).filmMessageText).toBeGreaterThan(0x53000000);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'end1' });
+    expect(built.report.revision).toBe('T15-END1');
+  }, 240000);
 });

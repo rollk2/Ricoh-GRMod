@@ -110,7 +110,7 @@ export interface Gr3xRollProgram {
   patch(address: number, expected: number, replacement: number, reason: string): void;
 }
 
-export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuRatio[], folders = false, diag = false, filmMenu = false, keys: false | 'sequence' | 'boot' | 'shot' = false, noReview: false | 'skip' | 'live' | 'next' | 'armed' | 'deferred' | 'logged' | 'posted' | 'closed' | 'timed' | 'timedNext' | 'plain' | 'noButtons' | 'plainId' | 'plainReview' | 'plainOff' | 'plainOff25' | 'plainOff10' | 'plainOff1' = false, folderName = false, late = false) {
+export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuRatio[], folders = false, diag = false, filmMenu = false, keys: false | 'sequence' | 'boot' | 'shot' = false, noReview: false | 'skip' | 'live' | 'next' | 'armed' | 'deferred' | 'logged' | 'posted' | 'closed' | 'timed' | 'timedNext' | 'plain' | 'noButtons' | 'plainId' | 'plainReview' | 'plainOff' | 'plainOff25' | 'plainOff10' | 'plainOff1' = false, folderName = false, late = false, rollEnd = false) {
   const rec = (label: string) => records(label, filmMenu);
   const free = (at: number) => { if (p.sites.some(s => s.address === at)) throw new FirmwareError('unexpected-instruction', `IIIx film roll: ${at.toString(16)} already patched`); };
   const entries: Record<string, number> = {};
@@ -124,7 +124,8 @@ export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuR
   // another mode was recalled (the mode dial): its BOX's roll advances and keeps the picture.
   const pendingAt = `movw ip,#${lo(PENDING_FRAME)};movt ip,#${hi(PENDING_FRAME)};`;
   const exposure = `${keys === 'shot' ? keyClear : ''}push {r0,r1,r2,r3};${late ? `${pendingAt}mov r0,#0;strb r0,[ip];` : ''}${rec('rollkept')}${late ? `${pendingAt}strb r1,[ip];` : ''}
-    ldrb r0,[r2,#${GR3X_ROLL_FLAGS}];tst r0,#${GR3X_ROLL_STARTED};bne rollkept;
+    ldrb r0,[r2,#${GR3X_ROLL_FLAGS}];tst r0,#${GR3X_ROLL_STARTED};${rollEnd ? `beq rollstart;ldrb r0,[r2,#${GR3X_ROLL_FRAME}];cmp r0,#0;bne rollkept;
+    rollstart:ldrb r0,[r2,#${GR3X_ROLL_FLAGS}];` : 'bne rollkept;'}
     orr r0,r0,#${GR3X_ROLL_STARTED};bic r0,r0,#${FOLDER_HIGH};strb r0,[r2,#${GR3X_ROLL_FLAGS}];
     ldrb r0,[r3,#${GR3X_ROLL_FLAGS}];orr r0,r0,#${GR3X_ROLL_STARTED};bic r0,r0,#${FOLDER_HIGH};strb r0,[r3,#${GR3X_ROLL_FLAGS}];
     mov r0,#1;strb r0,[r2,#${GR3X_ROLL_FRAME}];strb r0,[r3,#${GR3X_ROLL_FRAME}];
@@ -156,6 +157,12 @@ export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuR
       pop {r0,r1,r2,r3,r4,r5,r6,pc};`);
   }
 
+  // rollEnd (T15-END1): the last frame's advance keeps the roll's folder and started bit (frame 0 =
+  // ended), so its picture still goes to the roll's folder; the next exposure starts a new roll. It
+  // asks for the message « New roll loaded. » (NEW_ROLL_MESSAGE) and opens the camera's message
+  // screen 0x08000007 (closed by itself after 5 s; its text replaced, installGr3xFilmMessage).
+  const openMessage = `bl #${UI_TASK};bl #${UI_QUEUE};mov r5,r0;bl #${GR3X_SCREEN_MANAGER};mov r4,r0;mov r0,r5;bl #${GR3X_SCREEN_CURRENT};
+    mov r2,r0;mov r0,r4;mov r1,#${GR3X_MESSAGE_SCREEN & 0xff};movt r1,#${GR3X_MESSAGE_SCREEN >>> 16};bl #${GR3X_SCREEN_SWITCH};`;
   // The model's end: advance, then save both records; every register kept.
   free(GR3X_ROLL_MODEL_END);
   // late: a frame of another U mode (still pending, not handled yet): that BOX's roll advances and is
@@ -169,8 +176,8 @@ export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuR
     orr r0,r4,#0x80;strb r0,[ip];
     ldrb r0,[r6,#${GR3X_RATIO}];${length.replace('len:', 'llen:').replace(/beq len;/g, 'beq llen;')}
     ldrb r1,[r6,#${GR3X_ROLL_FRAME}];add r1,r1,#1;cmp r1,r0;movhi r1,#0;
-    strb r1,[r6,#${GR3X_ROLL_FRAME}];strbhi r1,[r6,#${GR3X_ROLL_FOLDER}];
-    ldrb r2,[r6,#${GR3X_ROLL_FLAGS}];bichi r2,r2,#${GR3X_ROLL_STARTED | FOLDER_HIGH};strb r2,[r6,#${GR3X_ROLL_FLAGS}];
+    strb r1,[r6,#${GR3X_ROLL_FRAME}];${rollEnd ? '' : `strbhi r1,[r6,#${GR3X_ROLL_FOLDER}];
+    ldrb r2,[r6,#${GR3X_ROLL_FLAGS}];bichi r2,r2,#${GR3X_ROLL_STARTED | FOLDER_HIGH};strb r2,[r6,#${GR3X_ROLL_FLAGS}];`}
     bl #${GR3X_APP_DATA};ldr r0,[r0,#8];add r1,r4,#2;movw r2,#${RECORD};mov r3,r6;bl #${GR3X_APP_DATA_WRITE};
     b out;usual:` : '';
   entries.filmRollEnd = p.code(`${keys === 'sequence' ? keyClear : ''}push {r0,r1,r2,r3,r4,r5,r6,lr};${lateEnd}${rec('out')}
@@ -180,11 +187,12 @@ export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuR
     mov r4,r1;mov r5,r2;mov r6,r3;${folderName ? `mov r0,r5;bl #${entries.filmFolderNameSet};` : ''}
     ldrb r0,[r5,#${GR3X_RATIO}];${length}
     ldrb r1,[r5,#${GR3X_ROLL_FRAME}];add r1,r1,#1;cmp r1,r0;movhi r1,#0;
-    strb r1,[r5,#${GR3X_ROLL_FRAME}];strb r1,[r6,#${GR3X_ROLL_FRAME}];strbhi r1,[r5,#${GR3X_ROLL_FOLDER}];strbhi r1,[r6,#${GR3X_ROLL_FOLDER}];
+    strb r1,[r5,#${GR3X_ROLL_FRAME}];strb r1,[r6,#${GR3X_ROLL_FRAME}];${rollEnd ? `movwhi ip,#${lo(NEW_ROLL_MESSAGE)};movthi ip,#${hi(NEW_ROLL_MESSAGE)};movhi r2,#1;strbhi r2,[ip];` : `strbhi r1,[r5,#${GR3X_ROLL_FOLDER}];strbhi r1,[r6,#${GR3X_ROLL_FOLDER}];
     ldrb r2,[r5,#${GR3X_ROLL_FLAGS}];bichi r2,r2,#${GR3X_ROLL_STARTED | FOLDER_HIGH};strb r2,[r5,#${GR3X_ROLL_FLAGS}];
-    ldrb r2,[r6,#${GR3X_ROLL_FLAGS}];bichi r2,r2,#${GR3X_ROLL_STARTED | FOLDER_HIGH};strb r2,[r6,#${GR3X_ROLL_FLAGS}];
+    ldrb r2,[r6,#${GR3X_ROLL_FLAGS}];bichi r2,r2,#${GR3X_ROLL_STARTED | FOLDER_HIGH};strb r2,[r6,#${GR3X_ROLL_FLAGS}];`}
     bl #${GR3X_APP_DATA};ldr r0,[r0,#8];mov r1,#1;movw r2,#${RECORD};mov r3,r5;bl #${GR3X_APP_DATA_WRITE};
     bl #${GR3X_APP_DATA};ldr r0,[r0,#8];add r1,r4,#2;movw r2,#${RECORD};mov r3,r6;bl #${GR3X_APP_DATA_WRITE};
+    ${rollEnd ? `movw ip,#${lo(NEW_ROLL_MESSAGE)};movt ip,#${hi(NEW_ROLL_MESSAGE)};ldrb r0,[ip];cmp r0,#0;beq out;${openMessage}` : ''}
     out:pop {r0,r1,r2,r3,r4,r5,r6,lr};mov ip,sp;b #${GR3X_ROLL_MODEL_END + 4};`);
   p.patch(GR3X_ROLL_MODEL_END, 0xe1a0c00d, branchWord(GR3X_ROLL_MODEL_END, entries.filmRollEnd), 'film roll: the frame advances at the model\'s end, settings saved');
 
@@ -194,7 +202,7 @@ export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuR
   free(GR3X_ROLL_COUNTER);
   entries.filmRollCounter = p.code(`push {r0,r1,r3};${rec('count')}
     ldrb r0,[r2,#${GR3X_RATIO}];${length}mov r3,r0;
-    ldrb r1,[r2,#${GR3X_ROLL_FLAGS}];tst r1,#${GR3X_ROLL_STARTED};moveq r1,#1;ldrbne r1,[r2,#${GR3X_ROLL_FRAME}];
+    ldrb r1,[r2,#${GR3X_ROLL_FLAGS}];tst r1,#${GR3X_ROLL_STARTED};moveq r1,#1;ldrbne r1,[r2,#${GR3X_ROLL_FRAME}];${rollEnd ? 'cmp r1,#0;moveq r1,#1;' : ''}
     add sp,sp,#12;push {r3};mov r3,r1;mov r0,r4;mov r1,#6;movw r2,#${lo(GR3X_FRAME_FORMAT)};movt r2,#${hi(GR3X_FRAME_FORMAT)};
     bl #${GR3X_SNPRINTF};add sp,sp,#4;
     sub ip,fp,#0x14;ldr r4,[ip];ldr r5,[ip,#4];ldr lr,[ip,#0x10];ldr fp,[ip,#8];ldr sp,[ip,#0xc];bx lr;
@@ -845,3 +853,33 @@ export const GR3X_FILM_OFF_REVIEW_MS = 100;
 /** T14-DIR14: the U mode (1..6) of the frame being exposed, + 0x80 once a late end advanced it (a byte,
  * zero at start-up, the key probe's area). */
 const PENDING_FRAME = KEY_LAST + 11;
+
+/** The screen switch as the opening action 0x53226738 does it: 0x5316c9d8(0x53228a90(queue), id,
+ * 0x53228c4c(queue)), queue = 0x5320aefc(0x5320ad88()). */
+export const GR3X_SCREEN_MANAGER = 0x53228a90, GR3X_SCREEN_CURRENT = 0x53228c4c, GR3X_SCREEN_SWITCH = 0x5316c9d8;
+/** The camera's message screen « Unable to store image. » (text 0x2be at 0x531ce174), closed after 5 s. */
+export const GR3X_MESSAGE_SCREEN = 0x08000007, GR3X_MESSAGE_TEXT_AT = 0x531ce174, GR3X_MESSAGE_TEXT_SET = 0x531ce128;
+/** T15-END1: a film mode message is waiting (a byte, zero at start-up, the key probe's area). */
+const NEW_ROLL_MESSAGE = KEY_LAST + 7;
+
+/** « New roll loaded. » in the 21 languages (order of GR3X_FILM_ADVANCE_NAMES; every character
+ * checked against the camera's own texts of that language). */
+export const GR3X_FILM_NEW_ROLL_NAMES: readonly string[] = [
+  'Nový film vložen.', 'Ny film isat.', 'New roll loaded.', 'Uusi filmi ladattu.', 'Nouvelle pellicule chargée.', 'Neuer Film eingelegt.',
+  'Τοποθετήθηκε νέο φιλμ.', 'Új film betöltve.', 'Nuovo rullino caricato.', '新しいフィルムをセットしました。', '새 필름이 장전되었습니다.',
+  'Nieuwe film geladen.', 'Załadowano nowy film.', 'Novo rolo carregado.', 'Новая плёнка заряжена.', '已更换新片。', 'Nuevo carrete cargado.',
+  'Ny film laddad.', 'ใส่ฟิล์มม้วนใหม่แล้ว', '已裝入新底片。', 'Yeni film takıldı.',
+];
+
+/**
+ * T15-END1: the message screen 0x08000007 shows our text (`text`) instead of its own while a film mode
+ * message waits (the byte is then cleared): `movw r1,#0x2be` at 0x531ce174 becomes that choice.
+ */
+export function installGr3xFilmMessage(p: Gr3xRollProgram, text: number) {
+  if (p.sites.some(s => s.address === GR3X_MESSAGE_TEXT_AT)) throw new FirmwareError('unexpected-instruction', 'IIIx film message: already patched');
+  const entries: Record<string, number> = {};
+  entries.filmMessageText = p.code(`movw ip,#${lo(NEW_ROLL_MESSAGE)};movt ip,#${hi(NEW_ROLL_MESSAGE)};ldrb r1,[ip];cmp r1,#0;movweq r1,#0x2be;beq back;
+    mov r1,#0;strb r1,[ip];movw r1,#${text};back:b #${GR3X_MESSAGE_TEXT_SET};`);
+  p.patch(GR3X_MESSAGE_TEXT_AT, 0xe30012be, branchWord(GR3X_MESSAGE_TEXT_AT, entries.filmMessageText), 'film roll: « New roll loaded. » on the message screen');
+  return entries;
+}

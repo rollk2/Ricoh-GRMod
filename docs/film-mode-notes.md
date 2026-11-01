@@ -1722,3 +1722,19 @@ Lecture (attention : MM = valeur du test + 2, HH = phase + 1) :
   depuis la tâche de l'interface.
 - Proposition : ouvrir l'un de ces écrans (5 s) avec notre propre texte (21 langues), le texte
   substitué dans `0x531ce0ac` tant qu'un message du mode pellicule est en attente.
+
+### Build de test T15-END1 : fin de rouleau et message
+
+- Fin de rouleau : à l'avance de la dernière vue, le rouleau garde son bit « entamé » et son dossier,
+  vue = 0 (rouleau terminé) : l'image de la dernière vue va dans le dossier du rouleau ; l'exposition
+  suivante démarre un nouveau rouleau (vue 1, dossier à créer). Le compteur affiche 1 pour un rouleau
+  terminé. Même chose pour la fin tardive (molette), sans message.
+- Message : l'octet `0x55804397` est levé et l'écran de message 0x08000007 est ouvert depuis la fin du
+  modèle (`0x5316c9d8(0x53228a90(q), 0x08000007, 0x53228c4c(q))`) ; son texte (`0x531ce174`,
+  `movw r1,#0x2be`) devient « Nouvelle pellicule chargée. » (21 langues, caractères vérifiés ; texte
+  après celui de Film Advance) tant que l'octet est levé, qui retombe alors. Fermeture native : 5 s ou
+  appui à mi-course.
+- Remarque : le nom chinois simplifié de Film Roll Mode (« 底片模式 ») utilise 底, absent des textes
+  chinois simplifiés du boîtier : à remplacer.
+- Vérifié en émulateur (fin, message, redémarrage, compteur, texte) ; T14-DIR14 et T13-FN1 reconstruits
+  identiques ; sondes repassées.
