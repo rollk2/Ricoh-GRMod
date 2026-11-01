@@ -1704,3 +1704,20 @@ Lecture (attention : MM = valeur du test + 2, HH = phase + 1) :
 
 - Document `docs/parcours-utilisateur.md` : parcours en place et 11 questions, tranchées le
   2026-11-01 (section 10 du document).
+
+### Messages à l'écran (analyse statique, 2026-11-01)
+
+- Les messages du type « Memory card full. » sont des **écrans** (contrôleurs 0x08000003 à
+  0x0800000a, une même classe, table de méthodes `0x53b41ca8`). Démarrage (`0x531ce310`, entrée 7) :
+  pas de boutons (`0x5316d354(this, 0)`), `0x531ce278` (minuterie), `0x531ce0ac` (texte), `0x531ce2e8`.
+- Texte selon l'identifiant (`0x531ce0ac`) : 3 → 0x2f5 « Memory card full. », 4 → 0x2f6, 5 → 0x2be
+  « Unable to store image. », 6 → 0x2fc, 7 → 0x2fa, 8 → 0x2f7, 9 → 0x2f8 (ordre de la table de sauts
+  `0x531ce104`), 10 → chaîne formatée. Le texte est posé par `0x5339c844(widget [this + 0x160], texte)`
+  (ou `0x5339c7c4` pour une chaîne).
+- Fermeture : ids 3 à 7 → minuterie de **5 s** (`0x5322b468(…, 0x1388, this + 0x158)`, `+0x168`), puis
+  retour en visée (`0x531cdd58`) ; ids 8 à 10 : pas de minuterie. Événement 0xd8 : retour immédiat en
+  visée ; 0x8b : vers 0x0200004a.
+- Ouverture : comme l'écran de revue, `0x5316c9d8(0x53228a90(), id, 0x53228c4c(0x5320aefc(0x5320ad88())))`
+  depuis la tâche de l'interface.
+- Proposition : ouvrir l'un de ces écrans (5 s) avec notre propre texte (21 langues), le texte
+  substitué dans `0x531ce0ac` tant qu'un message du mode pellicule est en attente.
