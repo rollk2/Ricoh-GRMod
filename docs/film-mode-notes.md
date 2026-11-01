@@ -1927,3 +1927,14 @@ Construit sur T17-MSG1 (forme `rwd1`). Certitude : vérifié en émulateur, à t
 - Vérifié : section 31 de `film_roll_check.py` (64 cas de rembobinage et de visibilité, dialogue
   dans les deux modes, fabrique, touches, menu, ligne) ; T16-CLO4 et T17-MSG1 reconstruits
   identiques ; `guard_probe.py` ; tests du mode pellicule.
+- Résultats T17-RWD1 (2026-11-01) : **gel à Exécuter** (batterie à retirer), compteur non remis à 0 ;
+  Film Roll Mode et Rembobiner **visibles en P**.
+- Cause du gel (certitude : prouvée en émulateur) : le texte de fin est posé en `0x531e5f40`, entre
+  `mov ip,sp` et le `push` de `0x531e5f3c` ; notre code y utilisait ip, d'où un cadre de pile faux et
+  un retour vers une adresse invalide. Corrigé (seul r1 est utilisé) ; l'émulateur contrôle
+  désormais ip sur ces sites (l'ancien build échoue, le nouveau passe). Le compteur non remis à 0
+  vient probablement du gel : l'écriture des réglages n'a pas pu se terminer.
+- Visibilité en P (hypothèse) : la fabrique ne construit le menu qu'une fois (emplacement `+0x74`,
+  constructeur `0x5319aa68`, seul appelant du constructeur d'onglets `0x5319a778`) ; les fonctions
+  de visibilité ne sont donc évaluées qu'à la première ouverture du menu depuis l'allumage. La note
+  « reconstruit à chaque ouverture » de T12 était fausse.

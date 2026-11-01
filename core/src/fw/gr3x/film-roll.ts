@@ -1028,11 +1028,15 @@ export function installGr3xFilmRewind(p: Gr3xRollProgram, question: number, done
   p.patch(DIALOG_CARD, bl(DIALOG_CARD, DIALOG_CARD_FN), bl(DIALOG_CARD, entries.filmRewindCard), 'film rewind: no card check');
   entries.filmRewindStorage = p.code(`${mode}movne r0,#0;bxne lr;b #${DIALOG_STORAGE_FN};`);
   p.patch(DIALOG_STORAGE, bl(DIALOG_STORAGE, DIALOG_STORAGE_FN), bl(DIALOG_STORAGE, entries.filmRewindStorage), 'film rewind: no storage check');
-  entries.filmRewindQuestion = p.code(`${mode}movweq r1,#0x2ab;movwne r1,#${question};b #${DIALOG_QUESTION + 4};`);
+  // The two texts are set where ip still holds the function's entry sp (the end text's `movw` comes
+  // right after `mov ip,sp`, before the push): only r1, which they set anyway, is used.
+  const text = (native: number, ours: number) => `movw r1,#${lo(GR3X_REWIND_MODE)};movt r1,#${hi(GR3X_REWIND_MODE)};ldrb r1,[r1];cmp r1,#0;
+    movweq r1,#${native};movwne r1,#${ours};`;
+  entries.filmRewindQuestion = p.code(`${text(0x2ab, question)}b #${DIALOG_QUESTION + 4};`);
   p.patch(DIALOG_QUESTION, 0xe30012ab, branchWord(DIALOG_QUESTION, entries.filmRewindQuestion), 'film rewind: the question');
   entries.filmRewindAction = p.code(`${mode}beq #${DIALOG_ACTION_FN};b #${action};`);
   p.patch(DIALOG_ACTION, bl(DIALOG_ACTION, DIALOG_ACTION_FN), bl(DIALOG_ACTION, entries.filmRewindAction), 'film rewind: Execute ends the roll');
-  entries.filmRewindDone = p.code(`${mode}movweq r1,#0x2bb;movwne r1,#${done};b #${DIALOG_DONE + 4};`);
+  entries.filmRewindDone = p.code(`${text(0x2bb, done)}b #${DIALOG_DONE + 4};`);
   p.patch(DIALOG_DONE, 0xe30012bb, branchWord(DIALOG_DONE, entries.filmRewindDone), 'film rewind: the end text');
   return entries;
 }

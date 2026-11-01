@@ -971,7 +971,8 @@ def verify(data,manifest,seed=3101):
                 cpu.emu_start(e[name],stop,count=1000);assert cpu.reg_read(reg.UC_ARM_REG_PC)==stop and cpu.reg_read(reg.UC_ARM_REG_SP)==STACK
                 assert cpu.reg_read(reg.UC_ARM_REG_R0)==(want if m else 0x5555);count('rewind dialog check')
             for name,site,native,text in (('filmRewindQuestion',0x531e5ee8,0x2ab,'q'),('filmRewindDone',0x531e5f40,0x2bb,'d')):
-                cpu.ctl_flush_tb();p.run(site,site+4,{0:0x5555,2:0x77,3:0x88});count('rewind dialog text')
+                cpu.ctl_flush_tb();p.run(site,site+4,{0:0x5555,2:0x77,3:0x88,12:0xc0c0});count('rewind dialog text')
+                assert cpu.reg_read(reg.UC_ARM_REG_IP)==0xc0c0,(name,'ip')   # the end text's ip is the entry sp
                 r1=cpu.reg_read(reg.UC_ARM_REG_R1);assert (r1!=native and 0x313<r1<0x500) if m else r1==native,(name,hex(r1))
                 assert cpu.reg_read(reg.UC_ARM_REG_R0)==0x5555 and cpu.reg_read(reg.UC_ARM_REG_R2)==0x77
             cpu.ctl_flush_tb();cpu.reg_write(reg.UC_ARM_REG_R0,0x5555);cpu.reg_write(reg.UC_ARM_REG_R1,1);cpu.reg_write(reg.UC_ARM_REG_LR,STOP)
