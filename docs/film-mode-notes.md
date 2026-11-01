@@ -2110,3 +2110,6 @@ Certitude : lu dans le code et émulé.
 - T20-VID3 (forme `vid3`, sur T20-VID2). Émulation : les deux identifiants absents de tous les
   onglets reconstruits (présents sans `vid3`), filtre Fn (17 refusée, les autres comme le boîtier),
   liste Fn construite sans 17 ; T20-VID2 reconstruit identique ; garde-fou et tests passés.
+- Résultats T20-VID3 (2026-11-01) : Still/Movie et Movie Edit absents du menu ; Still/Movie absent des
+  listes de Fn Button Setting, Film Advance présent ; mode pellicule, Film Roll Mode et Rembobiner
+  normaux. **Masquage par identifiant et retrait d'une fonction Fn : validés.**
