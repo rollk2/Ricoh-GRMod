@@ -1901,3 +1901,29 @@ Certitude : lu dans le code.
   à l'étape 2, 500 / 5000 ms à l'armement, réarmement de 1500 ms) ; T16-CLO4 reconstruit identique ;
   `guard_probe.py` repassé ; tests du mode pellicule passés (les 5 échecs de `npm test` viennent de
   fichiers privés absents, `official.decoded` et `B.bin`, et existaient déjà).
+- Résultats T17-MSG1 (2026-11-01) : tout conforme (2 s sans rien toucher, OK et ADJ ferment après
+  0,5 s, message lisible en fin de rouleau). **Message court et fermeture par OK / ADJ : validés.**
+
+### Build de test T17-RWD1 : la ligne Rembobiner
+
+Construit sur T17-MSG1 (forme `rwd1`). Certitude : vérifié en émulateur, à tester sur le boîtier.
+
+- Menu C : Save Settings, Film Roll Mode, **Rembobiner** (identifiant `0x020001b1`), puis les 21
+  lignes du boîtier ; page 1 de 6 lignes (pages `[0, 6, 15]`, 24 lignes). Ligne dessinée comme
+  Create New Folder (sans valeur, son nom) ; visible en mode U avec Film Roll Mode sur On
+  (`filmRewindVisible`, évaluée à l'ouverture du menu : après avoir mis Film Roll Mode sur On, il
+  faut ressortir du menu et y revenir pour voir la ligne).
+- Fabrique : `0x020001b1` ouvre le dialogue `0x02000128` et met l'octet de rembobinage
+  (`0x5580439e`) à 1 ; `0x02000128` lui-même le met à 0. Table des touches : même correspondance.
+- Dialogue, octet à 1 : pas de contrôle de carte (`0x531e6558`) ni de mémoire (`0x531e6568`),
+  notre question (`0x531e5ee8`), Exécuter appelle `filmRollRewind` au lieu de `0x5358515c`
+  (`0x531e65c8`), texte de fin « Nouvelle pellicule chargée. » (`0x531e5f40`) pendant 3 s.
+- `filmRollRewind` : en mode U avec Film Roll Mode sur On, un rouleau entamé (vue non nulle) est clos
+  comme à la clôture de T16 (vue 0 dans l'enregistrement en cours et dans la BOX, fichiers `APData`
+  écrits) ; sinon rien.
+- Textes en 21 langues, caractères vérifiés contre les textes du boîtier ; reformulés faute de
+  caractères : japonais « フィルムリセット » (巻 absent), coréen, espagnol (¿ absent) et chinois en
+  phrase affirmative, comme le texte natif de Create New Folder.
+- Vérifié : section 31 de `film_roll_check.py` (64 cas de rembobinage et de visibilité, dialogue
+  dans les deux modes, fabrique, touches, menu, ligne) ; T16-CLO4 et T17-MSG1 reconstruits
+  identiques ; `guard_probe.py` ; tests du mode pellicule.

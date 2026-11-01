@@ -55,6 +55,7 @@
  *    a folder of its own (tested), which a roll's folder must not get.
  */
 import { branchWord, movWord } from '../aspect/arm';
+const bl = (at: number, target: number) => (0xeb000000 | (((target - (at + 8)) >> 2) & 0xffffff)) >>> 0;
 import { FirmwareError } from '../types';
 import type { Gr3xSite } from './round10';
 import type { Gr3xMenuRatio } from './geometry';
@@ -110,7 +111,7 @@ export interface Gr3xRollProgram {
   patch(address: number, expected: number, replacement: number, reason: string): void;
 }
 
-export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuRatio[], folders = false, diag = false, filmMenu = false, keys: false | 'sequence' | 'boot' | 'shot' = false, noReview: false | 'skip' | 'live' | 'next' | 'armed' | 'deferred' | 'logged' | 'posted' | 'closed' | 'timed' | 'timedNext' | 'plain' | 'noButtons' | 'plainId' | 'plainReview' | 'plainOff' | 'plainOff25' | 'plainOff10' | 'plainOff1' = false, folderName = false, late = false, rollEnd = false, closure: boolean | 'recall' = false, fromZero = false) {
+export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuRatio[], folders = false, diag = false, filmMenu = false, keys: false | 'sequence' | 'boot' | 'shot' = false, noReview: false | 'skip' | 'live' | 'next' | 'armed' | 'deferred' | 'logged' | 'posted' | 'closed' | 'timed' | 'timedNext' | 'plain' | 'noButtons' | 'plainId' | 'plainReview' | 'plainOff' | 'plainOff25' | 'plainOff10' | 'plainOff1' = false, folderName = false, late = false, rollEnd = false, closure: boolean | 'recall' = false, fromZero = false, rewind = false) {
   const rec = (label: string) => records(label, filmMenu);
   const free = (at: number) => { if (p.sites.some(s => s.address === at)) throw new FirmwareError('unexpected-instruction', `IIIx film roll: ${at.toString(16)} already patched`); };
   const entries: Record<string, number> = {};
@@ -245,6 +246,19 @@ export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuR
     ldrb r0,[r2,#${GR3X_ROLL_LOOK}];ldrb r4,[r3,#${GR3X_ROLL_LOOK}];cmp r0,r4;bne none;
     ldrb r0,[r2,#${GR3X_ROLL_FLAGS}];ldrb r4,[r3,#${GR3X_ROLL_FLAGS}];eor r0,r0,r4;tst r0,#${GR3X_ROLL_STARTED};bne none;` : '';
   if (closure) entries.filmRollCheck = p.code(`push {r4,r5,r6,lr};${rec('none')}${synced}${checkBody}`);
+  // rewind (T17-RWD1): the Rewind Film line's action. In a U mode with Film Roll Mode on, a going roll
+  // (started, frame not 0) ends as at a closure (frame 0, both records saved; the next exposure starts
+  // a new roll): r0 = 1, else 0. Its visibility: a U mode with Film Roll Mode on.
+  if (rewind) {
+    entries.filmRollRewind = p.code(`push {r4,r5,r6,lr};${records('none', true)}
+      ldrb r0,[r2,#${GR3X_ROLL_FLAGS}];tst r0,#${GR3X_ROLL_STARTED};beq none;ldrb r0,[r2,#${GR3X_ROLL_FRAME}];cmp r0,#0;beq none;
+      mov r0,#0;strb r0,[r2,#${GR3X_ROLL_FRAME}];strb r0,[r3,#${GR3X_ROLL_FRAME}];mov r4,r1;mov r5,r2;mov r6,r3;
+      bl #${GR3X_APP_DATA};ldr r0,[r0,#8];mov r1,#1;movw r2,#${RECORD};mov r3,r5;bl #${GR3X_APP_DATA_WRITE};
+      bl #${GR3X_APP_DATA};ldr r0,[r0,#8];add r1,r4,#2;movw r2,#${RECORD};mov r3,r6;bl #${GR3X_APP_DATA_WRITE};
+      mov r0,#1;pop {r4,r5,r6,pc};
+      none:mov r0,#0;pop {r4,r5,r6,pc};`);
+    entries.filmRewindVisible = p.code(`${records('hidden', true)}mov r0,#1;bx lr;hidden:mov r0,#0;bx lr;`);
+  }
   // 'recall' (T16-CLO2): the same check at a U mode's recall (r0 its record in use, r1 the mode), whose
   // way back to the shooting screen is not a switch to the live view: the roll ends there, and the
   // message screen opens at once.
@@ -902,6 +916,23 @@ export const GR3X_FILM_NEW_ROLL_NAMES: readonly string[] = [
   'Ny film laddad.', 'ใส่ฟิล์มม้วนใหม่แล้ว', '已裝入新底片。', 'Yeni film takıldı.',
 ];
 
+/** T17-RWD1: « Rewind Film » and its question in the 21 languages (order of GR3X_FILM_ADVANCE_NAMES;
+ * every character checked against the camera's own texts of that language). */
+export const GR3X_FILM_REWIND_NAMES: readonly string[] = [
+  'Převinout film', 'Spol filmen tilbage', 'Rewind Film', 'Kelaa filmi takaisin', 'Rembobiner',
+  'Film zurückspulen', 'Επανατύλιξη φιλμ', 'Film visszatekerése', 'Riavvolgi rullino', 'フィルムリセット',
+  '필름 되감기', 'Film terugspoelen', 'Przewijanie wsteczne', 'Rebobinar filme', 'Обратная перемотка',
+  '倒片', 'Rebobinar carrete', 'Spola tillbaka film', 'กรอฟิล์มกลับ', '倒片',
+  'Filmi geri sar',
+];
+export const GR3X_FILM_REWIND_QUESTIONS: readonly string[] = [
+  'Převinout film?\nDalší snímek začne\nnový film.', 'Spol filmen tilbage?\nNæste billede starter\nen ny film.', 'Rewind the film?\nThe next shot starts\na new roll.', 'Kelataanko filmi takaisin?\nSeuraava kuva aloittaa\nuuden filmin.', 'Rembobiner la pellicule ?\nLa prochaine vue démarre\nune nouvelle pellicule.',
+  'Film zurückspulen?\nDie nächste Aufnahme\nbeginnt einen neuen Film.', 'Επανατύλιξη φιλμ;\nΗ επόμενη λήψη ξεκινά\nνέο φιλμ.', 'Visszatekeri a filmet?\nA következő kép új\nfilmet kezd.', 'Riavvolgere il rullino?\nLo scatto successivo\navvia un nuovo rullino.', 'フィルムをリセットしますか?\n次の撮影から新しい\nフィルムになります。',
+  '필름을 되감습니다.\n다음 촬영부터 새 필름이\n시작됩니다.', 'Film terugspoelen?\nDe volgende opname start\neen nieuwe film.', 'Przewinąć film?\nNastępne zdjęcie rozpocznie\nnowy film.', 'Rebobinar o filme?\nA próxima foto inicia\num novo rolo.', 'Перемотать плёнку назад?\nСледующий снимок начнёт\nновую плёнку.',
+  '将倒片。\n下一张将使用新片。', 'Rebobina el carrete.\nLa siguiente foto inicia\nun carrete nuevo.', 'Spola tillbaka filmen?\nNästa bild startar\nen ny film.', 'กรอฟิล์มกลับหรือไม่?\nภาพถัดไปจะเริ่ม\nฟิล์มม้วนใหม่', '將倒片。\n下次拍攝將使用新片。',
+  'Film geri sarılsın mı?\nSonraki çekim yeni bir\nfilm başlatır.',
+];
+
 /**
  * T15-END1: the message screen 0x08000007 shows our text (`text`) instead of its own while a film mode
  * message waits (the byte is then cleared): `movw r1,#0x2be` at 0x531ce174 becomes that choice.
@@ -968,6 +999,41 @@ export function installGr3xFilmMessage(p: Gr3xRollProgram, text: number, redirec
     bx lr;
     clock:b #${GR3X_GET_TIME};`);
   p.patch(GR3X_MESSAGE_TEXT_AT, 0xe30012be, branchWord(GR3X_MESSAGE_TEXT_AT, entries.filmMessageText), 'film roll: « New roll loaded. » on the message screen');
+  return entries;
+}
+
+/** T17-RWD1: the Rewind Film line's id (unused; GR Mod's lists use 0x020001a0..) and Create New
+ * Folder's dialog (FolderCreateController, built by the factory for 0x02000128..0x0200012b). */
+export const GR3X_FILM_REWIND_ID = 0x020001b1, GR3X_FOLDER_DIALOG_ID = 0x02000128;
+/** T17-RWD1: the dialog is the rewind's (1, set by the factory for the Rewind Film line) or Create
+ * New Folder's (0); a byte, zero at start-up. */
+export const GR3X_REWIND_MODE = KEY_LAST + 14;
+/** FolderCreateController's sites (official 2.10): its start's card and storage checks (bl), its
+ * question's text (movw r1,#0x2ab), its Execute's action (bl 0x5358515c), its end text (movw r1,#0x2bb). */
+const DIALOG_CARD = 0x531e6558, DIALOG_CARD_FN = 0x53237460, DIALOG_STORAGE = 0x531e6568, DIALOG_STORAGE_FN = 0x531e64a8;
+const DIALOG_QUESTION = 0x531e5ee8, DIALOG_ACTION = 0x531e65c8, DIALOG_ACTION_FN = 0x5358515c, DIALOG_DONE = 0x531e5f40;
+
+/**
+ * T17-RWD1: Create New Folder's dialog serves the Rewind Film line (Execute / Cancel, the camera's own
+ * buttons). While the rewind byte is set: no card or storage check, our question (`question`), Execute
+ * ends the roll (`action`, filmRollRewind) instead of asking for a new folder, then our end text
+ * (`done`, « New roll loaded. ») for its 3 s. The byte is set by the factory (datestamp.ts).
+ */
+export function installGr3xFilmRewind(p: Gr3xRollProgram, question: number, done: number, action: number) {
+  const entries: Record<string, number> = {};
+  const mode = `movw ip,#${lo(GR3X_REWIND_MODE)};movt ip,#${hi(GR3X_REWIND_MODE)};ldrb ip,[ip];cmp ip,#0;`;
+  for (const at of [DIALOG_CARD, DIALOG_STORAGE, DIALOG_QUESTION, DIALOG_ACTION, DIALOG_DONE])
+    if (p.sites.some(s => s.address === at)) throw new FirmwareError('unexpected-instruction', 'IIIx film rewind: dialog already patched');
+  entries.filmRewindCard = p.code(`${mode}movne r0,#1;bxne lr;b #${DIALOG_CARD_FN};`);
+  p.patch(DIALOG_CARD, bl(DIALOG_CARD, DIALOG_CARD_FN), bl(DIALOG_CARD, entries.filmRewindCard), 'film rewind: no card check');
+  entries.filmRewindStorage = p.code(`${mode}movne r0,#0;bxne lr;b #${DIALOG_STORAGE_FN};`);
+  p.patch(DIALOG_STORAGE, bl(DIALOG_STORAGE, DIALOG_STORAGE_FN), bl(DIALOG_STORAGE, entries.filmRewindStorage), 'film rewind: no storage check');
+  entries.filmRewindQuestion = p.code(`${mode}movweq r1,#0x2ab;movwne r1,#${question};b #${DIALOG_QUESTION + 4};`);
+  p.patch(DIALOG_QUESTION, 0xe30012ab, branchWord(DIALOG_QUESTION, entries.filmRewindQuestion), 'film rewind: the question');
+  entries.filmRewindAction = p.code(`${mode}beq #${DIALOG_ACTION_FN};b #${action};`);
+  p.patch(DIALOG_ACTION, bl(DIALOG_ACTION, DIALOG_ACTION_FN), bl(DIALOG_ACTION, entries.filmRewindAction), 'film rewind: Execute ends the roll');
+  entries.filmRewindDone = p.code(`${mode}movweq r1,#0x2bb;movwne r1,#${done};b #${DIALOG_DONE + 4};`);
+  p.patch(DIALOG_DONE, 0xe30012bb, branchWord(DIALOG_DONE, entries.filmRewindDone), 'film rewind: the end text');
   return entries;
 }
 
