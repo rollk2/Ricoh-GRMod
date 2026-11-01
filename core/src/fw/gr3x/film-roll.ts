@@ -81,6 +81,9 @@ export const GR3X_NEXT_FOLDER = 0x535b742c;
 const FOLDER_HIGH = 0xc;
 /** Diagnostic words (T11-ROLL2D): round 10's zero-filled sbrk area, after its six words (round10.ts). */
 export const GR3X_ROLL_DIAG = 0x55804390;
+/** T19-CARD3: the folder services' singleton (its guard word, then the object: + 0x14 / + 0x18 the two
+ * storages' folder services; getter 0x535bb010). */
+export const GR3X_STORAGES_GUARD = 0x55357678;
 /** T19-CARD2: the folder log (3 bytes; the area's last free bytes, + 0x28 .. + 0x2f; zero at start-up). */
 const FOLDER_LOG = GR3X_ROLL_DIAG + 0x28;
 const mod = (r: string, n: number, label: string) => `${label}:cmp ${r},#${n};subhs ${r},${r},#${n};bhs ${label};`;
@@ -113,7 +116,7 @@ export interface Gr3xRollProgram {
   patch(address: number, expected: number, replacement: number, reason: string): void;
 }
 
-export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuRatio[], folders = false, diag = false, filmMenu = false, keys: false | 'sequence' | 'boot' | 'shot' = false, noReview: false | 'skip' | 'live' | 'next' | 'armed' | 'deferred' | 'logged' | 'posted' | 'closed' | 'timed' | 'timedNext' | 'plain' | 'noButtons' | 'plainId' | 'plainReview' | 'plainOff' | 'plainOff25' | 'plainOff10' | 'plainOff1' = false, folderName = false, late = false, rollEnd = false, closure: boolean | 'recall' = false, fromZero = false, rewind = false, lost: boolean | 'probe' = false) {
+export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuRatio[], folders = false, diag = false, filmMenu = false, keys: false | 'sequence' | 'boot' | 'shot' = false, noReview: false | 'skip' | 'live' | 'next' | 'armed' | 'deferred' | 'logged' | 'posted' | 'closed' | 'timed' | 'timedNext' | 'plain' | 'noButtons' | 'plainId' | 'plainReview' | 'plainOff' | 'plainOff25' | 'plainOff10' | 'plainOff1' = false, folderName = false, late = false, rollEnd = false, closure: boolean | 'recall' = false, fromZero = false, rewind = false, lost: boolean | 'probe' | 'early' = false) {
   const rec = (label: string) => records(label, filmMenu);
   const free = (at: number) => { if (p.sites.some(s => s.address === at)) throw new FirmwareError('unexpected-instruction', `IIIx film roll: ${at.toString(16)} already patched`); };
   const entries: Record<string, number> = {};
@@ -185,11 +188,27 @@ export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuR
     ldrb r2,[r6,#${GR3X_ROLL_FLAGS}];bichi r2,r2,#${GR3X_ROLL_STARTED | FOLDER_HIGH};strb r2,[r6,#${GR3X_ROLL_FLAGS}];`}
     bl #${GR3X_APP_DATA};ldr r0,[r0,#8];add r1,r4,#2;movw r2,#${RECORD};mov r3,r6;bl #${GR3X_APP_DATA_WRITE};
     b out;usual:` : '';
+  // lost 'early' (T19-CARD3): at the advance, before the counter is drawn, a going roll whose folder is
+  // on none of the two storages (the folder services of the singleton 0x5535767c, + 0x14 and + 0x18,
+  // their directory base at + 8, its table at + 0x10) is lost: frame 1 (2 after this advance) and
+  // folder 0 (SetFilePath then gives the next new folder). SetFilePath's own check stays (a folder of
+  // that number on the other storage).
+  // r2 counts the storages whose table could be read: none, no decision.
+  const slot = (off: number, label: string) => `ldr r1,[r0,#${off}];${ram('r1', label)}ldr r1,[r1,#8];${ram('r1', label)}ldr r1,[r1,#0x10];${ram('r1', label)}
+    add r2,r2,#1;ldr r1,[r1,r3,lsl #2];cmp r1,#0;bne kept;${label}:`;
+  const earlyLost = `ldrb r0,[r5,#${GR3X_ROLL_FRAME}];cmp r0,#0;beq kept;
+    ldrb r1,[r5,#${GR3X_ROLL_FLAGS}];mov r1,r1,lsr #2;and r1,r1,#3;ldrb r3,[r5,#${GR3X_ROLL_FOLDER}];orr r3,r3,r1,lsl #8;
+    sub r3,r3,#100;cmp r3,#900;bhs kept;
+    movw r0,#${lo(GR3X_STORAGES_GUARD)};movt r0,#${hi(GR3X_STORAGES_GUARD)};ldr r1,[r0];tst r1,#1;beq kept;add r0,r0,#4;mov r2,#0;
+    ${slot(0x14, 's0')}${slot(0x18, 's1')}cmp r2,#0;beq kept;
+    mov r0,#1;strb r0,[r5,#${GR3X_ROLL_FRAME}];strb r0,[r6,#${GR3X_ROLL_FRAME}];mov r0,#0;strb r0,[r5,#${GR3X_ROLL_FOLDER}];strb r0,[r6,#${GR3X_ROLL_FOLDER}];
+    ldrb r0,[r5,#${GR3X_ROLL_FLAGS}];bic r0,r0,#${FOLDER_HIGH};strb r0,[r5,#${GR3X_ROLL_FLAGS}];ldrb r0,[r6,#${GR3X_ROLL_FLAGS}];bic r0,r0,#${FOLDER_HIGH};strb r0,[r6,#${GR3X_ROLL_FLAGS}];
+    kept:`;
   entries.filmRollEnd = p.code(`${keys === 'sequence' ? keyClear : ''}push {r0,r1,r2,r3,r4,r5,r6,lr};${lateEnd}${rec('out')}
     ldrb r0,[r2,#${GR3X_ROLL_FLAGS}];tst r0,#${GR3X_ROLL_STARTED};beq out;
     movw r0,#${lo(SINGLETON)};movt r0,#${hi(SINGLETON)};ldr r0,[r0];${ram('r0', 'out')}
     ldr r0,[r0,#0x518];${ram('r0', 'out')}ldr r0,[r0];${ram('r0', 'out')}ldrb r0,[r0,#0x6c0];cmp r0,#2;bne out;
-    mov r4,r1;mov r5,r2;mov r6,r3;${folderName ? `mov r0,r5;bl #${entries.filmFolderNameSet};` : ''}
+    mov r4,r1;mov r5,r2;mov r6,r3;${folderName ? `mov r0,r5;bl #${entries.filmFolderNameSet};` : ''}${lost === 'early' ? earlyLost : ''}
     ldrb r0,[r5,#${GR3X_RATIO}];${length}
     ldrb r1,[r5,#${GR3X_ROLL_FRAME}];add r1,r1,#1;cmp r1,r0;movhi r1,#0;
     strb r1,[r5,#${GR3X_ROLL_FRAME}];strb r1,[r6,#${GR3X_ROLL_FRAME}];${rollEnd ? `movwhi ip,#${lo(NEW_ROLL_MESSAGE)};movthi ip,#${hi(NEW_ROLL_MESSAGE)};movhi r2,#1;strbhi r2,[ip];` : `strbhi r1,[r5,#${GR3X_ROLL_FOLDER}];strbhi r1,[r6,#${GR3X_ROLL_FOLDER}];
@@ -279,7 +298,7 @@ export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuR
       restore:mov r0,r4;bl #${entries.filmFolderNameRestore};done:${closure === 'recall' ? `mov r0,r4;mov r1,r5;bl #${entries.filmRollCheckAt};cmp r0,#0;beq fin;
       movw ip,#${lo(NEW_ROLL_MESSAGE)};movt ip,#${hi(NEW_ROLL_MESSAGE)};mov r0,#1;strb r0,[ip];${openMessage}fin:` : ''}pop {r4,r5,r6,pc};`);
   }
-  if (folders) installFolders(p, free, entries, diag, filmMenu, late, lost);
+  if (folders) installFolders(p, free, entries, diag, filmMenu, late, lost === 'early' ? true : lost);
   if (filmMenu) installMenu(p, entries, folderName ? entries.filmFolderNameRestore : 0);
   if (keys) installKeys(p, free, entries, keys === 'boot' || keys === 'shot', keys === 'shot');
   if (noReview === 'skip') installNoReview(p, free, entries);

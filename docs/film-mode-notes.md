@@ -2036,3 +2036,14 @@ Certitude : lu dans le code et émulé (vrai constructeur d'onglets), à tester 
   avant SetFilePath ; la remise à la vue 1 n'apparaît qu'au dessin suivant (4/xx affiché sur la carte
   B, 1/xx relu à l'allumage). Reste à rafraîchir le compteur après un rouleau perdu, ou à décider la
   perte avant l'avance.
+- Affichage (analyse) : le compteur est dessiné par `LiveViewController` (`0x531714c8` →
+  `0x532aa1d4`) dans la tâche de l'interface ; SetFilePath tourne plus tard, dans la tâche
+  d'écriture. Plutôt que d'appeler l'affichage depuis là, la perte est décidée **à l'avance**.
+- Services de dossiers : objet unique `0x5535767c` (garde `0x55357678`, getter `0x535bb010`) ;
+  `+0x14` et `+0x18` = services des deux supports (carte, mémoire interne) ; `[service + 8]` = base
+  des dossiers (même table `+0x10` que SetFilePath). Certitude : lu dans le code (`0x535a6d60`).
+- T19-CARD3 (forme `card3`, sans journal) : à l'avance, rouleau entamé (vue non nulle), dossier
+  mémorisé entre 100 et 999 absent de tous les supports lisibles (au moins un) → vue mise à 1 (2 après
+  l'avance) et dossier à 0 (SetFilePath donne le nouveau dossier) ; le contrôle de SetFilePath reste
+  (dossier de même numéro sur l'autre support). Émulation : 9 cas (absent partout, présent sur l'un
+  ou l'autre, un seul support, aucun support, pas de garde, rouleau fini, pas de dossier, 999).

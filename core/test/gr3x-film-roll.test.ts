@@ -412,4 +412,12 @@ describe.skipIf(!input)('GR III film roll (film mode phase 3.1)', () => {
     const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'card2' });
     expect(built.report.revision).toBe('T19-CARD2');
   }, 240000);
+  it('finds a lost roll at the advance (T19-CARD3)', async () => {
+    const card1 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'card1' });
+    const card3 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'card3' });
+    expect(card3.sites.map(s => s.address)).toEqual(card1.sites.map(s => s.address));
+    expect((card3.entries as Record<string, number>).filmProbeTime).toBeUndefined();
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'card3' });
+    expect(built.report.revision).toBe('T19-CARD3');
+  }, 240000);
 });
