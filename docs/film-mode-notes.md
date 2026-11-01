@@ -2068,3 +2068,6 @@ Certitude : lu dans le code.
   du menu en mode vidéo (`0x53199334` traite à part les identifiants `0x0200004c` / `0x0200004d`).
 - Octets : masquer ne libère rien ; retirer le code vidéo n'est pas réaliste (code et données
   partagés), et GR Mod ajoute son code en fin d'image sans manquer de place.
+- Build T20-VID1 (forme `vid1`, sur T19-CARD3) : premier mot du descripteur Movie Settings
+  (`0x53b37514`) vers une fonction qui renvoie 0. Émulation : visibilité des 5 onglets (seul
+  l'onglet vidéo à 0) ; T19-CARD3 reconstruit identique ; garde-fou et tests passés.

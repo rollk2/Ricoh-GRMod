@@ -1116,6 +1116,18 @@ export function installGr3xMenuRebuild(p: Gr3xRollProgram) {
   return entries;
 }
 
+/** The Movie Settings tab's descriptor: its first word is the tab's visibility (a method pointer, a
+ * function returning 1 in the camera, 0x5319665c), asked at each tab change and at the menu's start. */
+export const GR3X_MOVIE_TAB = 0x53b37514, GR3X_MOVIE_TAB_VISIBLE = 0x5319665c;
+
+/** T20-VID1: the Movie Settings tab hidden (its visibility returns 0; the movie mode itself stays). */
+export function installGr3xHideMovieTab(p: Gr3xRollProgram) {
+  if (p.sites.some(s => s.address === GR3X_MOVIE_TAB)) throw new FirmwareError('unexpected-instruction', 'IIIx movie tab: already patched');
+  const hidden = p.code('mov r0,#0;bx lr;');
+  p.patch(GR3X_MOVIE_TAB, GR3X_MOVIE_TAB_VISIBLE, hidden, 'menu: the Movie Settings tab hidden');
+  return { movieTabHidden: hidden };
+}
+
 /** The tables of methods of QuickViewController (the review) and of the message screens. */
 export const GR3X_REVIEW_VTABLE = 0x53b41380, GR3X_MESSAGE_VTABLE = 0x53b41ca8;
 /** T15-END2: the message byte cleared at each exposure (every register kept but ip). */

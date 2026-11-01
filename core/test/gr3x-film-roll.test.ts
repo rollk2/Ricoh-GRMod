@@ -420,4 +420,11 @@ describe.skipIf(!input)('GR III film roll (film mode phase 3.1)', () => {
     const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'card3' });
     expect(built.report.revision).toBe('T19-CARD3');
   }, 240000);
+  it('hides the Movie Settings tab (T20-VID1)', async () => {
+    const card3 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'card3' });
+    const vid1 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'vid1' });
+    expect(vid1.sites.map(s => s.address).filter(a => !card3.sites.some(s => s.address === a))).toEqual([0x53b37514]);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'vid1' });
+    expect(built.report.revision).toBe('T20-VID1');
+  }, 240000);
 });
