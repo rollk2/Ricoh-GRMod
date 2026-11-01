@@ -2113,3 +2113,16 @@ Certitude : lu dans le code et émulé.
 - Résultats T20-VID3 (2026-11-01) : Still/Movie et Movie Edit absents du menu ; Still/Movie absent des
   listes de Fn Button Setting, Film Advance présent ; mode pellicule, Film Roll Mode et Rembobiner
   normaux. **Masquage par identifiant et retrait d'une fonction Fn : validés.**
+
+### Fin de la partie vidéo (T20-VID4)
+
+- Décisions de l'utilisateur (2026-11-01) : retirer la fonction Fn Framerate ; renommer la touche
+  latérale sans « Movie » (« Wireless Button », et « Hold Wireless Btn. » pour l'appui long) ; ADJ
+  Mode Setting déjà vérifié par l'utilisateur (rien de vidéo). Ce build clôt le point vidéo.
+- Textes de la touche : 0x1c1 / 0x1c2 (court / long), 0x1c3 / 0x1c4 (appui long), remplacés dans les
+  21 lignes de langue par une partie du nom natif (tous les caractères existent ; par exemple
+  « Touche sans fil », « 無線ボタン », « Drahtlostaste »). Fonction Fn 16 (Framerate) refusée par le
+  filtre, avec la 17.
+- Vérifié : émulation (textes lus par la table de langues redirigée, aucune mention vidéo dans les
+  21 langues ; liste et filtre Fn sans 16 ni 17) ; T20-VID3 reconstruit identique ; garde-fou et
+  tests passés.

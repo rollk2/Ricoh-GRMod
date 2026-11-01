@@ -1165,6 +1165,36 @@ export function installGr3xHideLines(p: Gr3xRollProgram, ids: readonly number[],
   return entries;
 }
 
+/** T20-VID4: the side button's names (texts 0x1c1 short, 0x1c2 long; hold: 0x1c3, 0x1c4) without the
+ * movie, in the camera's text rows' order (ja en fr de es pt it nl da sv fi pl cs hu tr el ru ko zh-TW
+ * zh-CN th): each a part of the camera's own name in that language. */
+export const GR3X_SIDE_BUTTON_TEXTS = [0x1c1, 0x1c2, 0x1c3, 0x1c4] as const;
+export const GR3X_SIDE_BUTTON_NAMES: readonly (readonly [string, string, string, string])[] = [
+  ['無線ボタン', '無線ボタン', '無線ボタン長押し', '無線ボタン長押し'],
+  ['Wireless Button', 'Wireless Button', 'Hold Wireless Btn.', 'Hold Wireless Button'],
+  ['Touche sans fil', 'Touche liaison sans fil', 'Maint. tche sans fil', 'Maintenir touche liaison sans fil'],
+  ['Drahtlostaste', 'Drahtlostaste', 'Drahtlostaste halten', 'Drahtlostaste halten'],
+  ['Botón inalámbrico', 'Botón inalámbrico', 'Botón Mant. inalám.', 'Botón Mantener inalámbrico'],
+  ['Botão Sem Fios', 'Botão Sem Fios', 'Botão Manter Sem Fios', 'Botão Manter Sem Fios'],
+  ['Puls. Wireless', 'Pulsante Wireless', 'Mant. Wireless', 'Pressione prolungata pulsante Wireless'],
+  ['Knop draadloos', 'Knop draadloos', 'Draadl. indrukken', 'Knop draadloos ingedrukt houden'],
+  ['Trådløs knap', 'Trådløs knap', 'Hold Trådløs knap', 'Hold Trådløs knap'],
+  ['Wi-Fi-knapp', 'Wi-Fi-knapp', 'Håll Wi-Fi', 'Tryck ner Wi-Fi-knapp'],
+  ['Langaton painike', 'Langaton painike', 'Pito lan:tonpnk', 'Pito langaton painike'],
+  ['Przycisk bezprz', 'Przycisk bezprz', 'Prz wstrz bezprz', 'Prz wstrz bezprz'],
+  ['Tlačítko bezdr.', 'Tlačítko bezdrátové', 'Tl. podr. bezd.', 'Tlačítko podržet bezdrátové'],
+  ['Veze. n. gomb', 'Vezeték nélküli gomb', 'Tartás v. n. gomb', 'Tartás vezeték nélküli gomb'],
+  ['Kablosuz Düğmesi', 'Kablosuz Düğmesi', 'Tut Kablsz Düğ.', 'Tut Kablosuz Düğmesi'],
+  ['Κουμπί Ασύρμ.', 'Κουμπί Ασύρματου', 'Κουμπί αναμ. Ασύρμ.', 'Κουμπί αναμονής Ασύρμ.'],
+  ['Кн. беспр.св.', 'Кнопка беспроводной связи', 'Кн.удерж. б.св.', 'Кнопка удержания беспр. связи'],
+  ['무선 버튼', '무선 버튼', '무선버튼 긴누름', '무선버튼 긴누름'],
+  ['無線按鈕', '無線按鈕', '長按無線按鈕', '長按無線按鈕'],
+  ['无线按钮', '无线按钮', '长按无线按钮', '长按无线按钮'],
+  ['ปุ่มไร้สาย', 'ปุ่มไร้สาย', 'กดปุ่มไร้สายค้าง', 'กดปุ่มไร้สายค้าง'],
+];
+/** T20-VID4: the Fn function Framerate (16), movie only, also taken out of the button lists. */
+export const GR3X_FN_FRAMERATE = 16;
+
 /** The tables of methods of QuickViewController (the review) and of the message screens. */
 export const GR3X_REVIEW_VTABLE = 0x53b41380, GR3X_MESSAGE_VTABLE = 0x53b41ca8;
 /** T15-END2: the message byte cleared at each exposure (every register kept but ip). */

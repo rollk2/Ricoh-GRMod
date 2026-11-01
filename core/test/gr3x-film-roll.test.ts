@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 import { buildGr3xAdjResearch } from '../src/fw/gr3x/adj';
 import { planGr3xMenu } from '../src/fw/gr3x/geometry';
 import { buildGr3xTestFirmware } from '../src/fw/gr3x/research-package';
-import { GR3X_BOX_SAVE, GR3X_ROLL_COUNTER, GR3X_ROLL_MODEL_END, GR3X_FILM_REWIND_NAMES, GR3X_FILM_REWIND_QUESTIONS } from '../src/fw/gr3x/film-roll';
+import { GR3X_BOX_SAVE, GR3X_ROLL_COUNTER, GR3X_ROLL_MODEL_END, GR3X_FILM_REWIND_NAMES, GR3X_FILM_REWIND_QUESTIONS, GR3X_SIDE_BUTTON_NAMES } from '../src/fw/gr3x/film-roll';
 import { GR3X_RECALL_COPY } from '../src/fw/gr3x/guard';
 import { GR3X_FOLDER_MARK, GR3X_SET_FILE_PATH } from '../src/fw/gr3x/film-probe';
 import { GR3X_CUSTOM_ENTRY_IMAGE, GR3X_CUSTOM_MENU, GR3X_FILM_MENU_ID } from '../src/fw/gr3x/datestamp';
@@ -440,5 +440,13 @@ describe.skipIf(!input)('GR III film roll (film mode phase 3.1)', () => {
     expect(vid3.sites.map(s => s.address).filter(a => !vid2.sites.some(s => s.address === a)).sort((a, b) => a - b)).toEqual([0x5319a978, 0x531b9410]);
     const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'vid3' });
     expect(built.report.revision).toBe('T20-VID3');
+  }, 240000);
+  it('takes Framerate out and names the side button without the movie (T20-VID4)', async () => {
+    const vid3 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'vid3' });
+    const vid4 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'vid4' });
+    expect(vid4.sites.map(s => s.address)).toEqual(vid3.sites.map(s => s.address));
+    expect(GR3X_SIDE_BUTTON_NAMES).toHaveLength(21);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'vid4' });
+    expect(built.report.revision).toBe('T20-VID4');
   }, 240000);
 });
