@@ -1956,3 +1956,21 @@ Construit sur T17-MSG1 (forme `rwd1`). Certitude : vérifié en émulateur, à t
   d'origine ; Rembobiner sur un rouleau à 0 : message puis 0/xx, sans gel.
   **Ligne Rembobiner : validée.** Reste : lignes visibles en P quand le menu a d'abord été ouvert en
   U (menu construit une seule fois) ; demande de l'utilisateur : les griser en P.
+
+### Griser une ligne : analyse statique (2026-11-01)
+
+Certitude : lu dans le code ; recherche non exhaustive.
+
+- Les fonctions de dessin des lignes (relevé de toutes les lignes des 5 onglets) n'appellent que des
+  fonctions qui posent icône, valeur et texte (`0x5339de20`, `0x5339de6c`, `0x5339df08`,
+  `0x5339debc`, titre `0x5339dc70`, qui affichent et remplissent des widgets) : aucune ne règle un
+  état grisé.
+- Le choix d'une ligne (`0x53198b38`, appelé si l'état `+0x1f0` vaut 2) lit l'identifiant de la
+  ligne visible (`[menu + 0x3e4 + 4 × (0xe1 × onglet + ligne)]`) et ouvre l'écran correspondant,
+  sans aucun test d'autorisation.
+- Le descripteur d'onglet n'a que trois colonnes par ligne (dessin, identifiant, visibilité).
+- Conclusion : aucun mécanisme de grisé trouvé ; le boîtier masque les lignes (ND, HDF), il ne
+  semble pas les griser. Ma remarque « le boîtier sait griser » était une supposition fausse.
+- Le constructeur d'onglets `0x5319a778` n'est appelé que par le constructeur du menu, une seule
+  fois (emplacement `+0x74` de la fabrique). Piste pour masquer en P : le rappeler à chaque ouverture
+  du menu ; risque à étudier : la position mémorisée du curseur dans le menu C.
