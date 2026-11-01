@@ -2196,3 +2196,6 @@ Certitude : lu dans le code et émulé.
   RGB perd le `_` initial du DCF.
 - Vérifié : émulation (NEG_, STD_, FLM_ ; natif en P, en U sans Film Roll Mode, hors mode U) ;
   T21-TAB1 reconstruit identique ; garde-fou et tests passés.
+- Résultats T22-NAME1 (2026-11-01) : photo du rouleau `NEG_xxxx.JPG`, photo P `R00xxxxx.JPG`,
+  numérotation continue entre les deux, fichiers lisibles sur l'ordinateur et en lecture sur le
+  boîtier. **Noms de fichiers du mode pellicule : validés.**
