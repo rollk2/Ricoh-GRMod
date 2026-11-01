@@ -2047,3 +2047,7 @@ Certitude : lu dans le code et émulé (vrai constructeur d'onglets), à tester 
   l'avance) et dossier à 0 (SetFilePath donne le nouveau dossier) ; le contrôle de SetFilePath reste
   (dossier de même numéro sur l'autre support). Émulation : 9 cas (absent partout, présent sur l'un
   ou l'autre, un seul support, aucun support, pas de garde, rouleau fini, pas de dossier, 999).
+- Résultats T19-CARD3 (2026-11-01) : carte A, 2 vues ; carte B (sans le dossier du rouleau) : une vue
+  + Film Advance → **1/xx tout de suite** ; vue suivante → 2/xx, même nouveau dossier.
+  **Carte changée / dossier supprimé : validé.** (Dossier de même numéro sur une autre carte : chemin
+  natif « dossier trouvé », déjà validé en T11 avec un dossier existant.)
