@@ -307,4 +307,12 @@ describe.skipIf(!input)('GR III film roll (film mode phase 3.1)', () => {
     const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'dir13' });
     expect(built.report.revision).toBe('T14-DIR13');
   }, 240000);
+  it('counts a frame ended by the mode dial in its own roll (T14-DIR14)', async () => {
+    const dir13 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'dir13' });
+    const dir14 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'dir14' });
+    expect(dir14.sites.map(s => s.address)).toEqual(dir13.sites.map(s => s.address));
+    expect(dir14.append.bytes).not.toBe(dir13.append.bytes);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'dir14' });
+    expect(built.report.revision).toBe('T14-DIR14');
+  }, 240000);
 });

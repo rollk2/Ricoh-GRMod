@@ -116,11 +116,12 @@ def verify(data,manifest,seed=3101):
     count=lambda k:cases.__setitem__(k,cases.get(k,0)+1)
     cpu.mem_write(OBJ+8,struct.pack('<I',STORE))
     cpu.mem_write(LIVE_CELL,struct.pack('<I',LIVE_OBJ))
-    if manifest['filmRoll'] in ('dir1','dir2','dir3','dg1','dg2','dg3','dir4','dir5','dir6','dir7','dir8','dir9','dir10','dir11','dir12','dir13'):p.dir_stubs=True
+    if manifest['filmRoll'] in ('dir1','dir2','dir3','dg1','dg2','dg3','dir4','dir5','dir6','dir7','dir8','dir9','dir10','dir11','dir12','dir13','dir14'):p.dir_stubs=True
     def roll_name(rec):
         L=LENGTHS.get(rec[RATIO],36) if rec[RATIO]<=max_id else 36
         return (LOOK_CODES.get(rec[0x1c2],'FLM')+'%02d'%L).encode()+b'\0'
-    menu_form=manifest['filmRoll'] in ('menu','keys','fn','fn2','fn3','fn4','fn5','rt1','fn6','fn7','dir1','dir2','dir3','dg1','dg2','dg3','dir4','dir5','dir6','dir7','dir8','dir9','dir10','dir11','dir12','dir13');keys_form=manifest['filmRoll']=='keys';fn_form=manifest['filmRoll'] in ('fn','fn2','fn3','fn4','fn5','rt1','fn6','fn7','dir1','dir2','dir3','dg1','dg2','dg3','dir4','dir5','dir6','dir7','dir8','dir9','dir10','dir11','dir12','dir13');fn2=manifest['filmRoll']=='fn2';fn3=manifest['filmRoll']=='fn3';fn4=manifest['filmRoll'] in ('fn4','fn5','rt1','fn6','fn7','dir1');fn7=manifest['filmRoll'] in ('fn7','dir1','dir2','dir3','dg1','dg2','dg3','dir4','dir5','dir6','dir7','dir8','dir9','dir10','dir11','dir12','dir13');dir1=manifest['filmRoll'] in ('dir1','dir2','dir3','dg1','dg2','dg3','dir4','dir5','dir6','dir7','dir8','dir9','dir10','dir11','dir12','dir13');dir4=manifest['filmRoll'] in ('dir4','dir5');dir6=manifest['filmRoll']=='dir6';dir7=manifest['filmRoll']=='dir7';dir8=manifest['filmRoll'] in ('dir8','dir9','dir10','dir11','dir12','dir13');dir9=manifest['filmRoll'] in ('dir9','dir10','dir11','dir12','dir13');dir10=manifest['filmRoll'] in ('dir10','dir11','dir12','dir13');dir11=manifest['filmRoll']=='dir11';dir12=manifest['filmRoll']=='dir12';dir13=manifest['filmRoll']=='dir13';dir5=manifest['filmRoll']=='dir5';dir2=manifest['filmRoll'] in ('dir2','dir3','dg1');dir3=manifest['filmRoll'] in ('dir3','dg1','dg2','dg3','dir4','dir5','dir6','dir7','dir8','dir9','dir10','dir11','dir12','dir13');dg2=manifest['filmRoll'] in ('dg2','dg3');dg3=manifest['filmRoll']=='dg3';dg1=manifest['filmRoll'] in ('dg1','dg2','dg3');fn5=manifest['filmRoll'] in ('fn5','rt1','fn6');rt1=manifest['filmRoll']=='rt1';fn6=manifest['filmRoll']=='fn6'
+    late=manifest['filmRoll']=='dir14';PEND_FRAME=0x5580439b
+    menu_form=manifest['filmRoll'] in ('menu','keys','fn','fn2','fn3','fn4','fn5','rt1','fn6','fn7','dir1','dir2','dir3','dg1','dg2','dg3','dir4','dir5','dir6','dir7','dir8','dir9','dir10','dir11','dir12','dir13','dir14');keys_form=manifest['filmRoll']=='keys';fn_form=manifest['filmRoll'] in ('fn','fn2','fn3','fn4','fn5','rt1','fn6','fn7','dir1','dir2','dir3','dg1','dg2','dg3','dir4','dir5','dir6','dir7','dir8','dir9','dir10','dir11','dir12','dir13','dir14');fn2=manifest['filmRoll']=='fn2';fn3=manifest['filmRoll']=='fn3';fn4=manifest['filmRoll'] in ('fn4','fn5','rt1','fn6','fn7','dir1');fn7=manifest['filmRoll'] in ('fn7','dir1','dir2','dir3','dg1','dg2','dg3','dir4','dir5','dir6','dir7','dir8','dir9','dir10','dir11','dir12','dir13','dir14');dir1=manifest['filmRoll'] in ('dir1','dir2','dir3','dg1','dg2','dg3','dir4','dir5','dir6','dir7','dir8','dir9','dir10','dir11','dir12','dir13','dir14');dir4=manifest['filmRoll'] in ('dir4','dir5');dir6=manifest['filmRoll']=='dir6';dir7=manifest['filmRoll']=='dir7';dir8=manifest['filmRoll'] in ('dir8','dir9','dir10','dir11','dir12','dir13','dir14');dir9=manifest['filmRoll'] in ('dir9','dir10','dir11','dir12','dir13','dir14');dir10=manifest['filmRoll'] in ('dir10','dir11','dir12','dir13','dir14');dir11=manifest['filmRoll']=='dir11';dir12=manifest['filmRoll']=='dir12';dir13=manifest['filmRoll'] in ('dir13','dir14');dir14=manifest['filmRoll']=='dir14';dir5=manifest['filmRoll']=='dir5';dir2=manifest['filmRoll'] in ('dir2','dir3','dg1');dir3=manifest['filmRoll'] in ('dir3','dg1','dg2','dg3','dir4','dir5','dir6','dir7','dir8','dir9','dir10','dir11','dir12','dir13','dir14');dg2=manifest['filmRoll'] in ('dg2','dg3');dg3=manifest['filmRoll']=='dg3';dg1=manifest['filmRoll'] in ('dg1','dg2','dg3');fn5=manifest['filmRoll'] in ('fn5','rt1','fn6');rt1=manifest['filmRoll']=='rt1';fn6=manifest['filmRoll']=='fn6'
     def setup(mode,cur=None,box=None,model=True,pointer=True,state=2,film=True):
         cur=bytearray(rng.randrange(256) for _ in range(SIZE)) if cur is None else bytearray(cur)
         # Form 'menu': the record in use's Film Roll Mode (bit 0 of 0x9b1) on unless asked off.
@@ -134,6 +135,7 @@ def verify(data,manifest,seed=3101):
         cpu.mem_write(STORED,b''.join(struct.pack('<I',BOXES+i*0x1000) for i in range(8)))
         cpu.mem_write(SINGLETON,struct.pack('<I',LIVE1));cpu.mem_write(LIVE1+0x518,struct.pack('<I',LIVE2));cpu.mem_write(LIVE2,struct.pack('<I',LIVE3))
         cpu.mem_write(LIVE3+0x6c0,bytes([state]))
+        if late:cpu.mem_write(PEND_FRAME,b'\0')
         return cur,boxes
     def state():
         return bytes(cpu.mem_read(CUR,SIZE)),[bytes(cpu.mem_read(BOXES+i*0x1000,SIZE)) for i in range(8)]
@@ -151,7 +153,9 @@ def verify(data,manifest,seed=3101):
                 cpu.mem_write(CUR,bytes(cur))
                 for i,b in enumerate(boxes):cpu.mem_write(BOXES+i*0x1000,bytes(b))
                 cpu.mem_write(SINGLETON,bytes(4))
+                if late:cpu.mem_write(PEND_FRAME,b'\x83')
                 regs={0:5,1:6,2:7,3:8};p.run(hook,BEFORE_EXPOSE+4,regs);count('exposure');kept(regs,True)
+                if late:assert cpu.mem_read(PEND_FRAME,1)[0]==(mode if 1<=mode<=6 and model and pointer else 0),(mode,model,pointer)
                 c2,b2=state()
                 want_c,want_b=bytearray(cur),[bytearray(b) for b in boxes]
                 if 1<=mode<=6 and not started and model and pointer:
@@ -238,7 +242,7 @@ def verify(data,manifest,seed=3101):
             assert got[DRIVE]==(3 if forced else src[DRIVE]),(mode,got[DRIVE])
             assert bytes(cpu.mem_read(RECS+(1+mode)*0x1000,SIZE))==src
     # 6. Form 'folders': the roll's folder at SetFilePath's entry.
-    folders=manifest['filmRoll'] in ('folders','folders-diag','menu','keys','fn','fn2','fn3','fn4','fn5','rt1','fn6','fn7','dir1','dir2','dir3','dg1','dg2','dg3','dir4','dir5','dir6','dir7','dir8','dir9','dir10','dir11','dir12','dir13');diag=manifest['filmRoll']=='folders-diag'
+    folders=manifest['filmRoll'] in ('folders','folders-diag','menu','keys','fn','fn2','fn3','fn4','fn5','rt1','fn6','fn7','dir1','dir2','dir3','dg1','dg2','dg3','dir4','dir5','dir6','dir7','dir8','dir9','dir10','dir11','dir12','dir13','dir14');diag=manifest['filmRoll']=='folders-diag'
     D=0x55804390
     def diag_check(given,code_want,next_want,ret,calls_before):
         d=bytes(cpu.mem_read(D,8))
@@ -715,6 +719,55 @@ def verify(data,manifest,seed=3101):
                             assert ((cpu.reg_read(reg.UC_ARM_REG_CPSR)>>30)&1)==(want==0)
                             for k in (1,2,3,4,6):assert cpu.reg_read(getattr(reg,'UC_ARM_REG_R%d'%k))==regs[k]
                             assert cpu.reg_read(reg.UC_ARM_REG_SP)==STACK and state()==before
+    # 25. Form 'dir14': a frame ended after another mode was recalled (the mode dial) counts in its roll.
+    if late:
+        for cur_mode in (0,2,3,7):
+            for pend in (0,3,3|0x80,5):
+                for started in (False,True):
+                    for st in (0,2):
+                        ratio=0;frame=7
+                        cur,boxes=setup(cur_mode,state=st)
+                        for i in range(8):
+                            boxes[i][FLAGS]=(boxes[i][FLAGS]&~2)|(2 if started else 0);boxes[i][FRAME]=frame;boxes[i][RATIO]=ratio
+                            cpu.mem_write(BOXES+i*0x1000,bytes(boxes[i]))
+                        cur[FLAGS]=(cur[FLAGS]&~2)|(2 if started else 0);cur[FRAME]=frame;cur[RATIO]=ratio;cpu.mem_write(CUR,bytes(cur))
+                        cpu.mem_write(PEND_FRAME,bytes([pend]))
+                        p.writes=[];p.live=[];regs={0:0xa1,1:0xb2,2:0xc3,3:0xd4,4:0x44,5:0x55,6:0x66}
+                        p.run(MODEL_END,MODEL_END+4,regs);count('late end');kept(regs,True)
+                        c2,b2=state();want_c,want_b=bytearray(cur),[bytearray(b) for b in boxes]
+                        pm=pend&7
+                        lateadv=pend and not pend&0x80 and pm!=cur_mode and started and st==2
+                        normal=not lateadv and 1<=cur_mode<=6 and started and st==2
+                        if lateadv:
+                            want_b[pm][FRAME]=frame+1
+                            assert p.writes==[(STORE,pm+2,0xb26,BOXES+pm*0x1000)],p.writes
+                            assert cpu.mem_read(PEND_FRAME,1)[0]==pm|0x80;count('late advance')
+                        elif normal:
+                            for b in (want_c,want_b[cur_mode]):b[FRAME]=frame+1
+                            assert p.writes==[(STORE,1,0xb26,CUR),(STORE,cur_mode+2,0xb26,BOXES+cur_mode*0x1000)],p.writes
+                            assert cpu.mem_read(PEND_FRAME,1)[0]==pend
+                        else:assert p.writes==[] and cpu.mem_read(PEND_FRAME,1)[0]==pend
+                        assert c2==bytes(want_c) and b2==[bytes(b) for b in want_b],(cur_mode,pend,started,st)
+        # SetFilePath: the pending frame's picture goes to its roll's folder.
+        for cur_mode in (0,2,3):
+            for pend in (0,3,3|0x80):
+                for folder in (105,0):
+                    dirs([100,105,112],112);p.next=113
+                    cur,boxes=setup(cur_mode)
+                    cur[FLAGS]&=~2
+                    for i in range(1,7):boxes[i][FLAGS]&=~2;enc(boxes[i],0)
+                    boxes[3][FLAGS]|=2;enc(boxes[3],folder)
+                    if cur_mode==3:cur=bytearray(boxes[3]);cur[FLAGS]|=1
+                    cpu.mem_write(CUR,bytes(cur))
+                    for i,b in enumerate(boxes):cpu.mem_write(BOXES+i*0x1000,bytes(b))
+                    cpu.mem_write(PEND_FRAME,bytes([pend]))
+                    path,got,raw=run(0)
+                    to_roll=(pend&7)==3 and cur_mode!=3 or cur_mode==3
+                    want=(folder or 113) if to_roll else 0
+                    assert got==want,(cur_mode,pend,folder,got,want)
+                    if to_roll and not folder:
+                        b3=bytes(cpu.mem_read(BOXES+3*0x1000,SIZE));assert dec(bytearray(b3))==113
+                    count('late folder' if (pend&7)==3 and cur_mode!=3 else 'folder, no late')
     # 15. Form 'fn6': Retake cancels the whole frame (flag at 0x55804398).
     if fn6:
         FLAG=0x55804398;OBJR=0x63057000
@@ -824,7 +877,7 @@ def verify(data,manifest,seed=3101):
         cpu.mem_write(K,bytes([9,3,0,0, 10,3,0,0, 11,2,0,0, 130,40,0,0])+bytes(1));assert clock()==date(130,40,9,3)
         cpu.mem_write(K,bytes([9,3,0,0, 10,7,0,0, 11,2,0,0])+bytes(5));assert clock()==date(10,7,9,3)
         cpu.mem_write(K,bytes([200,1,0,0])+bytes(13));assert clock()==date(200,1,0,0)
-    return dict(schema=1,revision='T14-DIR13' if dir13 else 'T14-DIR12' if dir12 else 'T14-DIR11' if dir11 else 'T14-DIR10' if dir10 else 'T14-DIR9' if dir9 else 'T14-DIR8' if dir8 else 'T14-DIR7' if dir7 else 'T14-DIR6' if dir6 else 'T14-DIR5' if dir5 else 'T14-DIR4' if dir4 else 'T14-DG3' if dg3 else 'T14-DG2' if dg2 else 'T14-DG1' if dg1 else 'T14-DIR3' if dir3 else 'T14-DIR2' if dir2 else 'T14-DIR1' if dir1 else 'T13-FN7' if fn7 else 'T13-FN6' if fn6 else 'T13-RT1' if rt1 else 'T13-FN5' if fn5 else 'T13-FN4' if fn4 else 'T13-FN3' if fn3 else 'T13-FN2' if fn2 else 'T13-FN1' if fn_form else 'T12-KEYS2' if keys_form else 'T12-MENU2' if menu_form else 'T11-ROLL2D' if diag else 'T11-ROLL3' if folders else 'T11-ROLL1',rtos_sha256=hashlib.sha256(data).hexdigest(),cases=cases,seed=seed,hardware_tested=False,
+    return dict(schema=1,revision='T14-DIR14' if dir14 else 'T14-DIR13' if dir13 else 'T14-DIR12' if dir12 else 'T14-DIR11' if dir11 else 'T14-DIR10' if dir10 else 'T14-DIR9' if dir9 else 'T14-DIR8' if dir8 else 'T14-DIR7' if dir7 else 'T14-DIR6' if dir6 else 'T14-DIR5' if dir5 else 'T14-DIR4' if dir4 else 'T14-DG3' if dg3 else 'T14-DG2' if dg2 else 'T14-DG1' if dg1 else 'T14-DIR3' if dir3 else 'T14-DIR2' if dir2 else 'T14-DIR1' if dir1 else 'T13-FN7' if fn7 else 'T13-FN6' if fn6 else 'T13-RT1' if rt1 else 'T13-FN5' if fn5 else 'T13-FN4' if fn4 else 'T13-FN3' if fn3 else 'T13-FN2' if fn2 else 'T13-FN1' if fn_form else 'T12-KEYS2' if keys_form else 'T12-MENU2' if menu_form else 'T11-ROLL2D' if diag else 'T11-ROLL3' if folders else 'T11-ROLL1',rtos_sha256=hashlib.sha256(data).hexdigest(),cases=cases,seed=seed,hardware_tested=False,
         scope='Hooks run from their patched sites (firmware storage and the native BOX save body substituted); the recall runs natively.')
 
 if __name__=='__main__':

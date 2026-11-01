@@ -1682,3 +1682,17 @@ Lecture (attention : MM = valeur du test + 2, HH = phase + 1) :
   nouveau dossier (141).** Le rappel du mode P a lieu avant la fin de séquence : la fin du modèle et
   `SetFilePath` voient déjà le mode P (mode libre, plus grand dossier = dossier d'un rouleau, donc
   nouveau dossier).
+
+### Build de test T14-DIR14 : la vue terminée par la molette
+
+- Octet `0x5580439b` (nul au démarrage) : à chaque exposition, le mode U de la vue en mode pellicule
+  (0 sinon) ; + 0x80 une fois la vue avancée en retard.
+- Fin du modèle : si ce mode diffère du mode en cours (rappel déjà fait par la molette), que son
+  rouleau est entamé et l'état 2 : avance du rouleau de cette BOX seule (fin de rouleau comprise),
+  écriture de son fichier `APData` (index mode + 2), rien d'autre.
+- `SetFilePath` : dans ce cas, l'image va dans le dossier du rouleau de cette BOX (nouveau dossier
+  noté dans la BOX s'il manque).
+- Vérifié en émulateur (64 fins, 18 chemins de dossier, exposition) ; T14-DIR13 et T13-FN1
+  reconstruits identiques ; sondes repassées.
+- Remarque à traiter avec la fin de rouleau : à la dernière vue, le rouleau est clos à la fin du modèle,
+  avant `SetFilePath` ; l'image de la dernière vue risque d'aller dans un nouveau dossier.

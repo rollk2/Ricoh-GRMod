@@ -110,7 +110,7 @@ export interface Gr3xRollProgram {
   patch(address: number, expected: number, replacement: number, reason: string): void;
 }
 
-export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuRatio[], folders = false, diag = false, filmMenu = false, keys: false | 'sequence' | 'boot' | 'shot' = false, noReview: false | 'skip' | 'live' | 'next' | 'armed' | 'deferred' | 'logged' | 'posted' | 'closed' | 'timed' | 'timedNext' | 'plain' | 'noButtons' | 'plainId' | 'plainReview' | 'plainOff' | 'plainOff25' | 'plainOff10' | 'plainOff1' = false, folderName = false) {
+export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuRatio[], folders = false, diag = false, filmMenu = false, keys: false | 'sequence' | 'boot' | 'shot' = false, noReview: false | 'skip' | 'live' | 'next' | 'armed' | 'deferred' | 'logged' | 'posted' | 'closed' | 'timed' | 'timedNext' | 'plain' | 'noButtons' | 'plainId' | 'plainReview' | 'plainOff' | 'plainOff25' | 'plainOff10' | 'plainOff1' = false, folderName = false, late = false) {
   const rec = (label: string) => records(label, filmMenu);
   const free = (at: number) => { if (p.sites.some(s => s.address === at)) throw new FirmwareError('unexpected-instruction', `IIIx film roll: ${at.toString(16)} already patched`); };
   const entries: Record<string, number> = {};
@@ -120,7 +120,10 @@ export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuR
 
   // The first exposure: every register kept (the flags are free at a function's entry).
   // ('shot', T13-FN3: the key probe's table cleared at each exposure first.)
-  const exposure = `${keys === 'shot' ? keyClear : ''}push {r0,r1,r2,r3};${rec('rollkept')}
+  // late (T14-DIR14): the U mode of the frame being exposed (0 elsewhere), for a frame ended after
+  // another mode was recalled (the mode dial): its BOX's roll advances and keeps the picture.
+  const pendingAt = `movw ip,#${lo(PENDING_FRAME)};movt ip,#${hi(PENDING_FRAME)};`;
+  const exposure = `${keys === 'shot' ? keyClear : ''}push {r0,r1,r2,r3};${late ? `${pendingAt}mov r0,#0;strb r0,[ip];` : ''}${rec('rollkept')}${late ? `${pendingAt}strb r1,[ip];` : ''}
     ldrb r0,[r2,#${GR3X_ROLL_FLAGS}];tst r0,#${GR3X_ROLL_STARTED};bne rollkept;
     orr r0,r0,#${GR3X_ROLL_STARTED};bic r0,r0,#${FOLDER_HIGH};strb r0,[r2,#${GR3X_ROLL_FLAGS}];
     ldrb r0,[r3,#${GR3X_ROLL_FLAGS}];orr r0,r0,#${GR3X_ROLL_STARTED};bic r0,r0,#${FOLDER_HIGH};strb r0,[r3,#${GR3X_ROLL_FLAGS}];
@@ -155,7 +158,22 @@ export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuR
 
   // The model's end: advance, then save both records; every register kept.
   free(GR3X_ROLL_MODEL_END);
-  entries.filmRollEnd = p.code(`${keys === 'sequence' ? keyClear : ''}push {r0,r1,r2,r3,r4,r5,r6,lr};${rec('out')}
+  // late: a frame of another U mode (still pending, not handled yet): that BOX's roll advances and is
+  // saved (its record only), then nothing else (the mode in use took no frame).
+  const lateEnd = late ? `${pendingAt}ldrb r0,[ip];cmp r0,#0;beq usual;tst r0,#0x80;bne usual;
+    movw r1,#${lo(MODEL)};movt r1,#${hi(MODEL)};ldr r1,[r1];${ram('r1', 'usual')}ldrb r1,[r1];cmp r1,r0;beq usual;
+    movw r6,#${lo(STORED)};movt r6,#${hi(STORED)};ldr r6,[r6,r0,lsl #2];${ram('r6', 'usual')}
+    ldrb r2,[r6,#${GR3X_ROLL_FLAGS}];tst r2,#${GR3X_ROLL_STARTED};beq usual;mov r4,r0;
+    movw r0,#${lo(SINGLETON)};movt r0,#${hi(SINGLETON)};ldr r0,[r0];${ram('r0', 'usual')}
+    ldr r0,[r0,#0x518];${ram('r0', 'usual')}ldr r0,[r0];${ram('r0', 'usual')}ldrb r0,[r0,#0x6c0];cmp r0,#2;bne usual;
+    orr r0,r4,#0x80;strb r0,[ip];
+    ldrb r0,[r6,#${GR3X_RATIO}];${length.replace('len:', 'llen:').replace(/beq len;/g, 'beq llen;')}
+    ldrb r1,[r6,#${GR3X_ROLL_FRAME}];add r1,r1,#1;cmp r1,r0;movhi r1,#0;
+    strb r1,[r6,#${GR3X_ROLL_FRAME}];strbhi r1,[r6,#${GR3X_ROLL_FOLDER}];
+    ldrb r2,[r6,#${GR3X_ROLL_FLAGS}];bichi r2,r2,#${GR3X_ROLL_STARTED | FOLDER_HIGH};strb r2,[r6,#${GR3X_ROLL_FLAGS}];
+    bl #${GR3X_APP_DATA};ldr r0,[r0,#8];add r1,r4,#2;movw r2,#${RECORD};mov r3,r6;bl #${GR3X_APP_DATA_WRITE};
+    b out;usual:` : '';
+  entries.filmRollEnd = p.code(`${keys === 'sequence' ? keyClear : ''}push {r0,r1,r2,r3,r4,r5,r6,lr};${lateEnd}${rec('out')}
     ldrb r0,[r2,#${GR3X_ROLL_FLAGS}];tst r0,#${GR3X_ROLL_STARTED};beq out;
     movw r0,#${lo(SINGLETON)};movt r0,#${hi(SINGLETON)};ldr r0,[r0];${ram('r0', 'out')}
     ldr r0,[r0,#0x518];${ram('r0', 'out')}ldr r0,[r0];${ram('r0', 'out')}ldrb r0,[r0,#0x6c0];cmp r0,#2;bne out;
@@ -208,7 +226,7 @@ export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuR
       sub r0,r5,#1;cmp r0,#5;bhi restore;ldrb r0,[r4,#${GR3X_ROLL_FLAGS}];tst r0,#${GR3X_FILM_ON};bne done;
       restore:mov r0,r4;bl #${entries.filmFolderNameRestore};done:pop {r4,r5,r6,pc};`);
   }
-  if (folders) installFolders(p, free, entries, diag, filmMenu);
+  if (folders) installFolders(p, free, entries, diag, filmMenu, late);
   if (filmMenu) installMenu(p, entries, folderName ? entries.filmFolderNameRestore : 0);
   if (keys) installKeys(p, free, entries, keys === 'boot' || keys === 'shot', keys === 'shot');
   if (noReview === 'skip') installNoReview(p, free, entries);
@@ -223,7 +241,7 @@ export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuR
 }
 
 /** The roll's folder at SetFilePath's entry (r0 service, r2 path); every register kept. */
-function installFolders(p: Gr3xRollProgram, free: (at: number) => void, entries: Record<string, number>, diag: boolean, film: boolean) {
+function installFolders(p: Gr3xRollProgram, free: (at: number) => void, entries: Record<string, number>, diag: boolean, film: boolean, late = false) {
   free(GR3X_SET_FILE_PATH);
   const D = GR3X_ROLL_DIAG, at = `movw ip,#${lo(D)};movt ip,#${hi(D)};`;
   const code = (n: number) => diag ? `${at}mov lr,#${n};strb lr,[ip,#2];` : '';
@@ -237,16 +255,22 @@ function installFolders(p: Gr3xRollProgram, free: (at: number) => void, entries:
   const exit = `movw ip,#${lo(D - 4)};movt ip,#${hi(D - 4)};str lr,[ip];bl #${tramp};
     movw ip,#${lo(D - 4)};movt ip,#${hi(D - 4)};${result}ldr lr,[ip];bx lr;`;
   // r0 = the folder of the record or copy in r0 (0x9b3 | (0x9b1 bits 2..3) << 8); r1 used.
+  // late (T14-DIR14): the picture of a frame of another U mode (the pending frame, see the model's
+  // end) goes to that mode's roll (its BOX record in r2 and r3).
+  const lateFolder = `movw ip,#${lo(PENDING_FRAME)};movt ip,#${hi(PENDING_FRAME)};ldrb r0,[ip];and r0,r0,#7;cmp r0,#0;beq usual;
+    movw r1,#${lo(MODEL)};movt r1,#${hi(MODEL)};ldr r1,[r1];${ram('r1', 'usual')}ldrb r1,[r1];cmp r1,r0;beq usual;
+    movw r3,#${lo(STORED)};movt r3,#${hi(STORED)};ldr r3,[r3,r0,lsl #2];${ram('r3', 'usual')}mov r2,r3;mov r1,r0;
+    ldrb r0,[r2,#${GR3X_ROLL_FLAGS}];tst r0,#${GR3X_ROLL_STARTED};bne roll;usual:`;
   const folderOf = (rec: string) => `ldrb r1,[${rec},#${GR3X_ROLL_FLAGS}];mov r1,r1,lsr #2;and r1,r1,#3;ldrb r0,[${rec},#${GR3X_ROLL_FOLDER}];orr r0,r0,r1,lsl #8;`;
   entries.filmRollFolder = p.code(`push {r0,r1,r2,r3,r4,r5,r6,lr};mov r4,r2;mov r5,r0;${enter}
     ldrh r0,[r4,#4];cmp r0,#0;bne given;
-    ${records('free', film)}ldrb r0,[r2,#${GR3X_ROLL_FLAGS}];tst r0,#${GR3X_ROLL_STARTED};beq free;
-    ${folderOf('r2')}cmp r0,#100;blo new;movw r1,#999;cmp r0,r1;bhi new;
+    ${late ? lateFolder : ''}${records('free', film)}ldrb r0,[r2,#${GR3X_ROLL_FLAGS}];tst r0,#${GR3X_ROLL_STARTED};beq free;
+    roll:${folderOf('r2')}cmp r0,#100;blo new;movw r1,#999;cmp r0,r1;bhi new;
     ldr r1,[r5,#8];${ram('r1', 'new')}ldr r1,[r1,#8];${ram('r1', 'new')}ldr r1,[r1,#0x10];${ram('r1', 'new')}
     sub r6,r0,#100;ldr r1,[r1,r6,lsl #2];cmp r1,#0;beq new;
     strh r0,[r4,#4];${code(2)}b native;
-    new:ldr r0,[r5,#8];bl #${GR3X_NEXT_FOLDER};${next('r0')}movs r6,r0;beq nonext;strh r6,[r4,#4];${code(3)}
-    ${records('native', film)}
+    new:${late ? 'push {r2,r3};' : ''}ldr r0,[r5,#8];bl #${GR3X_NEXT_FOLDER};${late ? 'pop {r2,r3};' : ''}${next('r0')}movs r6,r0;beq nonext;strh r6,[r4,#4];${code(3)}
+    ${late ? '' : records('native', film)}
     ldrb r0,[r2,#${GR3X_ROLL_FLAGS}];bic r0,r0,#${FOLDER_HIGH};mov r1,r6,lsr #8;orr r0,r0,r1,lsl #2;strb r0,[r2,#${GR3X_ROLL_FLAGS}];
     ldrb r0,[r3,#${GR3X_ROLL_FLAGS}];bic r0,r0,#${FOLDER_HIGH};orr r0,r0,r1,lsl #2;strb r0,[r3,#${GR3X_ROLL_FLAGS}];
     strb r6,[r2,#${GR3X_ROLL_FOLDER}];strb r6,[r3,#${GR3X_ROLL_FOLDER}];b native;
@@ -817,3 +841,7 @@ export const GR3X_REVIEW_TIME = 0x531caaa4;
 
 /** T14-DIR10: Instant Review Off in film mode (the user's choice, 2026-11-01). */
 export const GR3X_FILM_OFF_REVIEW_MS = 100;
+
+/** T14-DIR14: the U mode (1..6) of the frame being exposed, + 0x80 once a late end advanced it (a byte,
+ * zero at start-up, the key probe's area). */
+const PENDING_FRAME = KEY_LAST + 11;
