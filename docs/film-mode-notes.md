@@ -2218,3 +2218,7 @@ Certitude : lu dans le code et émulé.
 - Limite : en mode libre, « Create New Folder » est sans effet (le dossier mémorisé reste choisi).
 - Vérifié : émulation (678 cas de dossier, modes libres, Film Roll Mode Off, préfixes de 4 lettres) ;
   T21-TAB1 reconstruit identique ; garde-fou et tests passés.
+- Résultats T22-NAME2 (2026-11-01) : P, vue du rouleau, P, extinction, P : les trois photos P dans un
+  même dossier RICOH, la vue dans son dossier de rouleau, nommée avec le code de 4 lettres.
+  **Codes de 4 lettres et dossier unique des modes libres : validés** (persistance après extinction
+  comprise, donc les octets `0x906` / `0x907` tiennent).
