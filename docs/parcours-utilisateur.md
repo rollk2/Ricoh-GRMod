@@ -126,6 +126,8 @@ nouveau dossier.
 | Q9 | Rembobiner / Rewind Film (21 langues). |
 | Q10 | Dossier de même numéro sur une nouvelle carte : le rouleau continue dedans, **au bon numéro de vue** (le compteur mémorisé). |
 | Q11 | Pas de message pour une pellicule perdue. |
+| Message | Un seul texte : « Nouvelle pellicule chargée. » (EN « New roll loaded. »), écran de message du boîtier, fermé seul après 5 s ou par un appui à mi-course. |
+| Q4 (précisé) | Changement de film ou de format : contrôle **à la sortie du menu** ; si le film ou le format ne correspond plus au rouleau entamé, clôture et message aussitôt (le boîtier ne peut pas afficher d'écran au moment d'une vue). |
 
 ## 11. Questions et recommandations (rappel)
 
