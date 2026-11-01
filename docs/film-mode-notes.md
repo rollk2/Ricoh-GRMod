@@ -1658,3 +1658,8 @@ Lecture (attention : MM = valeur du test + 2, HH = phase + 1) :
   avec transparence à chaque fois. **Réglage retenu : Off vaut 25 ms en mode pellicule.** Lecture : la
   perte d'affichage vient du retour immédiat (durée 0, sans minuterie) ; passer par la minuterie,
   même très courte, suffit.
+
+### Build de test T14-DIR12 (demande de l'utilisateur)
+
+- Comme T14-DIR11, avec Off remplacé par **10 ms**. Vérifié en émulateur ; T14-DIR11 reconstruit
+  identique ; sondes repassées.

@@ -110,7 +110,7 @@ export interface Gr3xRollProgram {
   patch(address: number, expected: number, replacement: number, reason: string): void;
 }
 
-export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuRatio[], folders = false, diag = false, filmMenu = false, keys: false | 'sequence' | 'boot' | 'shot' = false, noReview: false | 'skip' | 'live' | 'next' | 'armed' | 'deferred' | 'logged' | 'posted' | 'closed' | 'timed' | 'timedNext' | 'plain' | 'noButtons' | 'plainId' | 'plainReview' | 'plainOff' | 'plainOff25' = false, folderName = false) {
+export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuRatio[], folders = false, diag = false, filmMenu = false, keys: false | 'sequence' | 'boot' | 'shot' = false, noReview: false | 'skip' | 'live' | 'next' | 'armed' | 'deferred' | 'logged' | 'posted' | 'closed' | 'timed' | 'timedNext' | 'plain' | 'noButtons' | 'plainId' | 'plainReview' | 'plainOff' | 'plainOff25' | 'plainOff10' = false, folderName = false) {
   const rec = (label: string) => records(label, filmMenu);
   const free = (at: number) => { if (p.sites.some(s => s.address === at)) throw new FirmwareError('unexpected-instruction', `IIIx film roll: ${at.toString(16)} already patched`); };
   const entries: Record<string, number> = {};
@@ -216,7 +216,7 @@ export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuR
   if (noReview === 'next' || noReview === 'armed' || noReview === 'deferred' || noReview === 'logged') installReviewNext(p, free, entries, noReview !== 'next', noReview === 'deferred' || noReview === 'logged', noReview === 'logged');
   if (noReview === 'plain') installReviewPlain(p, free, entries);
   if (noReview === 'noButtons') installReviewNoButtons(p, free, entries);
-  if (noReview === 'plainId' || noReview === 'plainReview' || noReview === 'plainOff' || noReview === 'plainOff25') installReviewPlainId(p, free, entries, noReview === 'plainReview' ? 'offHold' : noReview === 'plainOff' ? 'off' : noReview === 'plainOff25' ? 'off25' : false);
+  if (noReview === 'plainId' || noReview === 'plainReview' || noReview === 'plainOff' || noReview === 'plainOff25' || noReview === 'plainOff10') installReviewPlainId(p, free, entries, noReview === 'plainReview' ? 'offHold' : noReview === 'plainOff' ? 'off' : noReview === 'plainOff25' ? 'off25' : noReview === 'plainOff10' ? 'off10' : false);
   if (noReview === 'timed' || noReview === 'timedNext') installReviewTimer(p, free, entries, noReview === 'timedNext');
   if (noReview === 'posted' || noReview === 'closed') installReviewHalfPress(p, free, entries, noReview === 'posted' ? GR3X_DELETE_EVENT : GR3X_REVIEW_CLOSE_EVENT);
   return { entries, exposure };
@@ -784,15 +784,15 @@ export const GR3X_REVIEW_ID_KIND = 0x531ca6e8;
  * takes the id of a single picture's review (kind 3 read as 0): the picture without buttons, kept as
  * Rec Review says, closed by a half press as after a single picture.
  */
-function installReviewPlainId(p: Gr3xRollProgram, free: (at: number) => void, entries: Record<string, number>, review: false | 'offHold' | 'off' | 'off25' = false) {
+function installReviewPlainId(p: Gr3xRollProgram, free: (at: number) => void, entries: Record<string, number>, review: false | 'offHold' | 'off' | 'off25' | 'off10' = false) {
   free(GR3X_REVIEW_ID_KIND);
   // review (T14-DIR9): that review closing at once (Instant Review Off) or never (Hold) loses the live
   // view's indications in a multi-exposure (seen on the camera); in film mode both read as 500 ms.
   // 'off' (T14-DIR10, the user's choice): only Off, read as 100 ms; Hold stays Hold.
   if (review) {
-    // 'off25' (T14-DIR11): Off read as 25 ms.
-    const off = review === 'off' || review === 'off25';
-    const ms = review === 'off25' ? 25 : review === 'off' ? GR3X_FILM_OFF_REVIEW_MS : GR3X_FILM_REVIEW_MS;
+    // 'off25' (T14-DIR11) / 'off10' (T14-DIR12): Off read as 25 / 10 ms.
+    const off = review === 'off' || review === 'off25' || review === 'off10';
+    const ms = review === 'off10' ? 10 : review === 'off25' ? 25 : review === 'off' ? GR3X_FILM_OFF_REVIEW_MS : GR3X_FILM_REVIEW_MS;
     free(GR3X_REVIEW_TIME);
     entries.filmReviewTime = p.code(`cmp r0,#0;beq check;${off ? 'b done' : 'cmn r0,#1;bne done'};
       check:push {r0,r1,r2,r3,r4,lr};${records('keep', true)}
