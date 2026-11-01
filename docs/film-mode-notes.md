@@ -2154,3 +2154,22 @@ Certitude : lu dans le code ; icônes extraites et affichées.
   les lignes (mode U).
 - Place mémorisée de l'onglet 1 (réglages TopMenu… classification 1) : ramenée dans ses limites par
   T18-HIDE1.
+
+### Build de test T21-TAB1 : onglet « Mode pellicule »
+
+- Choix de l'utilisateur (2026-11-01) : titre « Mode pellicule » (anglais « Film Mode », les autres
+  langues reprennent le nom de Film Roll Mode) ; onglet visible en mode U seulement ; Film Roll Mode
+  et Rembobiner déménagent (menu C d'origine) ; icône de l'onglet = bande de film ; icône de Film
+  Advance = cartouche 135 (demande de l'utilisateur).
+- Mise en œuvre : descripteur à nous recopié de celui de Movie Settings (en-tête : visibilité =
+  `filmMenuVisible` (mode U), titre et titre de page = nouveau texte, icônes blanche / jaune / grise
+  ajoutées ; une page ; nos deux lignes ; le reste vidé) ; entrée de la table des onglets
+  `0x5407d3fc` redirigée ; menu C non modifié ; onglet vidéo non masqué par son mot (il n'est plus
+  référencé). Icônes dessinées en TypeScript (`core/src/fw/gr3x/film-mode-icons.ts`, aperçu
+  `docs/film-mode-icons.png`), ajoutées au catalogue d'icônes après toutes les autres ; Film Advance
+  (fonction 42) prend la quatrième.
+- Erreur corrigée en cours de route : un premier fichier avait écrasé `film-icons.ts` (fichier de
+  GR Mod) ; restauré depuis git avant tout commit.
+- Vérifié : émulation (descripteur, table des onglets, menu C intact, constructeur réel : onglet 1
+  = nos lignes en U, 1 ligne si Film Roll Mode Off, 0 en P ; icône Fn de 42) ; T20-VID4 reconstruit
+  identique ; garde-fou ; tests (les 5 échecs de `npm test` restent ceux des fichiers privés absents).

@@ -521,7 +521,7 @@ export interface Gr3xFnProgram extends Gr3xRollProgram {
  *    advances the film when a U mode with Film Roll Mode on has a frame exposed (the end poster
  *    0x531a4d80, as Complete), then the camera goes on as for Off (function 0): nothing else happens.
  */
-export function installGr3xFilmAdvanceFn(p: Gr3xFnProgram, text: number, retake: false | 'event' | 'action' | 'probe' | 'cancel' = false, clamp = false, once = false) {
+export function installGr3xFilmAdvanceFn(p: Gr3xFnProgram, text: number, retake: false | 'event' | 'action' | 'probe' | 'cancel' = false, clamp = false, once = false, icon = GR3X_FILM_ADVANCE_ICON) {
   // clamp (T13-FN7): a function above the last one (43 saved by an earlier build) reads as Off.
   const high = (r: string) => clamp ? `cmp ${r},#${GR3X_FILM_ADVANCE + 1};movhs ${r},#0;` : '';
   const fail = (what: string) => { throw new FirmwareError('unexpected-layout', `IIIx film advance: ${what}`); };
@@ -544,8 +544,8 @@ export function installGr3xFilmAdvanceFn(p: Gr3xFnProgram, text: number, retake:
   const retakeText = retake ? `cmp r1,#${GR3X_FILM_RETAKE};movweq r0,#${GR3X_RETAKE_TEXT};bxeq lr;` : '';
   entries.filmFnText = p.code(`${high('r1')}cmp r1,#${GR3X_FILM_ADVANCE};movweq r0,#${text};bxeq lr;${retakeText}cmp r1,#0;b #${GR3X_FN_TEXT + 4};`);
   p.patch(GR3X_FN_TEXT, 0xe3510000, branchWord(GR3X_FN_TEXT, entries.filmFnText), 'film advance: its text');
-  const retakeIcon = retake ? `cmp r1,#${GR3X_FILM_RETAKE};movweq r0,#${GR3X_FILM_ADVANCE_ICON};bxeq lr;` : '';
-  entries.filmFnIcon = p.code(`${high('r1')}cmp r1,#${GR3X_FILM_ADVANCE};movweq r0,#${GR3X_FILM_ADVANCE_ICON};bxeq lr;${retakeIcon}cmp r1,#0;b #${GR3X_FN_ICON + 4};`);
+  const retakeIcon = retake ? `cmp r1,#${GR3X_FILM_RETAKE};movweq r0,#${icon};bxeq lr;` : '';
+  entries.filmFnIcon = p.code(`${high('r1')}cmp r1,#${GR3X_FILM_ADVANCE};movweq r0,#${icon};bxeq lr;${retakeIcon}cmp r1,#0;b #${GR3X_FN_ICON + 4};`);
   p.patch(GR3X_FN_ICON, 0xe3510000, branchWord(GR3X_FN_ICON, entries.filmFnIcon), 'film advance: its icon');
   // The advance (every register kept but the function's, which becomes Off).
   // once (T14-DIR3): a press runs this 4 times; only the first posts Complete until the next exposure
@@ -1119,6 +1119,13 @@ export function installGr3xMenuRebuild(p: Gr3xRollProgram) {
 /** The Movie Settings tab's descriptor: its first word is the tab's visibility (a method pointer, a
  * function returning 1 in the camera, 0x5319665c), asked at each tab change and at the menu's start. */
 export const GR3X_MOVIE_TAB = 0x53b37514, GR3X_MOVIE_TAB_VISIBLE = 0x5319665c;
+
+/** T21-TAB1: the Film Mode tab's title (and its page's), Film Roll Mode's names but « Film Mode » in
+ * English (in `LANGS` order, as GR3X_FILM_ROLL_MODE_NAMES). */
+export const GR3X_FILM_TAB_NAMES: readonly string[] = GR3X_FILM_ROLL_MODE_NAMES.map((n, k) => k === 2 ? 'Film Mode' : n);
+/** T21-TAB1: the menu table's Movie Settings entry (RAM 0x55001ebc, initialised from 0x5407d404 - 8;
+ * read only by the tab builder): it gets the Film Mode tab's descriptor. */
+export const GR3X_MOVIE_ENTRY_IMAGE = 0x5407d3fc;
 
 /** T20-VID1: the Movie Settings tab hidden (its visibility returns 0; the movie mode itself stays). */
 export function installGr3xHideMovieTab(p: Gr3xRollProgram) {

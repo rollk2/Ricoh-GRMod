@@ -360,7 +360,11 @@ export function installGr3xMenuAdditions(p: Gr3xDateProgram, o: { date?: Gr3xDat
   film?: { text: number; set: number; isCurrent: number; visible: number;
     /** T17-RWD1: the Rewind Film line (after Film Roll Mode) opening Create New Folder's dialog
      * (`dialog`) with the byte `mode` set to 1 (0 for Create New Folder itself). */
-    rewind?: { id: number; text: number; visible: number; dialog: number; mode: number; menu: readonly [number, number] } } }) {
+    rewind?: { id: number; text: number; visible: number; dialog: number; mode: number; menu: readonly [number, number] };
+    /** T21-TAB1: the lines go to a tab of their own in place of Movie Settings (the menu table's
+     * entry `entry`, the movie descriptor `movie` as the model): its visibility, title (and its page's)
+     * and icons (white, yellow, grey); Customize Settings stays the camera's. */
+    tab?: { entry: number; movie: number; visible: number; title: number; icons: readonly [number, number, number] } } }) {
   const iconOff = o.onOffText ? TEXT_ICON_OFF : ICON_OFF, iconOn = o.onOffText ? TEXT_ICON_ON : ICON_ON;
   const ids = o.date;
   if (o.picture && o.endScreen) fail('IIIx pictures: list or submenu');
@@ -568,6 +572,26 @@ export function installGr3xMenuAdditions(p: Gr3xDateProgram, o: { date?: Gr3xDat
       pop {r4,lr};b #${TOP_SET_TITLE};`) : 0;
     const added = [[filmLine, GR3X_FILM_MENU_ID, F.visible], ...(R ? [[rewindLine, R.id, R.visible]] : [])];
     const n = added.length;
+    if (F.tab) {
+      // The Film Mode tab: the movie descriptor's layout, one page, our lines only.
+      const T = F.tab;
+      if (p.word(T.entry) !== T.movie) fail('IIIx Movie Settings menu entry');
+      const t = p.read(T.movie, DESCRIPTOR).slice(), tv = new DataView(t.buffer);
+      if (tv.getUint16(8, true) !== 0x20 || t[D_PAGES] !== 7) fail('IIIx Movie Settings menu is not the official one');
+      tv.setUint32(0, T.visible, true); tv.setUint32(4, 0, true);
+      tv.setUint16(8, T.title, true); tv.setUint16(0xa, T.icons[0], true); tv.setUint16(0xc, T.icons[1], true); tv.setUint16(0xe, T.icons[2], true);
+      t.fill(0, 0x10, D_FIRST + 11); t[D_PAGES] = 1; tv.setUint16(D_PAGES + 2, T.title, true);
+      for (let i = 0; i < MAX_ITEMS; i++) {
+        const a = added[i];
+        tv.setUint32(D_DRAW + i * 8, a ? a[0] : 0, true); tv.setUint32(D_DRAW + i * 8 + 4, 0, true);
+        tv.setUint32(D_ID + i * 4, a ? a[1] : NO_ITEM, true);
+        tv.setUint32(D_VISIBLE + i * 8, a ? a[2] : 0, true); tv.setUint32(D_VISIBLE + i * 8 + 4, 0, true);
+      }
+      t[D_COUNT] = n;
+      const tabCopy = p.append(t);
+      p.patch(T.entry, T.movie, tabCopy, 'film mode: the Film Mode tab in place of Movie Settings');
+      Object.assign(entries, { filmLine, filmTab: tabCopy }, R ? { filmRewindLine: rewindLine } : {});
+    } else {
     const d = custom.slice(), dv2 = new DataView(d.buffer);
     for (let i = CUSTOM_ITEMS - 1; i >= 1; i--) {
       d.set(custom.subarray(D_DRAW + i * 8, D_DRAW + i * 8 + 8), D_DRAW + (i + n) * 8);
@@ -584,6 +608,8 @@ export function installGr3xMenuAdditions(p: Gr3xDateProgram, o: { date?: Gr3xDat
     const customCopy = p.append(d);
     p.patch(GR3X_CUSTOM_ENTRY_IMAGE, GR3X_CUSTOM_MENU, customCopy, 'film roll: Customize Settings with Film Roll Mode under Save Settings');
     Object.assign(entries, { filmCount, filmDraw, filmLine, filmCustomMenu: customCopy }, R ? { filmRewindLine: rewindLine } : {});
+    }
+    Object.assign(entries, { filmCount, filmDraw });
   }
   if (o.picture) {
     const pe = installGr3xPictureList(p, o.picture);

@@ -6,6 +6,7 @@ import { readFileSync } from 'node:fs';
 import { buildGr3xAdjResearch } from '../src/fw/gr3x/adj';
 import { planGr3xMenu } from '../src/fw/gr3x/geometry';
 import { buildGr3xTestFirmware } from '../src/fw/gr3x/research-package';
+import { filmAdvanceIcon, filmTabIcons, fnTile } from '../src/fw/gr3x/film-mode-icons';
 import { GR3X_BOX_SAVE, GR3X_ROLL_COUNTER, GR3X_ROLL_MODEL_END, GR3X_FILM_REWIND_NAMES, GR3X_FILM_REWIND_QUESTIONS, GR3X_SIDE_BUTTON_NAMES } from '../src/fw/gr3x/film-roll';
 import { GR3X_RECALL_COPY } from '../src/fw/gr3x/guard';
 import { GR3X_FOLDER_MARK, GR3X_SET_FILE_PATH } from '../src/fw/gr3x/film-probe';
@@ -448,5 +449,15 @@ describe.skipIf(!input)('GR III film roll (film mode phase 3.1)', () => {
     expect(GR3X_SIDE_BUTTON_NAMES).toHaveLength(21);
     const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'vid4' });
     expect(built.report.revision).toBe('T20-VID4');
+  }, 240000);
+  it('puts the film mode in a tab of its own, with its icons (T21-TAB1)', async () => {
+    const tab1 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'tab1' });
+    const e = tab1.entries as Record<string, number>;
+    expect(e.filmTab).toBeGreaterThan(0x53000000);
+    expect(e.filmCustomMenu).toBeUndefined();
+    const icons = [...filmTabIcons(), filmAdvanceIcon(fnTile(new Uint8Array(6400).fill(255)))];
+    expect(icons.map(i => i.length)).toEqual([6400, 6400, 6400, 6400]);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'tab1' });
+    expect(built.report.revision).toBe('T21-TAB1');
   }, 240000);
 });
