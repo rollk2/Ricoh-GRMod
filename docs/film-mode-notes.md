@@ -1941,3 +1941,13 @@ Construit sur T17-MSG1 (forme `rwd1`). Certitude : vérifié en émulateur, à t
 - Build T17-RWD2 : T17-RWD1 avec le correctif du gel (même forme `rwd1`, révision renommée).
   Vérifié en émulateur, garde-fou repassé, tests du mode pellicule passés.
 - Demande de l'utilisateur : garder les mêmes lignes en P mais **grisées**. À analyser.
+- Résultats T17-RWD2 (2026-11-01) : compteur 2/xx après 2 vues ; lignes Save Settings, Film Roll
+  Mode, Rembobiner ; question entière avec Exécuter / Annuler ; Annuler ne change rien. **Mais
+  Exécuter affiche « Data process completed. » et le compteur ne revient pas à 0** : le dialogue était
+  redevenu Create New Folder (drapeau de nouveau dossier posé).
+- Cause (certitude : déduite, la question était la nôtre puis plus rien) : pendant le dialogue, le
+  boîtier redemande l'écran courant à la fabrique à chaque événement de touche, avec l'identifiant du
+  dialogue `0x02000128`, que notre code traitait comme « Create New Folder » (octet remis à 0).
+- T17-RWD3 : l'octet est remis à 0 quand le menu est demandé (`0x0200004a` à `0x0200004d`, cas de la
+  fabrique qui construit le menu, emplacement `+0x74`), plus par l'identifiant du dialogue.
+  L'émulateur vérifie ce cas (l'ancien build échoue, le nouveau passe) ; garde-fou et tests passés.

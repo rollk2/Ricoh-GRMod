@@ -1005,6 +1005,8 @@ export function installGr3xFilmMessage(p: Gr3xRollProgram, text: number, redirec
 /** T17-RWD1: the Rewind Film line's id (unused; GR Mod's lists use 0x020001a0..) and Create New
  * Folder's dialog (FolderCreateController, built by the factory for 0x02000128..0x0200012b). */
 export const GR3X_FILM_REWIND_ID = 0x020001b1, GR3X_FOLDER_DIALOG_ID = 0x02000128;
+/** The menu's ids (the factory builds the menu controller, slot + 0x74, for 0x0200004a..0x0200004d). */
+export const GR3X_MENU_IDS = [0x0200004a, 0x0200004d] as const;
 /** T17-RWD1: the dialog is the rewind's (1, set by the factory for the Rewind Film line) or Create
  * New Folder's (0); a byte, zero at start-up. */
 export const GR3X_REWIND_MODE = KEY_LAST + 14;

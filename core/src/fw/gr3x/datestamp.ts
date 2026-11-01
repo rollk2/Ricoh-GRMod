@@ -360,7 +360,7 @@ export function installGr3xMenuAdditions(p: Gr3xDateProgram, o: { date?: Gr3xDat
   film?: { text: number; set: number; isCurrent: number; visible: number;
     /** T17-RWD1: the Rewind Film line (after Film Roll Mode) opening Create New Folder's dialog
      * (`dialog`) with the byte `mode` set to 1 (0 for Create New Folder itself). */
-    rewind?: { id: number; text: number; visible: number; dialog: number; mode: number } } }) {
+    rewind?: { id: number; text: number; visible: number; dialog: number; mode: number; menu: readonly [number, number] } } }) {
   const iconOff = o.onOffText ? TEXT_ICON_OFF : ICON_OFF, iconOn = o.onOffText ? TEXT_ICON_ON : ICON_ON;
   const ids = o.date;
   if (o.picture && o.endScreen) fail('IIIx pictures: list or submenu');
@@ -664,10 +664,12 @@ export function installGr3xMenuAdditions(p: Gr3xDateProgram, o: { date?: Gr3xDat
     ...(o.endScreen ? [[GR3X_PICTURE_LIST_ID, END_SCREEN_ID] as const] : [])];
   // With the End Screen submenu the factory also sets the End Screen list's mode: picture list
   // (asked for GR3X_PICTURE_LIST_ID) or the camera's own (asked for End Screen itself).
-  // T17-RWD1: the factory notes which line opens Create New Folder's dialog (rewind byte 1 for Rewind
-  // Film, 0 for Create New Folder; r3 is free at the factory's start).
+  // T17-RWD1: the factory notes which line opens Create New Folder's dialog: rewind byte 1 for Rewind
+  // Film; 0 when the menu is asked for (T17-RWD3: not the dialog's own id, which the camera asks again
+  // at each key event while the dialog is up; Create New Folder is always opened from the menu).
+  // r3 is free at the factory's start.
   const rewindMode = rewind ? `movw ip,#${lo(rewind.id)};movt ip,#${hi(rewind.id)};cmp r1,ip;moveq r3,#1;beq rwset;
-    movw ip,#${lo(rewind.dialog)};movt ip,#${hi(rewind.dialog)};cmp r1,ip;bne rwdone;mov r3,#0;
+    movw ip,#${lo(rewind.menu[0])};movt ip,#${hi(rewind.menu[0])};sub ip,r1,ip;cmp ip,#${rewind.menu[1] - rewind.menu[0]};bhi rwdone;mov r3,#0;
     rwset:movw ip,#${lo(rewind.mode)};movt ip,#${hi(rewind.mode)};strb r3,[ip];rwdone:` : '';
   const factory = o.endScreen ? p.code(rewindMode + [...mapped.map(([id, to]) => [id, to, id === GR3X_PICTURE_LIST_ID ? 1 : -1] as const), [END_SCREEN_ID, END_SCREEN_ID, 0] as const]
     .map(([id, to, mode], k) => `movw ip,#${lo(id)};movt ip,#${hi(id)};cmp r1,ip;bne f${k};movw r1,#${lo(to)};movt r1,#${hi(to)};` +
