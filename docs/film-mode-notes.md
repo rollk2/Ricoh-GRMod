@@ -2051,3 +2051,20 @@ Certitude : lu dans le code et émulé (vrai constructeur d'onglets), à tester 
   + Film Advance → **1/xx tout de suite** ; vue suivante → 2/xx, même nouveau dossier.
   **Carte changée / dossier supprimé : validé.** (Dossier de même numéro sur une autre carte : chemin
   natif « dossier trouvé », déjà validé en T11 avec un dossier existant.)
+
+### Partie vidéo du menu : analyse statique (2026-11-01)
+
+Certitude : lu dans le code.
+
+- Onglets (table `0x55001eb8`) : 0 Still Image Settings (`0x53b36dec`, 38 lignes), **1 Movie Settings
+  (`0x53b37514`, 18 lignes, 7 pages)**, 2 Playback Settings (`0x53b37188`, 16), 3 Customize Settings
+  (`0x53b3649c`, 22), 4 Setup (`0x53b36a54`, 30).
+- **Visibilité d'un onglet** : premier mot du descripteur (pointeur de méthode, copié par le
+  constructeur en `menu + 0x228 + 0x384 × onglet`) ; les cinq valent une fonction qui renvoie 1
+  (`0x53196654` à `0x53196674`). Elle est appelée à chaque changement d'onglet (`0x53199cdc`,
+  `0x531995b8`) et au démarrage (`0x531991cc`), qui sautent un onglet invisible. Masquer l'onglet
+  vidéo : faire pointer ce mot vers une fonction qui renvoie 0. Rien à recopier.
+- Points à vérifier sur le boîtier : la barre des onglets (icône de l'onglet masqué), et l'ouverture
+  du menu en mode vidéo (`0x53199334` traite à part les identifiants `0x0200004c` / `0x0200004d`).
+- Octets : masquer ne libère rien ; retirer le code vidéo n'est pas réaliste (code et données
+  partagés), et GR Mod ajoute son code en fin d'image sans manquer de place.
