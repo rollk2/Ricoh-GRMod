@@ -1750,3 +1750,15 @@ Lecture (attention : MM = valeur du test + 2, HH = phase + 1) :
   retombe ; il retombe aussi à chaque exposition. Le texte ne l'efface plus.
 - Vérifié en émulateur (24 cas de changement d'écran, effacement à l'exposition) ; T15-END1
   reconstruit identique ; sondes repassées.
+- Résultat T15-END2 (2026-11-01) : message un peu plus long mais encore illisible ; la 12e vue est
+  bien dans le dossier du rouleau ; compteur 1/12 ensuite. **Fin de rouleau (dernière vue dans son
+  dossier, nouveau rouleau) : validée.**
+
+### Build de test T15-END3 : le message tenu par sa propre minuterie, avec un mouchard
+
+- Tant que le message attend, l'écran de message ne revient en visée que par sa minuterie de 5 s
+  (adresse de retour `0x531cdd80`) ; toute autre demande est ignorée (renvoie 0). Chaque changement
+  d'écran demandé pendant ce temps est noté (`0x558043a0` : avant-dernier, dernier, nombre ; code =
+  étiquette × 32 + identifiant & 31, étiquette 1 revue, 2 message, 3 autre). Date des photos :
+  HH:mm = avant-dernier (HH × 60 + mm), 20YY = dernier % 100, DD = 1 + centaines, MM = 1 + nombre.
+- Vérifié en émulateur ; T15-END2 reconstruit identique ; sondes repassées.

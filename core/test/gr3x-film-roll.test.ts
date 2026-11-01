@@ -332,4 +332,10 @@ describe.skipIf(!input)('GR III film roll (film mode phase 3.1)', () => {
     const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'end2' });
     expect(built.report.revision).toBe('T15-END2');
   }, 240000);
+  it('keeps the message until its own timer, with a switch probe (T15-END3)', async () => {
+    const end3 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'end3' });
+    expect((end3.entries as Record<string, number>).filmProbeTime).toBeGreaterThan(0x53000000);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'end3' });
+    expect(built.report.revision).toBe('T15-END3');
+  }, 240000);
 });
