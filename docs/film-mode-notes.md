@@ -1951,3 +1951,8 @@ Construit sur T17-MSG1 (forme `rwd1`). Certitude : vérifié en émulateur, à t
 - T17-RWD3 : l'octet est remis à 0 quand le menu est demandé (`0x0200004a` à `0x0200004d`, cas de la
   fabrique qui construit le menu, emplacement `+0x74`), plus par l'identifiant du dialogue.
   L'émulateur vérifie ce cas (l'ancien build échoue, le nouveau passe) ; garde-fou et tests passés.
+- Résultats T17-RWD3 (2026-11-01) : Exécuter affiche « Nouvelle pellicule chargée. », compteur à
+  0/xx en visée ; vue suivante dans un nouveau dossier ; Create New Folder (Setup) garde son texte
+  d'origine ; Rembobiner sur un rouleau à 0 : message puis 0/xx, sans gel.
+  **Ligne Rembobiner : validée.** Reste : lignes visibles en P quand le menu a d'abord été ouvert en
+  U (menu construit une seule fois) ; demande de l'utilisateur : les griser en P.
