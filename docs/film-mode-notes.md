@@ -1696,3 +1696,6 @@ Lecture (attention : MM = valeur du test + 2, HH = phase + 1) :
   reconstruits identiques ; sondes repassées.
 - Remarque à traiter avec la fin de rouleau : à la dernière vue, le rouleau est clos à la fin du modèle,
   avant `SetFilePath` ; l'image de la dernière vue risque d'aller dans un nouveau dossier.
+- Résultats sur le boîtier (T14-DIR14, 2026-11-01) : vue puis molette U3 → P → U3 : compteur + 1, photo
+  dans le dossier du rouleau ; photo en P dans le dossier de P. **Point 1 (fin de séquence par le menu,
+  l'extinction ou la molette) : validé sur le boîtier.**
