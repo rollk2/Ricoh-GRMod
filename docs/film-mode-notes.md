@@ -1862,3 +1862,23 @@ Proposition pour T17-RWD1 :
   BOX, comme la clôture de T16) au lieu de poser le drapeau de nouveau dossier ; texte de fin
   « Nouvelle pellicule chargée. » au lieu de 0x2bb.
 - La vue en cours est déjà enregistrée à l'ouverture du menu : rien à ajouter pour Q7.
+- Décisions de l'utilisateur (2026-11-01) : boutons natifs Exécuter / Annuler ; ligne après Film
+  Roll Mode ; question longue « Rembobiner la pellicule ? La prochaine vue démarre une nouvelle
+  pellicule. » (EN « Rewind the film? The next shot starts a new roll. »).
+
+### Message « Nouvelle pellicule chargée. » : durée et fermeture (analyse statique, 2026-11-01)
+
+Certitude : lu dans le code.
+
+- Écran de message (table `0x53b41ca8`) : démarrage `0x531ce310` → `0x531ce278`, qui arme la
+  minuterie de **5000 ms** (`movw r1,#0x1388` en `0x531ce2d0`, `0x5322b468`, identifiant rangé en
+  `+0x168`) ; c'est la même pour tous les messages 3 à 7.
+- Rappel de la minuterie `0x531cdd58` : si `[this + 0x168]` vaut l'identifiant reçu, retour en visée
+  (`0x5316c9d8(this, 0x08000000, 0x10000000)`, adresse de retour `0x531cdd80`), puis `+0x168` à 0.
+- Événements `0x531cdd94` : **0xd8 (OK) ferme nativement le message** (retour en visée, adresse de
+  retour `0x531cddc0`) ; 0x8b ouvre l'écran `0x0200004a`. Rien d'autre n'est traité.
+- Notre garde (T15-END3) refuse tout retour en visée qui ne vient pas de la minuterie : c'est elle
+  qui bloque OK. Elle avait été ajoutée parce que des demandes de retour arrivaient seules juste à
+  l'ouverture (deux en T15-END3), ce qui fermait le message aussitôt.
+- Touche ADJ poussée : code d'événement inconnu pour cet écran (peut-être 0xd8, à mesurer).
+- Pas d'horloge système trouvée simplement ; on peut s'en passer avec la minuterie de l'écran.
