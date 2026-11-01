@@ -2284,3 +2284,13 @@ Certitude : lu dans le code.
   par l'application et sa recette porte `filmMode` (64 : POR1), `noMovie`, round 10.
 - Remarque : le mode pellicule ajoute l'étage Date Imprint (la ligne Date Imprint apparaît dans le
   menu du boîtier, sur Off), même si l'interrupteur Date imprint est éteint.
+
+### Build de test T23 : mode pellicule tel que l'application le construit
+
+- Construit par l'Engine (`buildFirmware`) comme l'application : 3 films (Portra, code PORT ; Gold,
+  code GOLD ; Film 3 sans code, donc FILM / FLM), presets de test, format XPan, ADJ soft focus,
+  `filmMode` et `noMovie`. Fichier identique octet pour octet au build contrôlé en émulation
+  (`film_roll_check.py` complet avec les codes, `guard_probe.py`), reconnu par l'application.
+- À vérifier sur le boîtier : films de GR Mod et mode pellicule ensemble (dossier `xxxPOR..`,
+  fichiers `PORTnnnn.JPG`), onglet Mode pellicule, vidéo retirée, nom chinois 底片模式 (langue
+  简体中文).
