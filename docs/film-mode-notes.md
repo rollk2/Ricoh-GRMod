@@ -1699,3 +1699,8 @@ Lecture (attention : MM = valeur du test + 2, HH = phase + 1) :
 - Résultats sur le boîtier (T14-DIR14, 2026-11-01) : vue puis molette U3 → P → U3 : compteur + 1, photo
   dans le dossier du rouleau ; photo en P dans le dossier de P. **Point 1 (fin de séquence par le menu,
   l'extinction ou la molette) : validé sur le boîtier.**
+
+### Parcours utilisateur (2026-11-01)
+
+- Document `docs/parcours-utilisateur.md` : parcours en place et 11 questions, tranchées le
+  2026-11-01 (section 10 du document).

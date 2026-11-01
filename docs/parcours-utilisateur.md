@@ -111,7 +111,23 @@ nouveau dossier.
   le rouleau continuerait dedans. Acceptable ?
 - **Q11. Message.** Prévenir (« Pellicule perdue ») ou rester silencieux ?
 
-## 10. Questions à trancher et recommandations
+## 10. Décisions (2026-11-01)
+
+| N° | Décision |
+|---|---|
+| Q1 | Nouveau rouleau automatique à la vue suivante, **annoncé par un message**. |
+| Q2 | Message à l'avance de la dernière vue, si le mécanisme du boîtier s'y prête. |
+| Q3 | Pas de vues bonus pour l'instant. |
+| Q4 | Clôture à la vue suivante quand le film ou le format ne correspond plus au rouleau. |
+| Q5 | Même règle au retour de l'ancien film (changement sans Save Settings). |
+| Q6 | Message à la clôture, le même que pour la fin de rouleau. |
+| Q7 | Rembobiner : la vue en cours est d'abord enregistrée dans l'ancien rouleau. |
+| Q8 | Ligne visible en mode U avec Film Roll Mode sur On, même rouleau vierge. |
+| Q9 | Rembobiner / Rewind Film (21 langues). |
+| Q10 | Dossier de même numéro sur une nouvelle carte : le rouleau continue dedans, **au bon numéro de vue** (le compteur mémorisé). |
+| Q11 | Pas de message pour une pellicule perdue. |
+
+## 11. Questions et recommandations (rappel)
 
 | N° | Question | Ma recommandation |
 |---|---|---|
