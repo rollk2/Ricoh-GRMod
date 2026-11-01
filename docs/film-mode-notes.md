@@ -2090,3 +2090,6 @@ Certitude : lu dans le code ; vérifié en émulateur.
   setter).
 - Vérifié : émulateur (valeurs 0, 1, 2 → 0, registres conservés) ; T20-VID1 reconstruit identique ;
   garde-fou et tests passés.
+- Résultats T20-VID2 (2026-11-01) : touche vidéo sans effet (on reste en photo) ; lecture d'une vidéo
+  non testée (aucune vidéo sur la carte) ; mode U pellicule, extinction et rallumage : tout normal.
+  **Blocage du mode vidéo : validé** (reste à vérifier la lecture d'une vidéo existante).
