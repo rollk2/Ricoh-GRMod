@@ -2222,3 +2222,26 @@ Certitude : lu dans le code et émulé.
   même dossier RICOH, la vue dans son dossier de rouleau, nommée avec le code de 4 lettres.
   **Codes de 4 lettres et dossier unique des modes libres : validés** (persistance après extinction
   comprise, donc les octets `0x906` / `0x907` tiennent).
+
+## Intégration à GR Mod : analyse de l'application (2026-11-01)
+
+Certitude : lu dans le code.
+
+- Application : interface `ui/src` (React ; état et sauvegarde dans `store.ts`, `project-gr3.json`
+  et presets `gr3-preset-…` pour GR III), moteur `core/src/app/engine.ts` (classe `Engine`,
+  options `BuildOptions`), coquille Go `shell/`.
+- Un film de GR III est un `ExtraSlot` (`store.ts`) : `key`, `name`, `preset`, `icon`, `halation` ;
+  il devient un look 64 à 83 au build. Aucun champ de code aujourd'hui.
+- Build livrable GR III : `Engine.fixedGr3x` → `buildGr3xTestFirmware(raw, …, features)` avec
+  round 10, Date Imprint (`dateImprint`, `dateMenu: 'submenu'`), images d'extinction, mise en page des
+  looks ; avec des films, `buildGr3xImageControls` → `buildGr3xLookMenuResearch` → couche ADJ.
+- Le mode pellicule n'existe que dans les formes de test (`features.filmRoll`, chaîne de formes
+  jusqu'à `name2`) ; aucune sonde active dans `name2` (journaux et horloges de diagnostic retirés
+  depuis T16-CLO1 / T19-CARD3).
+- Dépendances : le démarrage et l'avance du rouleau passent par l'étage Date Imprint (crochet
+  d'exposition) et le menu ajouté de GR Mod (`installGr3xMenuAdditions`) : le mode pellicule exige
+  Date Imprint. Les codes de film ne connaissent que les looks 11 à 22 (les films de GR Mod donnent
+  FLM / FILM). Jamais construit ni émulé avec des films de GR Mod : à vérifier (sites communs).
+- Nom chinois simplifié de Film Roll Mode : 底片模式, 底 absent des textes zh-CN du boîtier (présent
+  en zh-TW) ; les polices chinoises sont celles du GR IV, mais seuls 晕 / 暈 sont vérifiés
+  (`GR3X_FONT_VERIFIED_CHARS`) : à vérifier sur le boîtier, langue 简体中文.
