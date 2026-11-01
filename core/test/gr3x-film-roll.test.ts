@@ -301,4 +301,10 @@ describe.skipIf(!input)('GR III film roll (film mode phase 3.1)', () => {
     const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'dir12' });
     expect(built.report.revision).toBe('T14-DIR12');
   }, 240000);
+  it('reads only Instant Review Off, as 1 ms, in film mode (T14-DIR13)', async () => {
+    const dir13 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'dir13' });
+    expect(dir13.sites.find(s => s.address === 0x531caaa4)!.reason).toMatch(/Off read as 1 ms/);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'dir13' });
+    expect(built.report.revision).toBe('T14-DIR13');
+  }, 240000);
 });

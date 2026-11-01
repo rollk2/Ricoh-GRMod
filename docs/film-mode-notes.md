@@ -1665,3 +1665,8 @@ Lecture (attention : MM = valeur du test + 2, HH = phase + 1) :
   identique ; sondes repassées.
 - Résultat sur le boîtier (T14-DIR12, 2026-11-01) : Off → 10 ms, 8 cycles rapides, visée complète
   avec transparence à chaque fois. **Réglage retenu : Off vaut 10 ms en mode pellicule.**
+
+### Build de test T14-DIR13 (demande de l'utilisateur)
+
+- Comme T14-DIR12, avec Off remplacé par **1 ms**. Vérifié en émulateur ; T14-DIR12 reconstruit
+  identique ; sondes repassées.
