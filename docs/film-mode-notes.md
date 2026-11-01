@@ -2129,3 +2129,28 @@ Certitude : lu dans le code et émulé.
 - Résultats T20-VID4 (2026-11-01) : lignes de la touche latérale renommées sans vidéo, lisibles ;
   Framerate et Still/Movie absents des fonctions Fn, Film Advance présent.
   **Point vidéo : clos** (onglet masqué, mode bloqué, lignes et fonctions retirées, touche renommée).
+
+### Réaffecter l'onglet vidéo en onglet « Pellicule » (analyse statique, 2026-11-01)
+
+Certitude : lu dans le code ; icônes extraites et affichées.
+
+- En-tête d'un descripteur d'onglet (copié par le constructeur `0x5319a7c0` à `0x5319a7e8`) :
+  `+0` visibilité de l'onglet (pointeur de méthode), `+8` titre (texte : 0x1e Still Image Settings,
+  0x20 Movie Settings, 0x22 Playback, 0x24 Customize, 0x26 Setup), `+0xa` icône blanche (titre de
+  page : 0x28c à 0x290), `+0xc` icône jaune (onglet actif : 0x50, 0x51, 0x52, 0x54, 0x55), `+0xe`
+  icône grise (onglet inactif : 0x8b à 0x8f). Onglet vidéo : 0x20, 0x28e, 0x52, 0x8d. Icônes 40 × 40
+  RGBA ; jaune = fond (255, 225, 0) plein et dessin noir ; grise = dessin (80, 80, 80) sur fond
+  transparent ; blanche = dessin blanc cerné de noir sur fond transparent.
+- **Changer le logo** : ajouter trois icônes (mécanisme de GR Mod : catalogue d'icônes étendu,
+  pixels ajoutés à ICONBIN) et mettre leurs numéros dans l'en-tête. Choix de l'utilisateur : **bande
+  de film**.
+- Table des onglets : entrée 1 en RAM `0x55001ebc` (image `0x5407d3fc`), lue seulement par le
+  constructeur (comme l'entrée du menu C déjà redirigée) : un descripteur à nous peut remplacer
+  l'onglet vidéo, avec jusqu'à 38 lignes.
+- Lignes : Film Roll Mode et Rembobiner peuvent quitter le menu C (qui redevient celui d'origine)
+  pour cet onglet, avec leurs identifiants, fabrique et touches inchangés.
+- Onglet sans ligne visible (en P) : à éviter ; la visibilité de l'onglet (appelée à chaque
+  changement d'onglet et au démarrage, qui sautent un onglet invisible) peut suivre la même règle que
+  les lignes (mode U).
+- Place mémorisée de l'onglet 1 (réglages TopMenu… classification 1) : ramenée dans ses limites par
+  T18-HIDE1.
