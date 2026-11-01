@@ -1799,3 +1799,17 @@ Lecture (attention : MM = valeur du test + 2, HH = phase + 1) :
   multi-exposition.
 - Vérifié en émulateur (rappel avec et sans changement, revue et durée sans condition d'état) ;
   sondes repassées (garde-fou : écritures et ouverture d'écran substituées).
+- Résultats T16-CLO2 (2026-11-01) : Film Advance pressé tôt n'ouvre plus Next / Retake / Complete ;
+  visée toujours normale. Mais U3 (film changé, une vue) → P : **message sur P** (à tort) ; retour U3 :
+  pas de message, compteur 1. Lecture : pendant le changement de mode, le mode actif se lit encore U3
+  alors que l'enregistrement en cours est déjà celui de P ; le contrôle au retour en visée a clos le
+  rouleau de U3 sur la foi des réglages de P.
+- Demande : le compteur commence à 0 (vues enregistrées).
+
+### Build de test T16-CLO3
+
+- Contrôle au retour en visée seulement si l'enregistrement en cours porte le rouleau de la BOX (bit
+  entamé, vue et film notés identiques) ; le contrôle au rappel du mode U fait la clôture au retour.
+- Compteur : vues enregistrées (`vue - 1`), 0 pour un rouleau neuf, terminé ou non entamé ;
+  `0/12` ... `12/12`, puis `0/12`.
+- Vérifié en émulateur ; T16-CLO2 reconstruit identique ; sondes repassées.
