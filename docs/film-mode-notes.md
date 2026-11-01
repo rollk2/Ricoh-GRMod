@@ -2173,3 +2173,7 @@ Certitude : lu dans le code ; icônes extraites et affichées.
 - Vérifié : émulation (descripteur, table des onglets, menu C intact, constructeur réel : onglet 1
   = nos lignes en U, 1 ligne si Film Roll Mode Off, 0 en P ; icône Fn de 42) ; T20-VID4 reconstruit
   identique ; garde-fou ; tests (les 5 échecs de `npm test` restent ceux des fichiers privés absents).
+- Résultats T21-TAB1 (2026-11-01) : en U, onglet à icône bande de film, titre « Mode pellicule »,
+  avec Film Roll Mode et Rembobiner ; menu C d'origine ; Rembobiner fonctionne ; icône cartouche 135
+  pour Film Advance dans Fn Button Setting ; en P, l'onglet disparaît, navigation normale.
+  **Onglet Mode pellicule et icônes : validés.**
