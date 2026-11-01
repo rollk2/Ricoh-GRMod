@@ -2126,3 +2126,6 @@ Certitude : lu dans le code et émulé.
 - Vérifié : émulation (textes lus par la table de langues redirigée, aucune mention vidéo dans les
   21 langues ; liste et filtre Fn sans 16 ni 17) ; T20-VID3 reconstruit identique ; garde-fou et
   tests passés.
+- Résultats T20-VID4 (2026-11-01) : lignes de la touche latérale renommées sans vidéo, lisibles ;
+  Framerate et Still/Movie absents des fonctions Fn, Film Advance présent.
+  **Point vidéo : clos** (onglet masqué, mode bloqué, lignes et fonctions retirées, touche renommée).
