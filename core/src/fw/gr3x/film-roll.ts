@@ -111,7 +111,7 @@ export interface Gr3xRollProgram {
   patch(address: number, expected: number, replacement: number, reason: string): void;
 }
 
-export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuRatio[], folders = false, diag = false, filmMenu = false, keys: false | 'sequence' | 'boot' | 'shot' = false, noReview: false | 'skip' | 'live' | 'next' | 'armed' | 'deferred' | 'logged' | 'posted' | 'closed' | 'timed' | 'timedNext' | 'plain' | 'noButtons' | 'plainId' | 'plainReview' | 'plainOff' | 'plainOff25' | 'plainOff10' | 'plainOff1' = false, folderName = false, late = false, rollEnd = false, closure: boolean | 'recall' = false, fromZero = false, rewind = false) {
+export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuRatio[], folders = false, diag = false, filmMenu = false, keys: false | 'sequence' | 'boot' | 'shot' = false, noReview: false | 'skip' | 'live' | 'next' | 'armed' | 'deferred' | 'logged' | 'posted' | 'closed' | 'timed' | 'timedNext' | 'plain' | 'noButtons' | 'plainId' | 'plainReview' | 'plainOff' | 'plainOff25' | 'plainOff10' | 'plainOff1' = false, folderName = false, late = false, rollEnd = false, closure: boolean | 'recall' = false, fromZero = false, rewind = false, lost = false) {
   const rec = (label: string) => records(label, filmMenu);
   const free = (at: number) => { if (p.sites.some(s => s.address === at)) throw new FirmwareError('unexpected-instruction', `IIIx film roll: ${at.toString(16)} already patched`); };
   const entries: Record<string, number> = {};
@@ -277,7 +277,7 @@ export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuR
       restore:mov r0,r4;bl #${entries.filmFolderNameRestore};done:${closure === 'recall' ? `mov r0,r4;mov r1,r5;bl #${entries.filmRollCheckAt};cmp r0,#0;beq fin;
       movw ip,#${lo(NEW_ROLL_MESSAGE)};movt ip,#${hi(NEW_ROLL_MESSAGE)};mov r0,#1;strb r0,[ip];${openMessage}fin:` : ''}pop {r4,r5,r6,pc};`);
   }
-  if (folders) installFolders(p, free, entries, diag, filmMenu, late);
+  if (folders) installFolders(p, free, entries, diag, filmMenu, late, lost);
   if (filmMenu) installMenu(p, entries, folderName ? entries.filmFolderNameRestore : 0);
   if (keys) installKeys(p, free, entries, keys === 'boot' || keys === 'shot', keys === 'shot');
   if (noReview === 'skip') installNoReview(p, free, entries);
@@ -292,7 +292,7 @@ export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuR
 }
 
 /** The roll's folder at SetFilePath's entry (r0 service, r2 path); every register kept. */
-function installFolders(p: Gr3xRollProgram, free: (at: number) => void, entries: Record<string, number>, diag: boolean, film: boolean, late = false) {
+function installFolders(p: Gr3xRollProgram, free: (at: number) => void, entries: Record<string, number>, diag: boolean, film: boolean, late = false, lost = false) {
   free(GR3X_SET_FILE_PATH);
   const D = GR3X_ROLL_DIAG, at = `movw ip,#${lo(D)};movt ip,#${hi(D)};`;
   const code = (n: number) => diag ? `${at}mov lr,#${n};strb lr,[ip,#2];` : '';
@@ -305,6 +305,10 @@ function installFolders(p: Gr3xRollProgram, free: (at: number) => void, entries:
   const result = diag ? `cmp r0,#0;movne lr,#1;moveq lr,#0;strb lr,[ip,#7];` : '';
   const exit = `movw ip,#${lo(D - 4)};movt ip,#${hi(D - 4)};str lr,[ip];bl #${tramp};
     movw ip,#${lo(D - 4)};movt ip,#${hi(D - 4)};${result}ldr lr,[ip];bx lr;`;
+  // lost (T19-CARD1): a going roll whose folder is no longer on the card (another card, the folder
+  // deleted) is lost: its picture is the first frame of a new roll in a new folder (frame 2: one frame
+  // recorded, the frame having advanced at the model's end; a roll that has just ended, frame 0, keeps
+  // its 0). The records are saved at the next advance, as the new folder.
   // r0 = the folder of the record or copy in r0 (0x9b3 | (0x9b1 bits 2..3) << 8); r1 used.
   // late (T14-DIR14): the picture of a frame of another U mode (the pending frame, see the model's
   // end) goes to that mode's roll (its BOX record in r2 and r3).
@@ -318,8 +322,9 @@ function installFolders(p: Gr3xRollProgram, free: (at: number) => void, entries:
     ${late ? lateFolder : ''}${records('free', film)}ldrb r0,[r2,#${GR3X_ROLL_FLAGS}];tst r0,#${GR3X_ROLL_STARTED};beq free;
     roll:${folderOf('r2')}cmp r0,#100;blo new;movw r1,#999;cmp r0,r1;bhi new;
     ldr r1,[r5,#8];${ram('r1', 'new')}ldr r1,[r1,#8];${ram('r1', 'new')}ldr r1,[r1,#0x10];${ram('r1', 'new')}
-    sub r6,r0,#100;ldr r1,[r1,r6,lsl #2];cmp r1,#0;beq new;
+    sub r6,r0,#100;ldr r1,[r1,r6,lsl #2];cmp r1,#0;beq ${lost ? 'lost' : 'new'};
     strh r0,[r4,#4];${code(2)}b native;
+    ${lost ? `lost:ldrb r0,[r2,#${GR3X_ROLL_FRAME}];cmp r0,#0;movne r0,#2;strbne r0,[r2,#${GR3X_ROLL_FRAME}];strbne r0,[r3,#${GR3X_ROLL_FRAME}];` : ''}
     new:${late ? 'push {r2,r3};' : ''}ldr r0,[r5,#8];bl #${GR3X_NEXT_FOLDER};${late ? 'pop {r2,r3};' : ''}${next('r0')}movs r6,r0;beq nonext;strh r6,[r4,#4];${code(3)}
     ${late ? '' : records('native', film)}
     ldrb r0,[r2,#${GR3X_ROLL_FLAGS}];bic r0,r0,#${FOLDER_HIGH};mov r1,r6,lsr #8;orr r0,r0,r1,lsl #2;strb r0,[r2,#${GR3X_ROLL_FLAGS}];

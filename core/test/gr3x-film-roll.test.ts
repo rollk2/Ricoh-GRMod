@@ -399,4 +399,11 @@ describe.skipIf(!input)('GR III film roll (film mode phase 3.1)', () => {
     const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'hide1' });
     expect(built.report.revision).toBe('T18-HIDE1');
   }, 240000);
+  it('loses a roll whose folder left the card (T19-CARD1)', async () => {
+    const hide1 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'hide1' });
+    const card1 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'card1' });
+    expect(card1.sites.map(s => s.address)).toEqual(hide1.sites.map(s => s.address));
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'card1' });
+    expect(built.report.revision).toBe('T19-CARD1');
+  }, 240000);
 });

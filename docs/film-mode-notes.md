@@ -1999,3 +1999,17 @@ Certitude : lu dans le code et émulé (vrai constructeur d'onglets), à tester 
   dernière) ; passage sur P sans éteindre : 4 lignes, sans les nôtres, curseur valide ; autres
   onglets et pages normaux ; retour en U : lignes revenues, Rembobiner fonctionne ; Film Roll Mode
   sur Off : Rembobiner masqué, revenu après On. **Masquage par reconstruction du menu : validé.**
+
+### Carte changée ou dossier supprimé (T19-CARD1)
+
+- Analyse du crochet de SetFilePath (`filmRollFolder`) : dossier du rouleau présent sur la carte →
+  la vue y va, compteur conservé (décision Q10 déjà respectée) ; dossier absent → nouveau dossier
+  (`0x535b742c`), mais le compteur continuait.
+- Décision de l'utilisateur (2026-11-01) : dossier absent = **rouleau perdu** ; la vue prise est la
+  vue 1 d'un nouveau rouleau dans un nouveau dossier (compteur 1/xx), sans message.
+- Mise en œuvre (option `lost`, forme `card1`) : dossier mémorisé entre 100 et 999 mais absent de la
+  table des dossiers → vue mise à 2 (une vue enregistrée, la vue ayant avancé à la fin du modèle)
+  dans l'enregistrement en cours et la BOX, avant le nouveau dossier ; un rouleau qui vient de finir
+  (vue 0) garde son 0. Enregistré à l'avance suivante, comme le numéro du nouveau dossier.
+- Vérifié en émulateur (dossier absent 300 ajouté aux cas : vue à 2 avec `card1`, inchangée sans) ;
+  T18-HIDE1 reconstruit identique ; garde-fou et tests passés.
