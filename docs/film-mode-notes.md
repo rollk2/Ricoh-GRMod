@@ -1995,3 +1995,7 @@ Certitude : lu dans le code et émulé (vrai constructeur d'onglets), à tester 
 - Émulation : en U avec Film Roll Mode sur On, onglet C = 24 lignes (pages 0, 6, 15) ; sur Off,
   23 lignes, Rembobiner absent ; en P, les 22 lignes d'origine ; autres onglets identiques ; 9 cas de
   place vérifiés. T17-RWD3 reconstruit identique ; garde-fou et tests passés.
+- Résultats T18-HIDE1 (2026-11-01) : en U, page 1 du menu C à 6 lignes (curseur laissé sur la
+  dernière) ; passage sur P sans éteindre : 4 lignes, sans les nôtres, curseur valide ; autres
+  onglets et pages normaux ; retour en U : lignes revenues, Rembobiner fonctionne ; Film Roll Mode
+  sur Off : Rembobiner masqué, revenu après On. **Masquage par reconstruction du menu : validé.**
