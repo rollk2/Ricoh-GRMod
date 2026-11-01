@@ -1632,3 +1632,11 @@ Lecture (attention : MM = valeur du test + 2, HH = phase + 1) :
   pellicule, Instant Review Off (0) ou Garder (−1) valent 500 ms (décision de l'utilisateur) ; les
   autres durées et les autres modes sont inchangés.
 - Vérifié en émulateur (300 cas, drapeau Z rendu) ; T14-DIR8 reconstruit identique ; sondes repassées.
+
+### Résultats sur le boîtier (build T14-DIR9, 2026-11-01)
+
+- Affichage immédiat sur Off puis sur Garder, 6 cycles chacun (vue, vue, avance) : aperçu d'environ
+  0,5 s puis visée complète avec la transparence, **à chaque fois** ; compteur + 1 à chaque avance.
+- P (photo, menu) puis retour en U3 : normal.
+- **Prise de vue sans écran Next / Retake / Complete : validée sur le boîtier (T14-DIR9).** Le build
+  garde le nom de dossier (T14-DIR1) et un seul Complete par vue (T14-DIR3).
