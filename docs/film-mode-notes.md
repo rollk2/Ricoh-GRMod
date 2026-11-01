@@ -1673,3 +1673,12 @@ Lecture (attention : MM = valeur du test + 2, HH = phase + 1) :
 - Résultat sur le boîtier (T14-DIR13, 2026-11-01) : Off → 1 ms, 8 cycles rapides, visée complète
   avec transparence à chaque fois. **Réglage retenu : Off vaut 1 ms en mode pellicule.** Confirme que
   seul le passage par la minuterie compte, pas sa durée.
+
+### Point 1 : fin de séquence par la molette, l'extinction, le menu (T14-DIR13, 2026-11-01)
+
+- Menu pendant une vue : compteur + 1, photo dans le dossier du rouleau. Correct.
+- Extinction pendant une vue : compteur + 1, photo dans le dossier du rouleau (140). Correct.
+- **Molette (U3 → P) pendant une vue : photo enregistrée, mais compteur inchangé et photo dans un
+  nouveau dossier (141).** Le rappel du mode P a lieu avant la fin de séquence : la fin du modèle et
+  `SetFilePath` voient déjà le mode P (mode libre, plus grand dossier = dossier d'un rouleau, donc
+  nouveau dossier).
