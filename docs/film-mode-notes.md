@@ -2074,3 +2074,19 @@ Certitude : lu dans le code.
 - Résultats T20-VID1 (2026-11-01) : en P, l'onglet Movie Settings n'apparaît plus (navigation et
   barre des onglets correctes) ; en mode vidéo, le menu s'ouvre normalement sans onglet vidéo.
   **Masquage de l'onglet vidéo : validé.**
+
+### Bloquer le mode vidéo (T20-VID2)
+
+Certitude : lu dans le code ; vérifié en émulateur.
+
+- Photo / vidéo : octet `+0x44` (et `+0x46`) des enregistrements, 0 photo, 1 vidéo ; getter
+  `0x53243e40` (58 appelants) ; **setter unique `0x5327b7cc(modèle, valeur)`**, appelé par la bascule
+  de la touche (`0x532261fc`, valeur = (actuel == 0)), ApplyStillMovieForceProperty (`0x5316dda8`,
+  `0x5316ddbc`), `0x531b6938` et les réglages de débogage (`0x532dcb40`, `0x532dcb58`). Il ne
+  prévient les écrans que si la valeur change.
+- T20-VID2 (forme `vid2`, sur T20-VID1) : à l'entrée du setter, toute valeur non nulle devient 0 ;
+  la touche vidéo ne fait plus rien. Risque à vérifier : un écran qui force la vidéo (lecture d'une
+  vidéo ?), et un boîtier éteint en mode vidéo (valeur 1 relue au démarrage, sans passer par le
+  setter).
+- Vérifié : émulateur (valeurs 0, 1, 2 → 0, registres conservés) ; T20-VID1 reconstruit identique ;
+  garde-fou et tests passés.

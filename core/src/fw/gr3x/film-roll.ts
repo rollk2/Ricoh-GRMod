@@ -1128,6 +1128,21 @@ export function installGr3xHideMovieTab(p: Gr3xRollProgram) {
   return { movieTabHidden: hidden };
 }
 
+/** The still / movie setter 0x5327b7cc(UserDataModel, value: 0 still, 1 movie): writes + 0x46 and
+ * + 0x44 of every record, then notifies when the value changed. Its callers: the toggle action
+ * (0x532261fc, value = (current == 0)), ApplyStillMovieForceProperty (0x5316dda8, 0x5316ddbc), 0x531b6938,
+ * debug settings (0x532dcb40, 0x532dcb58). */
+export const GR3X_STILL_MOVIE_SET = 0x5327b7cc;
+
+/** T20-VID2: the movie mode blocked: every request for movie (1) becomes still (0); unchanged, the
+ * camera notifies nothing (the movie key then does nothing). */
+export function installGr3xBlockMovie(p: Gr3xRollProgram) {
+  if (p.sites.some(s => s.address === GR3X_STILL_MOVIE_SET)) throw new FirmwareError('unexpected-instruction', 'IIIx movie block: already patched');
+  const still = p.code(`cmp r1,#0;movne r1,#0;mov r3,r0;b #${GR3X_STILL_MOVIE_SET + 4};`);
+  p.patch(GR3X_STILL_MOVIE_SET, 0xe1a03000, branchWord(GR3X_STILL_MOVIE_SET, still), 'movie: still / movie always still');
+  return { movieBlocked: still };
+}
+
 /** The tables of methods of QuickViewController (the review) and of the message screens. */
 export const GR3X_REVIEW_VTABLE = 0x53b41380, GR3X_MESSAGE_VTABLE = 0x53b41ca8;
 /** T15-END2: the message byte cleared at each exposure (every register kept but ip). */

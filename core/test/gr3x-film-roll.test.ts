@@ -427,4 +427,11 @@ describe.skipIf(!input)('GR III film roll (film mode phase 3.1)', () => {
     const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'vid1' });
     expect(built.report.revision).toBe('T20-VID1');
   }, 240000);
+  it('blocks the movie mode (T20-VID2)', async () => {
+    const vid1 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'vid1' });
+    const vid2 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'vid2' });
+    expect(vid2.sites.map(s => s.address).filter(a => !vid1.sites.some(s => s.address === a))).toEqual([0x5327b7cc]);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'vid2' });
+    expect(built.report.revision).toBe('T20-VID2');
+  }, 240000);
 });
