@@ -1654,3 +1654,7 @@ Lecture (attention : MM = valeur du test + 2, HH = phase + 1) :
 
 - Comme T14-DIR10, avec Off remplacé par **25 ms** en mode pellicule (quasiment Off). Garder reste
   Garder. Vérifié en émulateur ; T14-DIR10 reconstruit identique ; sondes repassées.
+- Résultat sur le boîtier (T14-DIR11, 2026-11-01) : Off → 25 ms, 8 cycles rapides, visée complète
+  avec transparence à chaque fois. **Réglage retenu : Off vaut 25 ms en mode pellicule.** Lecture : la
+  perte d'affichage vient du retour immédiat (durée 0, sans minuterie) ; passer par la minuterie,
+  même très courte, suffit.
