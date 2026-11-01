@@ -110,7 +110,7 @@ export interface Gr3xRollProgram {
   patch(address: number, expected: number, replacement: number, reason: string): void;
 }
 
-export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuRatio[], folders = false, diag = false, filmMenu = false, keys: false | 'sequence' | 'boot' | 'shot' = false, noReview: false | 'skip' | 'live' | 'next' | 'armed' | 'deferred' | 'logged' | 'posted' | 'closed' | 'timed' | 'timedNext' | 'plain' | 'noButtons' | 'plainId' | 'plainReview' | 'plainOff' | 'plainOff25' | 'plainOff10' | 'plainOff1' = false, folderName = false, late = false, rollEnd = false, closure = false) {
+export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuRatio[], folders = false, diag = false, filmMenu = false, keys: false | 'sequence' | 'boot' | 'shot' = false, noReview: false | 'skip' | 'live' | 'next' | 'armed' | 'deferred' | 'logged' | 'posted' | 'closed' | 'timed' | 'timedNext' | 'plain' | 'noButtons' | 'plainId' | 'plainReview' | 'plainOff' | 'plainOff25' | 'plainOff10' | 'plainOff1' = false, folderName = false, late = false, rollEnd = false, closure: boolean | 'recall' = false) {
   const rec = (label: string) => records(label, filmMenu);
   const free = (at: number) => { if (p.sites.some(s => s.address === at)) throw new FirmwareError('unexpected-instruction', `IIIx film roll: ${at.toString(16)} already patched`); };
   const entries: Record<string, number> = {};
@@ -225,6 +225,26 @@ export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuR
     saved:mov r0,r6;pop {r4,r5,r6,pc};`);
   p.patch(GR3X_BOX_SAVE, 0xe3510007, branchWord(GR3X_BOX_SAVE, entries.filmRollBoxSave), 'film roll: Save Settings into a BOX rewinds its roll');
 
+  // closure (T16-CLO1): r0 = 1 when the roll of the U mode in use was going (started, frame not 0) and
+  // its film or format (noted at its start, 0x9c2 / 0x9c3) is no longer the record's: the roll ends
+  // (frame 0, both records saved; the next exposure starts a new roll). A roll noted before (0x9c2 = 0)
+  // takes the record's film and format. Registers r4..r11 kept.
+  const checkBody = `ldrb r0,[r2,#${GR3X_ROLL_FLAGS}];tst r0,#${GR3X_ROLL_STARTED};beq none;ldrb r0,[r2,#${GR3X_ROLL_FRAME}];cmp r0,#0;beq none;
+    ldrb r0,[r2,#${GR3X_ROLL_LOOK}];cmp r0,#0;bne compare;
+    ldrb r0,[r2,#${GR3X_LOOK}];strb r0,[r2,#${GR3X_ROLL_LOOK}];strb r0,[r3,#${GR3X_ROLL_LOOK}];ldrb r0,[r2,#${GR3X_RATIO}];strb r0,[r2,#${GR3X_ROLL_RATIO}];strb r0,[r3,#${GR3X_ROLL_RATIO}];b none;
+    compare:ldrb r4,[r2,#${GR3X_LOOK}];cmp r0,r4;bne close;ldrb r0,[r2,#${GR3X_ROLL_RATIO}];ldrb r4,[r2,#${GR3X_RATIO}];cmp r0,r4;beq none;
+    close:mov r0,#0;strb r0,[r2,#${GR3X_ROLL_FRAME}];strb r0,[r3,#${GR3X_ROLL_FRAME}];mov r4,r1;mov r5,r2;mov r6,r3;
+    bl #${GR3X_APP_DATA};ldr r0,[r0,#8];mov r1,#1;movw r2,#${RECORD};mov r3,r5;bl #${GR3X_APP_DATA_WRITE};
+    bl #${GR3X_APP_DATA};ldr r0,[r0,#8];add r1,r4,#2;movw r2,#${RECORD};mov r3,r6;bl #${GR3X_APP_DATA_WRITE};
+    mov r0,#1;pop {r4,r5,r6,pc};
+    none:mov r0,#0;pop {r4,r5,r6,pc};`;
+  if (closure) entries.filmRollCheck = p.code(`push {r4,r5,r6,lr};${rec('none')}${checkBody}`);
+  // 'recall' (T16-CLO2): the same check at a U mode's recall (r0 its record in use, r1 the mode), whose
+  // way back to the shooting screen is not a switch to the live view: the roll ends there, and the
+  // message screen opens at once.
+  if (closure === 'recall') entries.filmRollCheckAt = p.code(`push {r4,r5,r6,lr};mov r2,r0;${ram('r2', 'none')}sub r3,r1,#1;cmp r3,#5;bhi none;
+    movw r3,#${lo(STORED)};movt r3,#${hi(STORED)};ldr r3,[r3,r1,lsl #2];${ram('r3', 'none')}
+    ${filmMenu ? `ldrb r0,[r2,#${GR3X_ROLL_FLAGS}];tst r0,#${GR3X_FILM_ON};beq none;` : ''}${checkBody}`);
   // The mode recall (called by the guard's recall hook): r0 the record in use, r1 the mode recalled.
   entries.filmRollRecall = p.code(`sub r1,r1,#1;cmp r1,#5;bxhi lr;${ram('r0', 'none')}${filmMenu ? `ldrb r1,[r0,#${GR3X_ROLL_FLAGS}];tst r1,#${GR3X_FILM_ON};bxeq lr;` : ''}
     mov r1,#0;strb r1,[r0,#${GR3X_INTERIM}];mov r1,#${GR3X_DRIVE_MULTI};strb r1,[r0,#${GR3X_DRIVE}];none:bx lr;`);
@@ -234,22 +254,9 @@ export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuR
     const core = entries.filmRollRecall;
     entries.filmRollRecall = p.code(`push {r4,r5,r6,lr};mov r4,r0;mov r5,r1;bl #${core};${ram('r4', 'done')}
       sub r0,r5,#1;cmp r0,#5;bhi restore;ldrb r0,[r4,#${GR3X_ROLL_FLAGS}];tst r0,#${GR3X_FILM_ON};bne done;
-      restore:mov r0,r4;bl #${entries.filmFolderNameRestore};done:pop {r4,r5,r6,pc};`);
+      restore:mov r0,r4;bl #${entries.filmFolderNameRestore};done:${closure === 'recall' ? `mov r0,r4;mov r1,r5;bl #${entries.filmRollCheckAt};cmp r0,#0;beq fin;
+      movw ip,#${lo(NEW_ROLL_MESSAGE)};movt ip,#${hi(NEW_ROLL_MESSAGE)};mov r0,#1;strb r0,[ip];${openMessage}fin:` : ''}pop {r4,r5,r6,pc};`);
   }
-  // closure (T16-CLO1): r0 = 1 when the roll of the U mode in use was going (started, frame not 0) and
-  // its film or format (noted at its start, 0x9c2 / 0x9c3) is no longer the record's: the roll ends
-  // (frame 0, both records saved; the next exposure starts a new roll). A roll noted before (0x9c2 = 0)
-  // takes the record's film and format. Registers r4..r11 kept.
-  if (closure) entries.filmRollCheck = p.code(`push {r4,r5,r6,lr};${rec('none')}
-    ldrb r0,[r2,#${GR3X_ROLL_FLAGS}];tst r0,#${GR3X_ROLL_STARTED};beq none;ldrb r0,[r2,#${GR3X_ROLL_FRAME}];cmp r0,#0;beq none;
-    ldrb r0,[r2,#${GR3X_ROLL_LOOK}];cmp r0,#0;bne compare;
-    ldrb r0,[r2,#${GR3X_LOOK}];strb r0,[r2,#${GR3X_ROLL_LOOK}];strb r0,[r3,#${GR3X_ROLL_LOOK}];ldrb r0,[r2,#${GR3X_RATIO}];strb r0,[r2,#${GR3X_ROLL_RATIO}];strb r0,[r3,#${GR3X_ROLL_RATIO}];b none;
-    compare:ldrb r4,[r2,#${GR3X_LOOK}];cmp r0,r4;bne close;ldrb r0,[r2,#${GR3X_ROLL_RATIO}];ldrb r4,[r2,#${GR3X_RATIO}];cmp r0,r4;beq none;
-    close:mov r0,#0;strb r0,[r2,#${GR3X_ROLL_FRAME}];strb r0,[r3,#${GR3X_ROLL_FRAME}];mov r4,r1;mov r5,r2;mov r6,r3;
-    bl #${GR3X_APP_DATA};ldr r0,[r0,#8];mov r1,#1;movw r2,#${RECORD};mov r3,r5;bl #${GR3X_APP_DATA_WRITE};
-    bl #${GR3X_APP_DATA};ldr r0,[r0,#8];add r1,r4,#2;movw r2,#${RECORD};mov r3,r6;bl #${GR3X_APP_DATA_WRITE};
-    mov r0,#1;pop {r4,r5,r6,pc};
-    none:mov r0,#0;pop {r4,r5,r6,pc};`);
   if (folders) installFolders(p, free, entries, diag, filmMenu, late);
   if (filmMenu) installMenu(p, entries, folderName ? entries.filmFolderNameRestore : 0);
   if (keys) installKeys(p, free, entries, keys === 'boot' || keys === 'shot', keys === 'shot');
@@ -258,7 +265,7 @@ export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuR
   if (noReview === 'next' || noReview === 'armed' || noReview === 'deferred' || noReview === 'logged') installReviewNext(p, free, entries, noReview !== 'next', noReview === 'deferred' || noReview === 'logged', noReview === 'logged');
   if (noReview === 'plain') installReviewPlain(p, free, entries);
   if (noReview === 'noButtons') installReviewNoButtons(p, free, entries);
-  if (noReview === 'plainId' || noReview === 'plainReview' || noReview === 'plainOff' || noReview === 'plainOff25' || noReview === 'plainOff10' || noReview === 'plainOff1') installReviewPlainId(p, free, entries, noReview === 'plainReview' ? 'offHold' : noReview === 'plainOff' ? 'off' : noReview === 'plainOff25' ? 'off25' : noReview === 'plainOff10' ? 'off10' : noReview === 'plainOff1' ? 'off1' : false);
+  if (noReview === 'plainId' || noReview === 'plainReview' || noReview === 'plainOff' || noReview === 'plainOff25' || noReview === 'plainOff10' || noReview === 'plainOff1') installReviewPlainId(p, free, entries, noReview === 'plainReview' ? 'offHold' : noReview === 'plainOff' ? 'off' : noReview === 'plainOff25' ? 'off25' : noReview === 'plainOff10' ? 'off10' : noReview === 'plainOff1' ? 'off1' : false, closure === 'recall');
   if (noReview === 'timed' || noReview === 'timedNext') installReviewTimer(p, free, entries, noReview === 'timedNext');
   if (noReview === 'posted' || noReview === 'closed') installReviewHalfPress(p, free, entries, noReview === 'posted' ? GR3X_DELETE_EVENT : GR3X_REVIEW_CLOSE_EVENT);
   return { entries, exposure };
@@ -832,7 +839,11 @@ export const GR3X_REVIEW_ID_KIND = 0x531ca6e8;
  * takes the id of a single picture's review (kind 3 read as 0): the picture without buttons, kept as
  * Rec Review says, closed by a half press as after a single picture.
  */
-function installReviewPlainId(p: Gr3xRollProgram, free: (at: number) => void, entries: Record<string, number>, review: false | 'offHold' | 'off' | 'off25' | 'off10' | 'off1' = false) {
+function installReviewPlainId(p: Gr3xRollProgram, free: (at: number) => void, entries: Record<string, number>, review: false | 'offHold' | 'off' | 'off25' | 'off10' | 'off1' = false, anyState = false) {
+  // anyState (T16-CLO2): film mode alone, whatever the multi-exposure state (Film Advance pressed early
+  // ends the sequence before the review opens: it then opened with Next / Retake / Complete).
+  const state2 = (label: string) => anyState ? '' : `movw r0,#${lo(SINGLETON)};movt r0,#${hi(SINGLETON)};ldr r0,[r0];${ram('r0', label)}
+      ldr r0,[r0,#0x518];${ram('r0', label)}ldr r0,[r0];${ram('r0', label)}ldrb r0,[r0,#0x6c0];cmp r0,#2;bne ${label};`;
   free(GR3X_REVIEW_ID_KIND);
   // review (T14-DIR9): that review closing at once (Instant Review Off) or never (Hold) loses the live
   // view's indications in a multi-exposure (seen on the camera); in film mode both read as 500 ms.
@@ -844,16 +855,14 @@ function installReviewPlainId(p: Gr3xRollProgram, free: (at: number) => void, en
     free(GR3X_REVIEW_TIME);
     entries.filmReviewTime = p.code(`cmp r0,#0;beq check;${off ? 'b done' : 'cmn r0,#1;bne done'};
       check:push {r0,r1,r2,r3,r4,lr};${records('keep', true)}
-      movw r0,#${lo(SINGLETON)};movt r0,#${hi(SINGLETON)};ldr r0,[r0];${ram('r0', 'keep')}
-      ldr r0,[r0,#0x518];${ram('r0', 'keep')}ldr r0,[r0];${ram('r0', 'keep')}ldrb r0,[r0,#0x6c0];cmp r0,#2;bne keep;
+      ${state2('keep')}
       pop {r0,r1,r2,r3,r4,lr};movw r0,#${ms};b done;
       keep:pop {r0,r1,r2,r3,r4,lr};
       done:subs r5,r0,#0;b #${GR3X_REVIEW_TIME + 4};`);
     p.patch(GR3X_REVIEW_TIME, 0xe2505000, branchWord(GR3X_REVIEW_TIME, entries.filmReviewTime), off ? `film roll: Instant Review Off read as ${ms} ms in film mode` : 'film roll: Instant Review Off or Hold read as 500 ms in film mode');
   }
   entries.filmReviewId = p.code(`ldrb r3,[r0,#0x799];cmp r3,#3;bne back;push {r0,r1,r2,r3,r4,lr};${records('keep', true)}
-    movw r0,#${lo(SINGLETON)};movt r0,#${hi(SINGLETON)};ldr r0,[r0];${ram('r0', 'keep')}
-    ldr r0,[r0,#0x518];${ram('r0', 'keep')}ldr r0,[r0];${ram('r0', 'keep')}ldrb r0,[r0,#0x6c0];cmp r0,#2;bne keep;
+    ${state2('keep')}
     pop {r0,r1,r2,r3,r4,lr};mov r3,#0;b back;
     keep:pop {r0,r1,r2,r3,r4,lr};
     back:b #${GR3X_REVIEW_ID_KIND + 4};`);

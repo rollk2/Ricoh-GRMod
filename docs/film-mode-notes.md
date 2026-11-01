@@ -1783,3 +1783,19 @@ Lecture (attention : MM = valeur du test + 2, HH = phase + 1) :
   contrôle ; s'il clôt, le message attend et l'écran de message s'ouvre à la place de la visée.
 - Mouchard de T15-END3 retiré (dates des photos normales) ; garde du message conservée.
 - Vérifié en émulateur ; T15-END3 reconstruit identique ; sondes repassées.
+- Résultats T16-CLO1 (2026-11-01) : changement d'Image Control puis Menu : message puis compteur à 1 ;
+  Menu / Menu ensuite : pas de nouveau message ; vue suivante dans un nouveau dossier au code du
+  nouveau film. **Clôture à la sortie du menu : validée.**
+- Mais retour P → U3 (la BOX remet l'ancien film) : pas de clôture au retour (le rappel d'un mode ne
+  passe pas par un retour en visée) ; la vue suivante comptait encore dans le rouleau clos, puis
+  message et 1. Et Film Advance pressé très tôt après une vue ouvrait l'écran Next / Retake /
+  Complete (la séquence finie avant l'ouverture de la revue, la condition « état 2 » tombait).
+
+### Build de test T16-CLO2
+
+- Le même contrôle au rappel d'un mode U (`filmRollCheckAt(enregistrement, mode)` après la remise du
+  nom de dossier) : clôture et ouverture immédiate de l'écran de message.
+- Revue sans boutons et Affichage immédiat Off = 1 ms en mode pellicule **quel que soit l'état** de la
+  multi-exposition.
+- Vérifié en émulateur (rappel avec et sans changement, revue et durée sans condition d'état) ;
+  sondes repassées (garde-fou : écritures et ouverture d'écran substituées).
