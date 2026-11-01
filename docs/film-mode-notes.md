@@ -1646,3 +1646,6 @@ Lecture (attention : MM = valeur du test + 2, HH = phase + 1) :
 - Seul Affichage immédiat **Off** est remplacé en mode pellicule, par **100 ms** ; Garder reste
   Garder ; les autres durées et les autres modes sont inchangés.
 - Vérifié en émulateur (300 cas) ; T14-DIR9 reconstruit identique ; sondes repassées.
+- Résultats sur le boîtier (T14-DIR10, 2026-11-01) : Off → 100 ms, 6 cycles, visée complète avec
+  transparence à chaque fois ; Garder : la photo reste affichée jusqu'à une action (comportement
+  d'origine). **Réglage retenu : seul Off est remplacé, par 100 ms.**
