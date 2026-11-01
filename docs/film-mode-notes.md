@@ -1826,3 +1826,39 @@ Lecture (attention : MM = valeur du test + 2, HH = phase + 1) :
 - Résultats T16-CLO4 (2026-11-01) : changement d'Image Control puis sortie du menu : message, compteur
   0 ; une vue ; P : pas de message ; retour U3 : message, compteur 0. **Clôture quand le film ou le
   format change (point 3) : validée sur le boîtier.**
+
+### Rembobiner : analyse statique (2026-11-01)
+
+Certitude : lu dans le code (firmware 2.10), rien encore testé sur le boîtier.
+
+- La ligne « Create New Folder » (texte 0x233) est la ligne `0x02000128` de l'onglet Setup (mot en
+  `0x53b36c14`). Comme pour toutes les lignes, son identifiant est celui de l'écran ouvert.
+- Fabrique `0x5316f3bc` : les identifiants `0x02000128` à `0x0200012b` construisent une seule fois
+  `FolderCreateController` (0x174 octets, constructeur `0x531e6428`, rangé dans l'emplacement
+  `+0x138` de la fabrique), puis le réutilisent.
+- Le constructeur pose les deux boutons du dialogue : 0x2a9 « Execute » / « Exécuter » et 0x2aa
+  « Cancel » / « Annuler » (`0x531e6074`).
+- Démarrage `0x531e6534` :
+  - sans carte (`0x53237460` nul) : état `0x0200012b` ;
+  - sinon `0x531e64a8` renvoie un texte d'erreur (0x2f5 carte pleine, 0x2f6 mémoire interne
+    pleine, 0x2f7 dossier impossible, 0x2f8 carte verrouillée) : état `0x0200012a` (`0x531e5ffc`) ;
+  - sinon la question : `0x531e5ec8`, état `0x02000128`, texte 0x2ab.
+- Événements `0x531e663c` : 0xd0 / 0xd1 déplacent le choix, 0xd8 (OK) appelle `0x531e6600` :
+  bouton 0 (Exécuter) → validation `0x531e65b0`, sinon sortie `0x5316ca28`.
+- Validation `0x531e65b0` : `0x5358515c(0x53584c74(), 1)`, texte 0x2bb « Data process completed. »
+  (`0x531e5f3c`), état `0x02000129`, minuterie de 3 s.
+- Précédent dans GR Mod (`datestamp.ts`, End Screen) : la fabrique peut faire correspondre un nouvel
+  identifiant à un écran existant et poser au passage un octet de mode ; la table des touches
+  (`0x53221a4c`) reçoit la même correspondance.
+
+Proposition pour T17-RWD1 :
+
+- Nouvelle ligne `0x020001b1` dans le menu C, après Film Roll Mode, visible en mode U avec Film Roll
+  Mode sur On (même fonction de visibilité que Film Roll Mode, plus le bit 0).
+- Fabrique et touches : `0x020001b1` → `0x02000128` avec l'octet « rembobinage » à 1 ;
+  `0x02000128` lui-même le remet à 0 (Create New Folder reste intact).
+- Avec l'octet à 1 : démarrage directement sur la question (pas de contrôle de carte), texte de la
+  question remplacé ; Exécuter clôt le rouleau (vue 0 dans l'enregistrement en cours et dans la
+  BOX, comme la clôture de T16) au lieu de poser le drapeau de nouveau dossier ; texte de fin
+  « Nouvelle pellicule chargée. » au lieu de 0x2bb.
+- La vue en cours est déjà enregistrée à l'ouverture du menu : rien à ajouter pour Q7.
