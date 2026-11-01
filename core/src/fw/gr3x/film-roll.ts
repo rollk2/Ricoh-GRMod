@@ -875,11 +875,30 @@ export const GR3X_FILM_NEW_ROLL_NAMES: readonly string[] = [
  * T15-END1: the message screen 0x08000007 shows our text (`text`) instead of its own while a film mode
  * message waits (the byte is then cleared): `movw r1,#0x2be` at 0x531ce174 becomes that choice.
  */
-export function installGr3xFilmMessage(p: Gr3xRollProgram, text: number) {
+export function installGr3xFilmMessage(p: Gr3xRollProgram, text: number, redirect = false) {
   if (p.sites.some(s => s.address === GR3X_MESSAGE_TEXT_AT)) throw new FirmwareError('unexpected-instruction', 'IIIx film message: already patched');
   const entries: Record<string, number> = {};
   entries.filmMessageText = p.code(`movw ip,#${lo(NEW_ROLL_MESSAGE)};movt ip,#${hi(NEW_ROLL_MESSAGE)};ldrb r1,[ip];cmp r1,#0;movweq r1,#0x2be;beq back;
-    mov r1,#0;strb r1,[ip];movw r1,#${text};back:b #${GR3X_MESSAGE_TEXT_SET};`);
+    ${redirect ? '' : 'mov r1,#0;strb r1,[ip];'}movw r1,#${text};back:b #${GR3X_MESSAGE_TEXT_SET};`);
+  // redirect (T15-END2): the review screen that follows the last frame (Instant Review) covered the
+  // message at once; while the message waits, the review's way back to the live view goes to the
+  // message screen instead, and the message screen's own way back clears the byte (also cleared at
+  // each exposure, GR3X_MESSAGE_CLEAR). The text no longer clears it.
+  if (redirect) {
+    if (p.sites.some(s => s.address === GR3X_SCREEN_SWITCH)) throw new FirmwareError('unexpected-instruction', 'IIIx film message: switch already patched');
+    entries.filmMessageSwitch = p.code(`push {r2,r3};movw ip,#${lo(NEW_ROLL_MESSAGE)};movt ip,#${hi(NEW_ROLL_MESSAGE)};ldrb r2,[ip];cmp r2,#0;beq native;
+      cmp r1,#0x8000000;bne native;ldr r3,[r0];
+      movw r2,#${lo(GR3X_REVIEW_VTABLE)};movt r2,#${hi(GR3X_REVIEW_VTABLE)};cmp r3,r2;bne other;
+      mov r1,#${GR3X_MESSAGE_SCREEN & 0xff};movt r1,#${GR3X_MESSAGE_SCREEN >>> 16};b native;
+      other:movw r2,#${lo(GR3X_MESSAGE_VTABLE)};movt r2,#${hi(GR3X_MESSAGE_VTABLE)};cmp r3,r2;moveq r2,#0;strbeq r2,[ip];
+      native:pop {r2,r3};mov ip,sp;b #${GR3X_SCREEN_SWITCH + 4};`);
+    p.patch(GR3X_SCREEN_SWITCH, 0xe1a0c00d, branchWord(GR3X_SCREEN_SWITCH, entries.filmMessageSwitch), 'film roll: the review gives way to the waiting message');
+  }
   p.patch(GR3X_MESSAGE_TEXT_AT, 0xe30012be, branchWord(GR3X_MESSAGE_TEXT_AT, entries.filmMessageText), 'film roll: « New roll loaded. » on the message screen');
   return entries;
 }
+
+/** The tables of methods of QuickViewController (the review) and of the message screens. */
+export const GR3X_REVIEW_VTABLE = 0x53b41380, GR3X_MESSAGE_VTABLE = 0x53b41ca8;
+/** T15-END2: the message byte cleared at each exposure (every register kept but ip). */
+export const GR3X_MESSAGE_CLEAR = `push {r0};movw ip,#${lo(NEW_ROLL_MESSAGE)};movt ip,#${hi(NEW_ROLL_MESSAGE)};mov r0,#0;strb r0,[ip];pop {r0};`;

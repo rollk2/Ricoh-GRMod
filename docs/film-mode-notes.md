@@ -1738,3 +1738,15 @@ Lecture (attention : MM = valeur du test + 2, HH = phase + 1) :
   chinois simplifiés du boîtier : à remplacer.
 - Vérifié en émulateur (fin, message, redémarrage, compteur, texte) ; T14-DIR14 et T13-FN1 reconstruits
   identiques ; sondes repassées.
+- Résultat T15-END1 (2026-11-01, 1:1, 12 vues) : à la 12e avance, message à peine visible (recouvert
+  aussitôt) ; compteur 1/12 ensuite. Hypothèse : l'aperçu de l'image finale (Affichage immédiat Off)
+  s'ouvre après et revient aussitôt en visée.
+
+### Build de test T15-END2 : le message n'est plus recouvert
+
+- Crochet du changement d'écran `0x5316c9d8` : si le message attend (octet `0x55804397`) et que l'écran
+  de revue (table `0x53b41380`) revient en visée (0x08000000), il va vers l'écran de message
+  0x08000007 à la place ; quand l'écran de message (table `0x53b41ca8`) revient en visée, l'octet
+  retombe ; il retombe aussi à chaque exposition. Le texte ne l'efface plus.
+- Vérifié en émulateur (24 cas de changement d'écran, effacement à l'exposition) ; T15-END1
+  reconstruit identique ; sondes repassées.
