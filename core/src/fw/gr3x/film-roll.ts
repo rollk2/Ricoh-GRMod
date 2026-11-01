@@ -119,7 +119,7 @@ export interface Gr3xRollProgram {
   patch(address: number, expected: number, replacement: number, reason: string): void;
 }
 
-export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuRatio[], folders = false, diag = false, filmMenu = false, keys: false | 'sequence' | 'boot' | 'shot' = false, noReview: false | 'skip' | 'live' | 'next' | 'armed' | 'deferred' | 'logged' | 'posted' | 'closed' | 'timed' | 'timedNext' | 'plain' | 'noButtons' | 'plainId' | 'plainReview' | 'plainOff' | 'plainOff25' | 'plainOff10' | 'plainOff1' = false, folderName = false, late = false, rollEnd = false, closure: boolean | 'recall' = false, fromZero = false, rewind = false, lost: boolean | 'probe' | 'early' = false, pFolder = false) {
+export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuRatio[], folders = false, diag = false, filmMenu = false, keys: false | 'sequence' | 'boot' | 'shot' = false, noReview: false | 'skip' | 'live' | 'next' | 'armed' | 'deferred' | 'logged' | 'posted' | 'closed' | 'timed' | 'timedNext' | 'plain' | 'noButtons' | 'plainId' | 'plainReview' | 'plainOff' | 'plainOff25' | 'plainOff10' | 'plainOff1' = false, folderName = false, late = false, rollEnd = false, closure: boolean | 'recall' = false, fromZero = false, rewind = false, lost: boolean | 'probe' | 'early' = false, pFolder = false, filmCodes: Readonly<Record<number, string>> = {}) {
   const rec = (label: string) => records(label, filmMenu);
   const free = (at: number) => { if (p.sites.some(s => s.address === at)) throw new FirmwareError('unexpected-instruction', `IIIx film roll: ${at.toString(16)} already patched`); };
   const entries: Record<string, number> = {};
@@ -148,7 +148,8 @@ export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuR
   // the frame's picture is saved, so a roll's new folder takes it), and the saved name and type given
   // back when a free mode or a U mode without Film Roll Mode is recalled, or when it is set to Off.
   if (folderName) {
-    const codes = Object.entries(GR3X_LOOK_CODES).map(([look, code]) =>
+    const folderCodes: Record<string, string> = { ...GR3X_LOOK_CODES, ...Object.fromEntries(Object.entries(filmCodes).map(([l, c]) => [l, c.slice(0, 3)])) };
+    const codes = Object.entries(folderCodes).map(([look, code]) =>
       `cmp r0,#${look};movweq r3,#${code.charCodeAt(0) | code.charCodeAt(1) << 8};movteq r3,#${code.charCodeAt(2)};beq code;`).join('');
     const unknown = GR3X_UNKNOWN_LOOK_CODE;
     // r0 = record in use: name buffer filled, then the live name and type (free name).
@@ -1236,12 +1237,12 @@ export const GR3X_UNKNOWN_LOOK_FILE_CODE = 'FILM';
 
 /** T22-NAME1: in a U mode with Film Roll Mode on, a new file's prefix is the film's code and "_"
  * (NEG_6857.JPG): the record in use's look (as the roll's folder name), FLM for an unknown one. */
-export function installGr3xFilmFileNames(p: Gr3xRollProgram, four = false) {
+export function installGr3xFilmFileNames(p: Gr3xRollProgram, four = false, filmCodes: Readonly<Record<number, string>> = {}) {
   if (p.sites.some(s => s.address === GR3X_FILE_PREFIX)) throw new FirmwareError('unexpected-instruction', 'IIIx file names: already patched');
   // four: (T22-NAME2) the film's 4-letter file code (NEGF6857.JPG) instead of its 3 letters and "_".
   const word4 = (c: string) => `movw r3,#${c.charCodeAt(0) | c.charCodeAt(1) << 8};movt r3,#${c.charCodeAt(2) | c.charCodeAt(3) << 8};`;
   const codes = four
-    ? Object.entries(GR3X_LOOK_FILE_CODES).map(([look, code]) => `cmp r0,#${look};bne n${look};${word4(code)}b code;n${look}:`).join('')
+    ? Object.entries({ ...GR3X_LOOK_FILE_CODES, ...filmCodes }).map(([look, code]) => `cmp r0,#${look};bne n${look};${word4(code)}b code;n${look}:`).join('')
     : Object.entries(GR3X_LOOK_CODES).map(([look, code]) =>
       `cmp r0,#${look};movweq r3,#${code.charCodeAt(0) | code.charCodeAt(1) << 8};movteq r3,#${code.charCodeAt(2) | 0x5f << 8};beq code;`).join('');
   const u = four ? GR3X_UNKNOWN_LOOK_FILE_CODE : GR3X_UNKNOWN_LOOK_CODE + '_';

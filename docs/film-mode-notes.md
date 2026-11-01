@@ -2245,3 +2245,25 @@ Certitude : lu dans le code.
 - Nom chinois simplifié de Film Roll Mode : 底片模式, 底 absent des textes zh-CN du boîtier (présent
   en zh-TW) ; les polices chinoises sont celles du GR IV, mais seuls 晕 / 暈 sont vérifiés
   (`GR3X_FONT_VERIFIED_CHARS`) : à vérifier sur le boîtier, langue 简体中文.
+
+### Intégration, étape 1 : le moteur (T23)
+
+- Décisions de l'utilisateur (2026-11-01) : un champ de 4 caractères par film (fichiers sur les 4,
+  dossier sur les 3 premiers) ; le retrait de la vidéo est une option séparée ; moteur d'abord.
+- `core/src/fw/gr3x/adj.ts` : options `filmMode: { codes }` (codes par look 64 à 127, A-Z / 0-9) et
+  `noMovie`. Avec `filmMode`, la forme effective est `name2` si `noMovie`, sinon `film` (= `name2`
+  sans la partie vidéo ni l'onglet ; les lignes restent dans le menu C, icône cartouche de Film
+  Advance quand même). Les éléments vidéo (onglet masqué, mode bloqué, lignes, fonctions Fn, touche
+  renommée) dépendent de `noMovie` et marchent aussi sans mode pellicule.
+- Codes des films : dossier `folderName` (3 premiers caractères) et préfixe des fichiers (4).
+- Avec des films, c'est la couche Image Control (round 10) qui installe le garde-fou : elle reçoit
+  maintenant `filmRollRecall` (`recallAfter`), sans quoi le build échouait.
+- Recette (`ratio-recipe.ts`) : `filmMode` (codes) et `noMovie` inscrits et relus, pour que
+  l'application reconnaisse ses propres fichiers (inspection par reconstruction).
+- `core/src/app/engine.ts` : `BuildOptions.filmMode: { codes: { CY: 'PORT', ... } }` et `noMovie` ;
+  le mode pellicule ajoute l'étage Date Imprint ; exigent un round 10 complet.
+- Vérifié : builds avec 3 films (PORT, GOLD, un sans code) avec et sans `noMovie` : émulateur
+  (préfixes PORT / GOLD / FILM, noms de dossier, tout le reste), garde-fou, inspection par l'Engine ;
+  T21-TAB1 et T19-CARD3 reconstruits identiques, T22-NAME2 de même comportement (ordre d'ajout du
+  code changé) ; tests d'équivalence GR III / IIIx et round 6 passés ; `npm test` : seuls les 5
+  échecs des fichiers privés absents.

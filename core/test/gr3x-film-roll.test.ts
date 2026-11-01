@@ -4,6 +4,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { buildGr3xAdjResearch } from '../src/fw/gr3x/adj';
+import { Engine } from '../src/app/engine';
 import { planGr3xMenu } from '../src/fw/gr3x/geometry';
 import { buildGr3xTestFirmware } from '../src/fw/gr3x/research-package';
 import { filmAdvanceIcon, filmTabIcons, fnTile } from '../src/fw/gr3x/film-mode-icons';
@@ -474,4 +475,20 @@ describe.skipIf(!input)('GR III film roll (film mode phase 3.1)', () => {
     const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'name2' });
     expect(built.report.revision).toBe('T22-NAME2');
   }, 240000);
+  it('builds the film mode and the movie removal through the app\'s engine, with films and their codes (T23)', async () => {
+    const curve = Array.from({ length: 256 }, (_, i) => Math.round(i * 16383 / 255));
+    const preset = { matrixQ13: [8192, 0, 0, 0, 8192, 0, 0, 0, 8192], curves: [curve, curve, curve] as [number[], number[], number[]] };
+    const requests = [{ slot: 'CY' as const, names: { en: 'Portra' }, preset }, { slot: 'CG' as const, names: { en: 'Gold' }, preset }];
+    const ratios = [{ ratio: '65:24', name: 'XPan' }];
+    const engine = await Engine.open(raw);
+    for (const noMovie of [false, true]) {
+      const built = await engine.buildFirmware(requests, ratios, [], { filmCount: 3, adjSoftFocus: true, filmMode: { codes: { CY: 'PORT', CG: 'GOLD' } }, ...(noMovie ? { noMovie } : {}) });
+      expect(await (await Engine.open(raw)).inspect(built.file)).toMatchObject({ verified: true });
+    }
+    // Without films, the movie removal alone.
+    const alone = await engine.buildFirmware([], ratios, [], { filmCount: 0, dateStamp: true, noMovie: true });
+    expect(await (await Engine.open(raw)).inspect(alone.file)).toMatchObject({ verified: true });
+    await expect(engine.buildFirmware(requests, ratios, [], { filmCount: 3, filmMode: { codes: { CY: 'port' } } })).rejects.toThrow(/4 characters/);
+    await expect(engine.buildFirmware(requests, ratios, [], { filmCount: 3, filmMode: { codes: { F5: 'PORT' } } })).rejects.toThrow(/film code/);
+  }, 600000);
 });
