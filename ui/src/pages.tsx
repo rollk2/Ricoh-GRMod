@@ -13,7 +13,7 @@ import {
   addRatio, addWallFiles, askForOfficial, bridgeLoaded, loadFirmwareFile, loadIconImage, loadPresetFile, loadPreviewFile, moveWall, nameProblem, openCrop, outputFirmware, previewPhoto, removePreset, removeWall,
   maxRatios, ratioName, ratioProblem, removeRatio, setActiveRatio, setActiveSlot, setCrop, setIcon, setName, setPreviewMode, setRatio, setRatioBackdrop, useStore, wallBitmap,
   setSoft,
-  setDateStamp,
+  setDateStamp, setFilmMode, setNoMovie, setFilmCode, filmModeChoosable, filmModeOn, filmCodeProblem,
   setMonoUnlock,
   setDirectFlash,
   extraName, extraNameProblem, extraProblem, halationOf, removeExtraSlot, setExtraCount, setExtraName, setHalation, slotOf,
@@ -197,6 +197,8 @@ function SlotCard({ id }: { id: SlotId }) {
   const name = slot.names[lang] ?? '';
   const cap = off.names[lang].capacity;
   const problem = nameProblem(info, id, lang, name);
+  const filmMode = useStore((s) => filmModeOn(s));
+  const codeBad = useStore((s) => filmCodeProblem(id, s));
   const p = slot.preset;
   const first = id === 'CY'; // the one the tour points at
   return (
@@ -231,6 +233,14 @@ function SlotCard({ id }: { id: SlotId }) {
               </div>
             )}
           </Prop>
+          {gr3x && filmMode && (
+            <Prop label={t('filmCode')}>
+              <div className="chips">
+                <input className={`input short ${codeBad ? 'bad' : ''}`} value={slot.code ?? ''} maxLength={4} spellCheck={false} placeholder="FILM" aria-label={t('filmCode')} title={t('filmCodeHint')} onChange={(e) => setFilmCode(id, e.target.value)} />
+                <span className="small muted">{t('filmCodeHint')}</span>
+              </div>
+            </Prop>
+          )}
           <Prop label={t('icon')} tour={first ? 'ic-icon' : undefined}>
             <div className="chips">
               <Segmented value={slot.icon.mode} onChange={(mode) => setIcon(id, { mode })} options={[{ value: 'keep', label: t('iconKeep') }, { value: 'text', label: t('iconText') }, { value: 'image', label: t('iconImage') }]} />
@@ -677,6 +687,9 @@ function FeatureSwitches({ mono, boxRef, from }: { mono: boolean; boxRef?: (el: 
   const dateOk = useStore(s => !!s.info?.features.dateStamp);
   const flash = useStore((s) => s.directFlash);
   const flashOk = useStore((s) => !!s.info?.features.directFlash);
+  const filmMode = useStore((s) => s.filmMode);
+  const noMovie = useStore((s) => s.noMovie);
+  const filmOk = useStore((s) => filmModeChoosable(s));
   const own = useRef<HTMLDivElement | null>(null);
   // Moved to the other column: glide from where it was (FLIP). Rectangles are in window pixels,
   // the transform is in the zoomed interface's pixels.
@@ -696,6 +709,8 @@ function FeatureSwitches({ mono, boxRef, from }: { mono: boolean; boxRef?: (el: 
       {(!gr3x || dateOk) && <FeatureRow icon={Ico.date} title={t('navDate')} sub={t('dateSub')} on={date} onChange={setDateStamp} />}
       {!mono && !gr3x && <FeatureRow icon={Ico.mono} title={t(gr3x ? 'gr3xReplicaTitle' : 'navMono')} sub={t(gr3x ? 'gr3xReplicaSub' : 'monoSub')} on={looks} onChange={setMonoUnlock} />}
       {flashOk && <FeatureRow icon={Ico.flash} title={t('navFlash')} sub={t('flashSub')} on={flash} onChange={setDirectFlash} />}
+      {filmOk && <FeatureRow icon={Ico.film} title={t('navFilmMode')} sub={t('filmModeSub')} on={filmMode} onChange={setFilmMode} />}
+      {filmOk && <FeatureRow icon={Ico.noMovie} title={t('navNoMovie')} sub={t('noMovieSub')} on={noMovie} onChange={setNoMovie} />}
     </div>
   );
 }

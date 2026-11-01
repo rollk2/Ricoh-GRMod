@@ -2267,3 +2267,20 @@ Certitude : lu dans le code.
   T21-TAB1 et T19-CARD3 reconstruits identiques, T22-NAME2 de même comportement (ordre d'ajout du
   code changé) ; tests d'équivalence GR III / IIIx et round 6 passés ; `npm test` : seuls les 5
   échecs des fichiers privés absents.
+
+### Intégration, étape 2 : l'application (2026-11-01)
+
+- `ui/src/store.ts` : état `filmMode`, `noMovie` (projet GR III), `code` par film (`SlotState`),
+  sauvegardés dans `project-gr3.json` ; setters `setFilmMode`, `setNoMovie`, `setFilmCode` (majuscules,
+  A-Z / 0-9, 4 au plus) ; `filmModeChoosable` (GR III / IIIx complet, nombre de films réglable) ; au
+  build, `filmMode: { codes }` (codes complets des films construits) et `noMovie`, refus si un code
+  est incomplet, lignes de confirmation (écriture sur carte).
+- `ui/src/pages.tsx` : interrupteurs « Film mode » et « No movie » sous Date Imprint ; champ « Film
+  code » dans chaque film quand le mode pellicule est actif (indication FILM, explication).
+- `ui/src/i18n.ts` (anglais, chinois), `ui/src/components.tsx` (icônes bande de film et caméra barrée).
+- Vérifié : typage et construction de l'interface ; coquille de développement (`shell/build.sh dev`)
+  pilotée par Playwright : chargement du firmware 2.10, format 65:24, 2 films, les deux
+  interrupteurs, code « por1 » devenu POR1, export dans un dossier ; le fichier exporté est reconnu
+  par l'application et sa recette porte `filmMode` (64 : POR1), `noMovie`, round 10.
+- Remarque : le mode pellicule ajoute l'étage Date Imprint (la ligne Date Imprint apparaît dans le
+  menu du boîtier, sur Off), même si l'interrupteur Date imprint est éteint.
