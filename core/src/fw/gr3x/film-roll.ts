@@ -110,7 +110,7 @@ export interface Gr3xRollProgram {
   patch(address: number, expected: number, replacement: number, reason: string): void;
 }
 
-export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuRatio[], folders = false, diag = false, filmMenu = false, keys: false | 'sequence' | 'boot' | 'shot' = false, noReview: false | 'skip' | 'live' | 'next' | 'armed' | 'deferred' | 'logged' | 'posted' | 'closed' | 'timed' | 'timedNext' | 'plain' | 'noButtons' | 'plainId' = false, folderName = false) {
+export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuRatio[], folders = false, diag = false, filmMenu = false, keys: false | 'sequence' | 'boot' | 'shot' = false, noReview: false | 'skip' | 'live' | 'next' | 'armed' | 'deferred' | 'logged' | 'posted' | 'closed' | 'timed' | 'timedNext' | 'plain' | 'noButtons' | 'plainId' | 'plainReview' = false, folderName = false) {
   const rec = (label: string) => records(label, filmMenu);
   const free = (at: number) => { if (p.sites.some(s => s.address === at)) throw new FirmwareError('unexpected-instruction', `IIIx film roll: ${at.toString(16)} already patched`); };
   const entries: Record<string, number> = {};
@@ -216,7 +216,7 @@ export function installGr3xFilmRoll(p: Gr3xRollProgram, menu: readonly Gr3xMenuR
   if (noReview === 'next' || noReview === 'armed' || noReview === 'deferred' || noReview === 'logged') installReviewNext(p, free, entries, noReview !== 'next', noReview === 'deferred' || noReview === 'logged', noReview === 'logged');
   if (noReview === 'plain') installReviewPlain(p, free, entries);
   if (noReview === 'noButtons') installReviewNoButtons(p, free, entries);
-  if (noReview === 'plainId') installReviewPlainId(p, free, entries);
+  if (noReview === 'plainId' || noReview === 'plainReview') installReviewPlainId(p, free, entries, noReview === 'plainReview');
   if (noReview === 'timed' || noReview === 'timedNext') installReviewTimer(p, free, entries, noReview === 'timedNext');
   if (noReview === 'posted' || noReview === 'closed') installReviewHalfPress(p, free, entries, noReview === 'posted' ? GR3X_DELETE_EVENT : GR3X_REVIEW_CLOSE_EVENT);
   return { entries, exposure };
@@ -784,8 +784,21 @@ export const GR3X_REVIEW_ID_KIND = 0x531ca6e8;
  * takes the id of a single picture's review (kind 3 read as 0): the picture without buttons, kept as
  * Rec Review says, closed by a half press as after a single picture.
  */
-function installReviewPlainId(p: Gr3xRollProgram, free: (at: number) => void, entries: Record<string, number>) {
+function installReviewPlainId(p: Gr3xRollProgram, free: (at: number) => void, entries: Record<string, number>, review = false) {
   free(GR3X_REVIEW_ID_KIND);
+  // review (T14-DIR9): that review closing at once (Instant Review Off) or never (Hold) loses the live
+  // view's indications in a multi-exposure (seen on the camera); in film mode both read as 500 ms.
+  if (review) {
+    free(GR3X_REVIEW_TIME);
+    entries.filmReviewTime = p.code(`cmp r0,#0;beq check;cmn r0,#1;bne done;
+      check:push {r0,r1,r2,r3,r4,lr};${records('keep', true)}
+      movw r0,#${lo(SINGLETON)};movt r0,#${hi(SINGLETON)};ldr r0,[r0];${ram('r0', 'keep')}
+      ldr r0,[r0,#0x518];${ram('r0', 'keep')}ldr r0,[r0];${ram('r0', 'keep')}ldrb r0,[r0,#0x6c0];cmp r0,#2;bne keep;
+      pop {r0,r1,r2,r3,r4,lr};movw r0,#${GR3X_FILM_REVIEW_MS};b done;
+      keep:pop {r0,r1,r2,r3,r4,lr};
+      done:subs r5,r0,#0;b #${GR3X_REVIEW_TIME + 4};`);
+    p.patch(GR3X_REVIEW_TIME, 0xe2505000, branchWord(GR3X_REVIEW_TIME, entries.filmReviewTime), 'film roll: Instant Review Off or Hold read as 500 ms in film mode');
+  }
   entries.filmReviewId = p.code(`ldrb r3,[r0,#0x799];cmp r3,#3;bne back;push {r0,r1,r2,r3,r4,lr};${records('keep', true)}
     movw r0,#${lo(SINGLETON)};movt r0,#${hi(SINGLETON)};ldr r0,[r0];${ram('r0', 'keep')}
     ldr r0,[r0,#0x518];${ram('r0', 'keep')}ldr r0,[r0];${ram('r0', 'keep')}ldrb r0,[r0,#0x6c0];cmp r0,#2;bne keep;
@@ -794,3 +807,6 @@ function installReviewPlainId(p: Gr3xRollProgram, free: (at: number) => void, en
     back:b #${GR3X_REVIEW_ID_KIND + 4};`);
   p.patch(GR3X_REVIEW_ID_KIND, 0xe5d03799, branchWord(GR3X_REVIEW_ID_KIND, entries.filmReviewId), 'film roll: a single picture\'s review instead of the multi-exposure one');
 }
+
+/** In the review's own return (0x531caa7c): `subs r5,r0,#0` on Instant Review (ms; 0 Off, -1 Hold). */
+export const GR3X_REVIEW_TIME = 0x531caaa4;

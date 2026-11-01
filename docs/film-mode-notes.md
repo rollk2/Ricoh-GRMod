@@ -1619,3 +1619,16 @@ Lecture (attention : MM = valeur du test + 2, HH = phase + 1) :
 - Lecture : l'état « visée sans indications » est l'aperçu (Rec Review Hold) superposé à la visée ;
   il bascule selon que l'aperçu est encore ouvert ou non au déclenchement suivant. Le bogue « affichage
   perdu » des builds T13-FN4 à T14-DG3 est très probablement ce même état, resté ouvert.
+- Précision : le réglage de l'utilisateur « Affichage immédiat » (Instant Review, notre « Rec
+  Review ») était sur **Off** pendant le test T14-DIR8. Avec **1 s** puis **0,5 s** (6 cycles chacun) :
+  les indications reviennent **à chaque fois**, avec la transparence et sans boutons.
+- **Cause établie** : en multi-exposition, un aperçu fermé instantanément (Off, ou nos fermetures
+  immédiates T13-FN4 à T14-DG3) fait perdre les indications de la visée par moments ; un aperçu laissé
+  affiché un court instant ne pose aucun problème (comme le test Y).
+
+### Build de test T14-DIR9
+
+- T14-DIR8, et dans le retour de l'aperçu (`0x531caa7c`, `subs r5,r0,#0` en `0x531caaa4`) : en mode
+  pellicule, Instant Review Off (0) ou Garder (−1) valent 500 ms (décision de l'utilisateur) ; les
+  autres durées et les autres modes sont inchangés.
+- Vérifié en émulateur (300 cas, drapeau Z rendu) ; T14-DIR8 reconstruit identique ; sondes repassées.
