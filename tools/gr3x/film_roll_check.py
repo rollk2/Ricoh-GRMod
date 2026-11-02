@@ -498,7 +498,7 @@ def verify(data,manifest,seed=3101):
         cpu.mem_write(K,bytes([60,1,0x1a4&255,0x1a4>>8])+bytes(13));assert clock()==date(60,1,1,0x1a4)
     # 10. Form 'fn': Film Advance (function 42) in Fn Button Settings.
     if fn_form:
-        TABLE_OFF=bytes(cpu.mem_read(0x53b4eb7c,36));tbl=e['filmFnTable'];ADDED=bytes([42,43] if fn4 and not fn7 else [42])
+        TABLE_OFF=bytes(cpu.mem_read(0x53b4eb7c,36));tbl=e['filmFnTable'];wb=manifest.get('wbButton')==True;ADDED=bytes([42,43] if fn4 and not fn7 else [42,44] if wb else [42])
         assert bytes(cpu.mem_read(tbl,36+len(ADDED)))==TABLE_OFF+ADDED
         p.stubs_on=True;p.fn_stubs=True
         # The lists' constructor (native loop, table and count patched): the vector it fills.
@@ -511,7 +511,8 @@ def verify(data,manifest,seed=3101):
             want=bytes(f for f in TABLE_OFF+ADDED if not (model!=0 and f==0x16) and not (model!=1 and f==0x28) and not (vid3 and f==17) and not (vid4 and f==16))
             assert got==want,(model,got.hex(),want.hex())
         # Text and icon: 42 ours, the others the camera's.
-        for fn,text0 in ((0,2),(42,None))+(((43,2),(200,2)) if fn7 else ((43,0x2b5),) if fn4 else ()):
+        # WB button (wb-button.ts): White Balance (44) with the camera's text 0x94 and icon 213; 43 and 45 up Off.
+        for fn,text0 in ((0,2),(42,None))+(((43,2),(200,2)) if fn7 else ((43,0x2b5),) if fn4 else ())+(((44,0x94),(45,2)) if wb else ()):
             p.call(0x53292ed0,0x1234,fn);t=cpu.reg_read(reg.UC_ARM_REG_R0)
             if fn==42:assert 786<=t<1000,t
             else:assert t==text0
@@ -519,7 +520,7 @@ def verify(data,manifest,seed=3101):
         # T21-TAB1: Film Advance's own icon, the one after the Film Mode tab's three (header + 0xa: the white one).
         fa_icon=e['filmIconBase']+3 if 'filmIconBase' in e else 0x121
         if tab1:assert struct.unpack('<H',bytes(cpu.mem_read(e['filmTab']+0xa,2)))[0]==e['filmIconBase']
-        for fn,icon in ((0,0x113),(23,0x121),(24,0x120),(42,fa_icon))+(((43,0x113),(200,0x113)) if fn7 else ((43,0x121),) if fn4 else ()):
+        for fn,icon in ((0,0x113),(23,0x121),(24,0x120),(42,fa_icon))+(((43,0x113),(200,0x113)) if fn7 else ((43,0x121),) if fn4 else ())+(((44,213),(45,0x113)) if wb else ()):
             p.call(0x53293e6c,0x1234,fn);assert cpu.reg_read(reg.UC_ARM_REG_R0)==icon,(fn,hex(cpu.reg_read(reg.UC_ARM_REG_R0)));count('fn icon')
         # Pressed (Fn, ISO, Drive): GetEventCustomize's entry.
         FNS=(0,23,41,42,43) if fn4 else (0,23,41,42)

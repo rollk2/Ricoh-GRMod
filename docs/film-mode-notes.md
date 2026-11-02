@@ -2512,8 +2512,8 @@ Demande de l'utilisateur : que Mode Memory puisse s'appliquer aussi aux modes U.
   avec un octet de mode ; fusion en U avec échange temporaire des 24 octets de cases). 3 à 5 builds.
 - **BOX suivante** (fonction Fn, plan T25-BOX1).
 - Réglages ADJ supplémentaires, Image Control custom supplémentaires, palier de crop 40 mm.
-- **Touche WB dans Fn Button Settings** : ajouter la touche WB à la liste des touches réglables
-  (demande du 2026-11-02 ; liste des touches et fonctions à retrouver, voir T13-FN).
+- ~~**Touche WB dans Fn Button Settings**~~ : fait le 2026-11-02 (build WB-RC1, voir « Touche WB »
+  plus bas), à valider sur le boîtier.
 
 ## Publication GR Mod Film 0.9.0 (2026-11-02)
 
@@ -2618,3 +2618,71 @@ Demande de l'utilisateur : pouvoir masquer Standard dans l'ordre des Image Contr
   à 1, 3 et 7 : avec la date masquée, aucun appel (retour immédiat, pile rendue) ; avec le décalage
   `0x9a2`, l'appel de la plateforme est bien atteint (contrôle de la sonde). Le build 0.9.1 (V1-RC6
   et suivants) échoue à ce contrôle, le build corrigé le passe ; idem build avec date proposée.
+
+## Touche WB dans Fn Button Settings (2026-11-02, build WB-RC1)
+
+Demande : rendre la touche WB réglable dans Fn Button Settings. Tout est statique puis vérifié en
+émulateur (`tools/gr3x/wb_button_probe.py`), pas encore sur le boîtier.
+
+### Ce que fait la touche WB dans le firmware (certitude : lu dans le code, vérifié en émulation)
+
+- Les touches de prise de vue sont des méthodes de `CaptureReadySwitchFunctionModel` (table de
+  méthodes `0x53b5bfd0`) : + 0x4c Fn (`0x5329e020`, réglage `0x922`, identifiant de touche 0x2e),
+  + 0x60 ISO (`0x5329e200`, `0x924`, 0xb), + 0x64 Drive (`0x5329e5b4`, `0x926`, 0xc), + 0x84
+  Movie/Wireless (`GetEventSwitchWlan` `0x53299f08`), + 0x58 et + 0x5c les deux autres directions
+  du pavé.
+- Les quatre directions déplacent le collimateur quand « 4-way Controller Action » le demande
+  (`0x532a441c` vrai) : événements 0xab (90°), 0xac (270°), 0xad (180°, ISO), 0xae (0°, Drive),
+  action commune `0x53226f0c`.
+- **La touche WB est la méthode + 0x5c (`0x53296694`)** : sur un appui (r2 = 0), après des
+  contrôles « appareil occupé » (`0x53237328`, `0x53236f38`, `0x53236f30`, `0x532374e0`,
+  `0x532380ac` sur le modèle `0x5320b19c`, `0x532a88a0` sur `0x5320b61c`, et le type des valeurs en
+  direct `0x535493ac(*0x53525d5c())` ≠ 2), elle publie l'événement 0x93 en `0x532969e8` ;
+  l'action globale de 0x93 (`0x53226804`) ouvre `0x0200004e`, le `WhiteBalanceController`
+  (constructeur `0x531c05f0`, chaîne `Controller/WhiteBalanceController.cpp`). Elle n'a aucun
+  réglage. Son identifiant de touche (celui du déplacement du collimateur) est 0xa.
+- Les autres touches appellent `GetEventCustomize` (`0x5329bcc8(this, &événements, f, appui,
+  [sp] = touche)`) avec la fonction lue dans l'enregistrement, pour tous les appuis (y compris
+  maintien et relâchement) hors déplacement du collimateur. Un événement se publie par
+  `0x53207c8c(tmp, code, 0, 0)`, `0x53200594(liste, tmp)`, `0x53207c98(tmp)`.
+
+### L'écran Fn Button Setting
+
+- Contrôleur `0x020000d1` (constructeur `0x531c9774`, titre 0x1b5), liste de 8 lignes : mise en
+  place `0x531c9528` (8 lignes de type 0x22, `0x53394610(liste, types, 8, 0x3a)`), table
+  `0x53b40f00` de 8 couples { genre, texte } (Fn 0x1b7, ISO 0x1bd, Drive 0x1bf, Movie/Wireless
+  0x1c1, Hold 0x1c3, Focus 0x28, Keep AE Lock 0x1c5, One Push AE 0x1cb), lue en `0x531c923c`
+  (ouverture : genre → `0x020000d2` + genre), `0x531c99c4` (valeurs : boucle `cmp r4,#8`, genres
+  0 à 4 par `0x531c97f0`, icône `0x53293e6c(modèle, f)`) et `0x531c9adc` (aide). Touche répétée :
+  arrêt sur la dernière ligne (`cmp r0,#7` en `0x531c91c4`).
+- Les listes des lignes sont toutes le contrôleur `0x531be784` (vecteur des fonctions en + 0x1a4),
+  enregistrements de liste 70 à 77 ; celui d'ISO (71) : nombre `0x531b3be8`, dessin `0x531b57b0`.
+
+### Le build WB-RC1 (`wbButton`, avec le mode pellicule seulement)
+
+- Réglage : octet libre **`0xabb`** de l'enregistrement (bourrage, aucun accès exact ; seul un
+  relevé de débogage lit le mot `+0xab8`). Il suit la BOX comme le reste de l'enregistrement ; 0
+  (valeur d'usine) = White Balance, 44 = Off, sinon la fonction (au delà de 44 : White Balance).
+  `0x93b` a été écarté : un `str` de mot en `+0x938` (`0x53461fe0`) l'écraserait.
+- Fonction 44 « White Balance » ajoutée à la liste de toutes les touches (texte 0x94 de l'appareil,
+  icône 213, celle d'Auto WB) : elle ouvre la balance des blancs après les mêmes contrôles que la
+  touche WB (`wbOpen`), depuis `GetEventCustomize` (appui seulement) et `GetEventSwitchWlan`.
+  Le filet des fonctions inconnues devient : 43 et au delà de 44 lus comme Off.
+- Touche WB : son objet est noté à l'entrée (`0x55804390`, mot de la sonde des touches, inutilisé
+  dans la forme publiée) ; à la place de 0x93, une autre fonction passe par `GetEventCustomize`
+  (l'objet, une copie des événements qui tient une référence, f, 0, touche 0xa) puis la suite
+  normale ; maintien et relâchement (r2 ≠ 0) vont aussi à `GetEventCustomize` hors déplacement du
+  collimateur, comme pour la touche ISO (pour Enable AF, AE Lock).
+- Écran : neuvième ligne « WB Button » (genre 8) : table recopiée, mise en place à 9 lignes,
+  ouverture de `0x020001c0` (identifiant libre), valeur (icône de la fonction), aide comme les
+  lignes 5 à 7, dernière ligne 8. Liste : enregistrement propre (celui d'ISO avec notre set et
+  is-current), contrôleur et touches de `0x020000d2`.
+- Nom de la ligne : dans chaque langue, le « ISO Button » de l'appareil avec WB à la place d'ISO
+  (chinois : 白平衡按鈕 / 白平衡按钮, caractères de l'appareil).
+- Vérifié en émulateur (`wb_button_probe.py`, 9 contre-épreuves détectées) ; `film_roll_check.py`
+  et `guard_probe.py` repassés ; sans `wbButton`, les fichiers sont identiques à l'octet près.
+  L'application envoie `wbButton` avec le mode pellicule.
+- **À vérifier sur le boîtier** : la ligne « WB Button » en bas de Fn Button Setting (défilement
+  jusqu'à la 9e ligne) ; WB par défaut ouvre toujours la balance des blancs ; une autre fonction
+  (ISO, Film Advance, Enable AF) sur la touche WB ; White Balance sur Fn ; mode « 4-way Controller
+  Action » ; persistance après extinction et dans une BOX.
