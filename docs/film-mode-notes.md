@@ -2309,3 +2309,25 @@ Certitude : lu dans le code.
   `173RICOH/R0017178.JPG`, dans le dossier P d'avant le flash (dossier mémorisé conservé) ;
   numérotation continue. **Intégration à GR Mod (moteur, codes des films, retrait de la vidéo,
   Date Imprint masqué) : validée sur le boîtier.**
+
+## Recentrage du point AF à l'extinction : analyse statique (2026-11-02)
+
+Certitude : lu dans le code ; correspondance noms / champs : la liste de 1043 noms de réglages
+(`0x53b4ec18`, « CommonTv,CommonAv,… ») est dans l'ordre exact des 1043 champs relevés par
+`settings_layout_probe.py`.
+
+- Position de la zone AF : **`StillFocusAreaCenter`, 8 octets à `+0x120`** (drapeau `+0x128`) ; mode
+  de mise au point `StillFocus` `+0x11c`, `StillBackUpFocus` `+0x11e`.
+- Mode Memory (écran `ModeMemoryController`) : cases `AfterReleaseModeMemory…` de `+0xaee` à `+0xb24`
+  (Sv, Xv, **Focus `+0xaf2`**, FocusAssist, AeMode, FlashMode, WhiteBalance, StillMovie, Macro, Drive,
+  AspectRatio, Crop, ImageControl, AdjCustom, …).
+- Application : la fusion avec les valeurs d'usine `0x53246df8` se termine par `0x5324075c`, qui
+  pour chaque case décochée recopie les valeurs d'usine des champs concernés. Case Focus décochée :
+  `+0x11c`, `+0x11e`, `+0x4fc`, `+0x4fe` (modes de mise au point photo et vidéo) **mais pas la
+  position de la zone AF `+0x120`** : le boîtier garde toujours le point AF.
+- La fusion est appelée au chargement des réglages à l'allumage (`0x5324b284`, en `0x5324b388` et
+  `0x5324b3dc`) et à « Save Settings » dans une BOX (`0x5324b760`, en `0x5324b7a8`).
+- Mise en œuvre possible : au chargement seulement (pas à Save Settings), recopier les 8 octets
+  d'usine de `+0x120` (enregistrement d'usine `0x532406fc()`) dans l'enregistrement en cours. Effet :
+  à chaque allumage, point AF au centre, en P comme en U (la BOX garde son propre point jusqu'au
+  prochain rappel de mode).
