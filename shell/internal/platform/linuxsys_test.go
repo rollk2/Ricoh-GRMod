@@ -182,6 +182,13 @@ func TestLinuxSystemVolumesEdgeCases(t *testing.T) {
 		t.Errorf("system disk listed: %+v", vols)
 	}
 
+	// / mounted from a source that is no block device (/dev/root, as on some
+	// cloud machines): /boot/efi still names the system disk.
+	sys = f.system("29 1 0:31 / / rw - ext4 /dev/root rw\n31 29 259:1 / /boot/efi rw - vfat /dev/nvme0n1p1 rw\n")
+	if vols, err := sys.Volumes(true); err != nil || len(vols) != 0 {
+		t.Errorf("/dev/root: %+v, %v (want no volume)", vols, err)
+	}
+
 	// Without udev the FAT version comes from the size.
 	sys = f.system(fakeMountinfo)
 	sys.Udev = ""

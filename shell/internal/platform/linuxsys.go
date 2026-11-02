@@ -55,8 +55,10 @@ func (s LinuxSystem) mounts() ([]LinuxMount, error) {
 }
 
 // Volumes lists the mounted volumes that ClassifyLinuxVolume offers. The
-// disk that holds the operating system (the one mounted at /) is never
-// listed, with all its partitions (/boot/efi is FAT too).
+// disk that holds the operating system (the one mounted at /, /boot or
+// /boot/efi) is never listed, with all its partitions (/boot/efi is FAT too).
+// /boot also names that disk when / is mounted from a source that does not
+// resolve to a block device (such as /dev/root).
 func (s LinuxSystem) Volumes(all bool) ([]Volume, error) {
 	mounts, err := s.mounts()
 	if err != nil {
@@ -64,7 +66,7 @@ func (s LinuxSystem) Volumes(all bool) ([]Volume, error) {
 	}
 	system := map[string]bool{}
 	for _, m := range mounts {
-		if m.MountPoint == "/" && strings.HasPrefix(m.Source, "/dev/") {
+		if isLinuxSystemMount(m.MountPoint) && strings.HasPrefix(m.Source, "/dev/") {
 			if d, err := s.BlockOfSource(m.Source); err == nil {
 				system[d.Disk] = true
 			}
@@ -78,6 +80,9 @@ func (s LinuxSystem) Volumes(all bool) ([]Volume, error) {
 		// Root "/" leaves out bind mounts and subvolumes: the volume is
 		// listed where its file system is mounted as a whole.
 		if m.Root != "/" || !IsLocalLinuxFS(m.FSType) || !strings.HasPrefix(m.Source, "/dev/") {
+			continue
+		}
+		if isLinuxSystemMount(m.MountPoint) {
 			continue
 		}
 		d, err := s.BlockOfSource(m.Source)
@@ -201,4 +206,10 @@ func readTrimmed(path string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(data))
+}
+
+// isLinuxSystemMount reports the mount points of the operating system's own
+// disk: /, /boot and what is below /boot (/boot/efi).
+func isLinuxSystemMount(p string) bool {
+	return p == "/" || p == "/boot" || strings.HasPrefix(p, "/boot/")
 }
