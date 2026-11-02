@@ -8,7 +8,7 @@ does for these cameras is kept. Not a Ricoh product, not an official GR Mod rele
 > tested for it here. GR IV owners should use [GR Mod](https://github.com/Maxwooow/Ricoh-GRMod).
 > (GR Mod's GR IV code is still in this repository, untouched, because the program is shared.)
 
-Version 0.9.0. Camera-tested on a GR III 2.10. The GR IIIx 1.60 is the same program (same
+Version 0.9.1 (the latest is always on the [Releases](https://github.com/rollk2/Ricoh-GRMod/releases/latest) page). Camera-tested on a GR III 2.10. The GR IIIx 1.60 is the same program (same
 addresses, same emulator checks) but has **not been tested on a camera**.
 
 ## What the film mode does (GR III / IIIx)
