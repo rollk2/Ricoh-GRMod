@@ -55,24 +55,24 @@ type Host interface {
 func DataDirFor(goos string, getenv func(string) string, home string) (string, error) {
 	if goos == "windows" {
 		if v := getenv("LOCALAPPDATA"); v != "" {
-			return strings.TrimRight(v, `\/`) + `\GRMod`, nil
+			return strings.TrimRight(v, `\/`) + `\GRModFilm`, nil
 		}
 		if v := getenv("USERPROFILE"); v != "" {
-			return strings.TrimRight(v, `\/`) + `\AppData\Local\GRMod`, nil
+			return strings.TrimRight(v, `\/`) + `\AppData\Local\GRModFilm`, nil
 		}
 		return "", errors.New("neither LOCALAPPDATA nor USERPROFILE is set")
 	}
 	if goos == "darwin" {
 		if strings.HasPrefix(home, "/") {
-			return strings.TrimRight(home, "/") + "/Library/Application Support/GRMod", nil
+			return strings.TrimRight(home, "/") + "/Library/Application Support/GRModFilm", nil
 		}
 		return "", errors.New("cannot determine the home directory")
 	}
 	if v := getenv("XDG_DATA_HOME"); strings.HasPrefix(v, "/") {
-		return strings.TrimRight(v, "/") + "/grmod", nil
+		return strings.TrimRight(v, "/") + "/grmod-film", nil
 	}
 	if strings.HasPrefix(home, "/") {
-		return strings.TrimRight(home, "/") + "/.local/share/grmod", nil
+		return strings.TrimRight(home, "/") + "/.local/share/grmod-film", nil
 	}
 	return "", errors.New("cannot determine the home directory")
 }

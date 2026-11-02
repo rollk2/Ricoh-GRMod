@@ -9,7 +9,7 @@ import { CopiesPage } from './copies';
 import { BridgeBanner, BridgeDialog, FirmwareOnline, FirmwareRow, MODELS, modelLabel } from './firmware';
 import { CropEditor, ImageControlPage, RatioPage, WallpaperPage } from './pages';
 import { Tour, replayTour, restartTours } from './tour';
-import { UpdatePill, UpdateWatcher, checkForUpdate, openWhatsNew } from './updates';
+import { UpdatePill, UpdateWatcher, openWhatsNew } from './updates';
 import {
   askForOfficial, bridgeLoaded, isGr3, backupCopies, extrasOn, copyList, deleteCopies, hasNameErrors, hasRatioErrors, ratioSpecs, revealBackups, writableCopy, writeCopy, menuPictures, outputFirmware, pendingChanges, refreshVolumes, selectVolume, setLang, setModel, setPage, setShowAll, useStore, wallReady,
 } from './store';
@@ -119,7 +119,8 @@ function HelpMenu() {
         <div className="menu up" role="menu">
           <button role="menuitem" onClick={() => { setOpen(false); replayTour(); }}>{t('tourReplay')}</button>
           <button role="menuitem" onClick={() => { setOpen(false); restartTours(); }}>{t('tourRestart')}</button>
-          {host.available && <button role="menuitem" onClick={() => { setOpen(false); void checkForUpdate(false); }}>{t('updCheck')}</button>}
+          {/* GR Mod Film does not update itself: the menu opens its releases page instead. */}
+          {host.available && <button role="menuitem" onClick={() => { setOpen(false); void host.updatePage(); }}>{t('updPage')}</button>}
         </div>
       )}
     </div>

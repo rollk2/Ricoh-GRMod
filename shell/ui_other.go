@@ -17,7 +17,7 @@ import (
 func runPlatform(a *app) int {
 	if err := a.start(platform.New()); err != nil {
 		a.log.Printf("startup failed: %v", err)
-		fatalMessage("GR Mod cannot start: " + err.Error())
+		fatalMessage("GR Mod Film cannot start: " + err.Error())
 		return 1
 	}
 	fmt.Printf("LISTEN %s TOKEN %s\n", a.url, a.token)

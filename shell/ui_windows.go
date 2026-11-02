@@ -145,7 +145,7 @@ func runBrowser(a *app) int {
 	host := platform.New()
 	if err := a.start(host); err != nil {
 		a.log.Printf("startup failed: %v", err)
-		fatalMessage("GR Mod cannot start: " + err.Error())
+		fatalMessage("GR Mod Film cannot start: " + err.Error())
 		return 1
 	}
 	heartbeat := a.srv.Heartbeat()
@@ -171,7 +171,7 @@ func runBrowser(a *app) int {
 		cmd := exec.Command(rundll32, "url.dll,FileProtocolHandler", a.url)
 		if err := cmd.Start(); err != nil {
 			a.log.Printf("browser: cannot open the default browser: %v", err)
-			fatalMessage("GR Mod could not open a browser window.\n\nOpen this address in a browser within a minute to use it:\n\n" + a.url)
+			fatalMessage("GR Mod Film could not open a browser window.\n\nOpen this address in a browser within a minute to use it:\n\n" + a.url)
 			heartbeat.Restart()
 		} else {
 			a.log.Printf("browser: opened the default browser")

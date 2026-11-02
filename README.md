@@ -1,3 +1,55 @@
+# GR Mod Film
+
+GR Mod Film is a fork of [GR Mod](https://github.com/Maxwooow/Ricoh-GRMod) by Maxwooow that adds a
+**film mode** to the Ricoh GR III (firmware 2.10) and GR IIIx (firmware 1.60). Everything GR Mod
+does is kept; the GR IV part is unchanged. Not a Ricoh product, not an official GR Mod release.
+
+Version 0.9.0. Camera-tested on a GR III 2.10. The GR IIIx 1.60 is the same program (same
+addresses, same emulator checks) but has **not been tested on a camera**.
+
+## What the film mode does (GR III / IIIx)
+
+- **One BOX = one roll.** Prepare a film (Image Control) and a format (aspect ratio) with the
+  normal menus, turn **Film Roll Mode** on in the « Film Mode » tab and Save Settings into a BOX.
+  On U1, U2 or U3, that BOX then behaves like a camera loaded with a roll: frame counter
+  (frame/total) on screen, a folder of its own on the card, multiple exposure forced. Saving
+  other settings into a started roll's BOX rewinds it.
+- **Film Advance**: a Fn button function to advance the film (a cartridge icon).
+- **New roll**: a short message when a roll ends (2 s, OK closes it); **Rewind** (Execute /
+  Cancel) in the Film Mode tab ends a roll by hand.
+- **Files named after the film**: `PORT6857.JPG` for a film coded PORT, folders such as
+  `174POR36`; the camera's own looks have codes too (STND, VIVD, MONO, NEGF…). The photos of P, Av,
+  Tv and M always go into one folder.
+- **Changed card**: a roll whose folder is gone starts again on a new roll.
+- **No movie** (an option of its own): Movie Settings, Still/Movie, Movie Edit and the movie Fn
+  functions are taken out; the side button is called « Wireless Button ». Its tab becomes the
+  « Film Mode » tab, shown in U modes only.
+- **Mode Memory**, two more boxes: **AF Point** (after Focus; unticked, the AF point goes back to
+  the centre at power-on) and **Apply to U modes** (last; ticked, Mode Memory also applies in U1 to
+  U3, at power-on and when the dial recalls a U mode; the BOXes saved are never changed). In a BOX
+  with Film Roll Mode on, Mode Memory never touches the roll's Image Control, Aspect Ratio and Drive.
+  With No movie, Still/Movie is not in the list.
+- The film mode builds on GR Mod's date imprint stage; when the date imprint itself is not
+  wanted, its menu line is hidden and nothing is printed on the photos.
+
+In the program: switch **Film mode** (and **No movie** if wanted) on the GR III / IIIx page, and
+give each GR Mod film a 4-character **Film code** (A-Z, 0-9; the folder takes the first three).
+
+## Install
+
+Download the program for your computer from this repository's
+[Releases](https://github.com/rollk2/Ricoh-GRMod/releases) page. GR Mod Film keeps its own data
+folder, so it can live beside GR Mod. It does not update itself: new versions are published on the
+Releases page. Building a firmware and installing it on the camera work as in GR Mod (below). As
+with GR Mod, installing a modified firmware is at your own risk; going back to Ricoh's firmware
+is always possible.
+
+The development notes (in French) are in `CAHIER_DES_CHARGES.md` and `docs/film-mode-notes.md`.
+
+---
+
+The rest of this file is GR Mod's own documentation.
+
 # GR Mod
 
 A small desktop tool for the Ricoh GR IV / GR IV HDF / GR IV Monochrome (firmware 1.11), the GR III /

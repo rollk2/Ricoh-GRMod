@@ -22,7 +22,7 @@ const (
 	updateDownloadTimeout = 30 * time.Minute
 	// DefaultReleasePage is shown when an update cannot be installed by the
 	// program itself.
-	DefaultReleasePage = "https://github.com/Maxwooow/Ricoh-GRMod/releases/latest"
+	DefaultReleasePage = "https://github.com/rollk2/Ricoh-GRMod/releases/latest"
 )
 
 type updateState struct {

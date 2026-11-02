@@ -74,6 +74,12 @@ import type { Gr3xPictureIds } from './shutdown';
 export const GR3X_DATE_SETTINGS_POINTER = 0x55063f34;
 export const GR3X_DATE_OFFSET = 0x9a2;
 export const GR3X_DATE_MENU_ID = 0x020001a0;
+/** Film mode phase 4 (film-roll.ts): the Film Roll Mode line and list (unused id; GR III's end at 0x02000140). */
+export const GR3X_FILM_MENU_ID = 0x020001b0;
+/** Customize Settings (C): its descriptor (22 items, Save Settings first) and the menu table's entry
+ * for it (0x55001ec4, initialised from 0x5407d404; read only by the builder 0x5319a778). */
+export const GR3X_CUSTOM_MENU = 0x53b3649c, GR3X_CUSTOM_ENTRY_IMAGE = 0x5407d404, GR3X_CUSTOM_ENTRY_RAM = 0x55001ec4;
+const CUSTOM_ITEMS = 22, CUSTOM_FIRSTS = [0, 4, 13], SAVE_SETTINGS_ID = 0x020000e1, NO_ITEM = 0x10000000;
 const HORIZON_ID = 0x0200007d;
 
 const BUILDER = 0x5319a778, MENU_TABLE = 0x55001eb8, STILL_MENU = 0x53b36dec;
@@ -236,7 +242,7 @@ function gr3xLookNameTable(p: Gr3xDateProgram, names: Readonly<Record<number, st
 export const GR3X_BEFORE_EXPOSE = 0x534322d8;
 const DIRECTION_SINGLETON = 0x553458b0;
 const ram = (r: string, label: string) => `cmp ${r},#0x40000000;blo ${label};cmp ${r},#0xc0000000;bhs ${label};tst ${r},#3;bne ${label};`;
-export function installGr3xExposureOrientation(p: Gr3xDateProgram, stash: number, r10 = false) {
+export function installGr3xExposureOrientation(p: Gr3xDateProgram, stash: number, r10 = false, prefix = '') {
   const guards: readonly (readonly [number, number])[] = [
     [GR3X_BEFORE_EXPOSE, 0xe1a0c00d], [GR3X_BEFORE_EXPOSE + 4, 0xe92dd830], // mov ip, sp; push {r4, r5, fp, ip, lr, pc}
     [GR3X_BEFORE_EXPOSE + 0x88, 0xe5c41946], // strb r1, [r4, #0x946] (the frame's date)
@@ -246,8 +252,10 @@ export function installGr3xExposureOrientation(p: Gr3xDateProgram, stash: number
     [0x535f63d0, 0xe28320c8], // the EXIF setter's +0x14: the record + 0xc8
   ];
   for (const [at, w] of guards) if (p.word(at) !== w >>> 0) fail(`IIIx exposure orientation guard at ${at.toString(16)}`);
+  if (prefix && !r10) fail('IIIx exposure hook prefix: round 10');
+  // `prefix` (round 10, the film probe's test builds): code run first, which keeps every register.
   // Round 10 (GR IV): the stash's word as it is (FRAME_LOOK), the direction | 0x100 (ORIENT_WORD).
-  const stub = r10 ? p.code(`push {r0,r1};
+  const stub = r10 ? p.code(`${prefix}push {r0,r1};
     movw r0,#${lo(stash)};movt r0,#${hi(stash)};ldr r0,[r0];
     movw r1,#${lo(GR3X_R10.frameLook)};movt r1,#${hi(GR3X_R10.frameLook)};str r0,[r1];
     movw r0,#${lo(DIRECTION_SINGLETON)};movt r0,#${hi(DIRECTION_SINGLETON)};ldr r0,[r0];${ram('r0', 'done')}
@@ -300,8 +308,10 @@ export function gr3xMonoTable(monoFilms: readonly boolean[]): Uint8Array {
 }
 
 /** The picture side: the module behind a stub at the start of Execute. Returns the stub, which
- * ends by carrying on with Execute; the halation (jpeg-stage.ts) goes in front of it. */
-export function installGr3xDateImprintStage(p: Gr3xDateProgram, look?: Gr3xDateLook) {
+ * ends by carrying on with Execute; the halation (jpeg-stage.ts) goes in front of it. `getTime`:
+ * the clock the module reads (the film probe's counters in its test builds, film-probe.ts);
+ * `exposurePrefix`: code run first at each exposure (the film probe's exposure count). */
+export function installGr3xDateImprintStage(p: Gr3xDateProgram, look?: Gr3xDateLook, getTime = GET_TIME, exposurePrefix = '') {
   const guards: readonly (readonly [number, number])[] = [
     [GR3X_JPEG_EXECUTE, 0xe1a0c00d], [GR3X_JPEG_EXECUTE + 4, 0xe92ddff0], [GR3X_JPEG_EXECUTE + 0x18, 0xe5914008],
     [CACHE, 0xe30d01b4], [CACHE_FLUSH_FOR_READ, 0xe1a0c00d], [CACHE_CLEAN, 0xe1a00001], [PLATFORM, 0xe1a0c00d], [GET_TIME, 0xe5d0300c],
@@ -314,9 +324,9 @@ export function installGr3xDateImprintStage(p: Gr3xDateProgram, look?: Gr3xDateL
   const lookWords = look ? [look.stash, p.append(gr3xMonoTable(look.monoFilms)), p.code('mov r0,#0;bx lr;')] : [];
   const r10 = !!look?.r10;
   const r8Words = round8 ? [r10 ? GR3X_R10.orientWord : GR3X_ORIENT_BYTE, r10 ? GR3X_R10.frameLook : GR3X_FRAME_LOOK, gr3xLookNameTable(p, look!.names!)] : [];
-  const ctx = p.append(u32([CACHE, CACHE_FLUSH_FOR_READ, CACHE_CLEAN, PLATFORM, GET_TIME, GR3X_DATE_SETTINGS_POINTER, GR3X_DATE_OFFSET, ...lookWords, ...r8Words]));
+  const ctx = p.append(u32([CACHE, CACHE_FLUSH_FOR_READ, CACHE_CLEAN, PLATFORM, getTime, GR3X_DATE_SETTINGS_POINTER, GR3X_DATE_OFFSET, ...lookWords, ...r8Words]));
   if (r10 && !round8) fail('IIIx date imprint: round 10 builds on round 8');
-  const exposure = round8 ? installGr3xExposureOrientation(p, look!.stash, r10) : {};
+  const exposure = round8 ? installGr3xExposureOrientation(p, look!.stash, r10, exposurePrefix) : {};
   const module = p.append(gr3xDateModule(r10 ? 10 : round8 ? 8 : look ? 7 : 6));
   const stub = p.code(`push {r0-r3,ip,lr};ldr r1,[r1,#8];movw r0,#${lo(ctx)};movt r0,#${hi(ctx)};bl #${module};pop {r0-r3,ip,lr};
     mov ip,sp;b #${GR3X_JPEG_EXECUTE + 4};`);
@@ -344,7 +354,17 @@ export function installGr3xMenuAdditions(p: Gr3xDateProgram, o: { date?: Gr3xDat
    * the Style values' labels as wide as the row allows. Needs `onOffText` and the submenu. */
   round8?: boolean;
   /** Round 10: the start-up fill is already extended (round10.ts). */
-  zeroFillDone?: boolean }) {
+  zeroFillDone?: boolean;
+  /** Film mode phase 4: the Film Roll Mode line under Save Settings in Customize Settings, a list
+   * Off / On; its text and the list's handlers (film-roll.ts: set, is current, the line's visibility). */
+  film?: { text: number; set: number; isCurrent: number; visible: number;
+    /** T17-RWD1: the Rewind Film line (after Film Roll Mode) opening Create New Folder's dialog
+     * (`dialog`) with the byte `mode` set to 1 (0 for Create New Folder itself). */
+    rewind?: { id: number; text: number; visible: number; dialog: number; mode: number; menu: readonly [number, number] };
+    /** T21-TAB1: the lines go to a tab of their own in place of Movie Settings (the menu table's
+     * entry `entry`, the movie descriptor `movie` as the model): its visibility, title (and its page's)
+     * and icons (white, yellow, grey); Customize Settings stays the camera's. */
+    tab?: { entry: number; movie: number; visible: number; title: number; icons: readonly [number, number, number] } } }) {
   const iconOff = o.onOffText ? TEXT_ICON_OFF : ICON_OFF, iconOn = o.onOffText ? TEXT_ICON_ON : ICON_ON;
   const ids = o.date;
   if (o.picture && o.endScreen) fail('IIIx pictures: list or submenu');
@@ -353,7 +373,7 @@ export function installGr3xMenuAdditions(p: Gr3xDateProgram, o: { date?: Gr3xDat
   const r8 = o.round8 === true;
   if (r8 && (!sub || !o.onOffText || [ids!.orient, ids!.shortName, ids!.longName, ids!.iconShortName, ids!.iconLongName].some(v => v === undefined)))
     fail('IIIx round 8 date imprint: the submenu, OFF / ON texts and the texts and icons of the third line and the two styles');
-  if (!ids && !o.picture && !o.endScreen) fail('no IIIx menu additions');
+  if (!ids && !o.picture && !o.endScreen && !o.film) fail('no IIIx menu additions');
   // --- Checks of the official code and data this relies on.
   const guards: readonly (readonly [number, number])[] = [
     ...(ids ? [[BUILDER, 0xe1a0c00d], [BUILDER + 4, movWord(3, lo(MENU_TABLE))], [BUILDER + 0x10, movWord(3, hi(MENU_TABLE), true)]] as const : []),
@@ -526,6 +546,71 @@ export function installGr3xMenuAdditions(p: Gr3xDateProgram, o: { date?: Gr3xDat
     rv.setUint32(0x3c, E.lineType, true); rv.setUint32(0x40, 0, true); rv.setUint32(0x44, E.linePicture, true); rv.setUint32(0x48, 0, true);
     submenus.push({ id: GR3X_PICTURE_MENU_ID, record });
   }
+  if (o.film) {
+    // The Film Roll Mode list: Off / On drawn as the date imprint's On/Off (the camera's boxed texts).
+    const F = o.film;
+    const filmCount = p.code('mov r0,#2;bx lr;');
+    const filmDraw = p.code(`mov r0,r1;cmp r2,#0;movweq r1,#${iconOff};moveq r2,#${TEXT_OFF};movwne r1,#${iconOn};movne r2,#${TEXT_ON};b #${LIST_SET_ITEM};`);
+    lists.push({ id: GR3X_FILM_MENU_ID, title: F.text, count: filmCount, draw: filmDraw, set: F.set, isCurrent: F.isCurrent });
+    // The line (this r0, row r1): the current value's icon and the name.
+    const filmLine = p.code(`push {r4,lr};mov r4,r1;mov r1,#1;bl #${F.isCurrent};cmp r0,#0;movweq r1,#${iconOff};movwne r1,#${iconOn};
+      mov r0,r4;bl #${LINE_VALUE_ICON};mov r0,r4;movw r1,#${F.text};mov r2,r1;pop {r4,lr};b #${TOP_SET_TITLE};`);
+    // Customize Settings with the line after Save Settings (item 0) (and Rewind Film after it):
+    // items 1.. move on, the later pages start as many items later (page 1 holds 5 or 6 lines).
+    if (p.word(GR3X_CUSTOM_ENTRY_IMAGE) !== GR3X_CUSTOM_MENU) fail('IIIx Customize Settings menu entry');
+    const custom = p.read(GR3X_CUSTOM_MENU, DESCRIPTOR), cv = new DataView(custom.buffer);
+    if (custom[D_PAGES] !== 3 || [...custom.subarray(D_FIRST, D_FIRST + 3)].join() !== CUSTOM_FIRSTS.join() || custom[D_COUNT] !== CUSTOM_ITEMS ||
+      cv.getUint32(D_ID, true) !== SAVE_SETTINGS_ID) fail('IIIx Customize Settings menu is not the official one');
+    for (let i = CUSTOM_ITEMS; i < MAX_ITEMS; i++)
+      if (cv.getUint32(D_DRAW + i * 8, true) || cv.getUint32(D_DRAW + i * 8 + 4, true) || cv.getUint32(D_ID + i * 4, true) !== NO_ITEM ||
+        cv.getUint32(D_VISIBLE + i * 8, true) || cv.getUint32(D_VISIBLE + i * 8 + 4, true)) fail('IIIx Customize Settings spare items');
+    for (let i = 0; i < CUSTOM_ITEMS; i++) if (cv.getUint32(D_ID + i * 4, true) === GR3X_FILM_MENU_ID) fail('IIIx Film Roll Mode id in use');
+    const R = F.rewind;
+    if (R) for (let i = 0; i < CUSTOM_ITEMS; i++) if (cv.getUint32(D_ID + i * 4, true) === R.id) fail('IIIx Rewind Film id in use');
+    // The Rewind Film line: no value, its name (as Setup's Create New Folder line, 0x53196c9c).
+    const rewindLine = R ? p.code(`push {r4,lr};mov r4,r1;mov r0,r4;mov r1,#0;bl #${LINE_VALUE_ICON};mov r0,r4;movw r1,#${R.text};mov r2,r1;
+      pop {r4,lr};b #${TOP_SET_TITLE};`) : 0;
+    const added = [[filmLine, GR3X_FILM_MENU_ID, F.visible], ...(R ? [[rewindLine, R.id, R.visible]] : [])];
+    const n = added.length;
+    if (F.tab) {
+      // The Film Mode tab: the movie descriptor's layout, one page, our lines only.
+      const T = F.tab;
+      if (p.word(T.entry) !== T.movie) fail('IIIx Movie Settings menu entry');
+      const t = p.read(T.movie, DESCRIPTOR).slice(), tv = new DataView(t.buffer);
+      if (tv.getUint16(8, true) !== 0x20 || t[D_PAGES] !== 7) fail('IIIx Movie Settings menu is not the official one');
+      tv.setUint32(0, T.visible, true); tv.setUint32(4, 0, true);
+      tv.setUint16(8, T.title, true); tv.setUint16(0xa, T.icons[0], true); tv.setUint16(0xc, T.icons[1], true); tv.setUint16(0xe, T.icons[2], true);
+      t.fill(0, 0x10, D_FIRST + 11); t[D_PAGES] = 1; tv.setUint16(D_PAGES + 2, T.title, true);
+      for (let i = 0; i < MAX_ITEMS; i++) {
+        const a = added[i];
+        tv.setUint32(D_DRAW + i * 8, a ? a[0] : 0, true); tv.setUint32(D_DRAW + i * 8 + 4, 0, true);
+        tv.setUint32(D_ID + i * 4, a ? a[1] : NO_ITEM, true);
+        tv.setUint32(D_VISIBLE + i * 8, a ? a[2] : 0, true); tv.setUint32(D_VISIBLE + i * 8 + 4, 0, true);
+      }
+      t[D_COUNT] = n;
+      const tabCopy = p.append(t);
+      p.patch(T.entry, T.movie, tabCopy, 'film mode: the Film Mode tab in place of Movie Settings');
+      Object.assign(entries, { filmLine, filmTab: tabCopy }, R ? { filmRewindLine: rewindLine } : {});
+    } else {
+    const d = custom.slice(), dv2 = new DataView(d.buffer);
+    for (let i = CUSTOM_ITEMS - 1; i >= 1; i--) {
+      d.set(custom.subarray(D_DRAW + i * 8, D_DRAW + i * 8 + 8), D_DRAW + (i + n) * 8);
+      d.set(custom.subarray(D_ID + i * 4, D_ID + i * 4 + 4), D_ID + (i + n) * 4);
+      d.set(custom.subarray(D_VISIBLE + i * 8, D_VISIBLE + i * 8 + 8), D_VISIBLE + (i + n) * 8);
+    }
+    added.forEach(([line, id, visible], k) => {
+      dv2.setUint32(D_DRAW + (1 + k) * 8, line, true); dv2.setUint32(D_DRAW + (1 + k) * 8 + 4, 0, true);
+      dv2.setUint32(D_ID + (1 + k) * 4, id, true);
+      dv2.setUint32(D_VISIBLE + (1 + k) * 8, visible, true); dv2.setUint32(D_VISIBLE + (1 + k) * 8 + 4, 0, true);
+    });
+    d.set(CUSTOM_FIRSTS.map((f, k) => k ? f + n : f), D_FIRST);
+    d[D_COUNT] = CUSTOM_ITEMS + n;
+    const customCopy = p.append(d);
+    p.patch(GR3X_CUSTOM_ENTRY_IMAGE, GR3X_CUSTOM_MENU, customCopy, 'film roll: Customize Settings with Film Roll Mode under Save Settings');
+    Object.assign(entries, { filmCount, filmDraw, filmLine, filmCustomMenu: customCopy }, R ? { filmRewindLine: rewindLine } : {});
+    }
+    Object.assign(entries, { filmCount, filmDraw });
+  }
   if (o.picture) {
     const pe = installGr3xPictureList(p, o.picture);
     lists.push({ id: GR3X_PICTURE_MENU_ID, title: o.picture.title, count: pe.pictureCount, draw: pe.pictureDraw, set: pe.pictureSet, isCurrent: pe.pictureIsCurrent });
@@ -599,15 +684,24 @@ export function installGr3xMenuAdditions(p: Gr3xDateProgram, o: { date?: Gr3xDat
   }
 
   // --- Controller ids: Horizon Correction's list controller and key map.
+  const rewind = o.film?.rewind;
   const mapped = [...lists.map(l => [l.id, HORIZON_ID] as const), ...submenus.map(m => [m.id, D_RANGE_ID] as const),
+    ...(rewind ? [[rewind.id, rewind.dialog] as const] : []),
     ...(o.endScreen ? [[GR3X_PICTURE_LIST_ID, END_SCREEN_ID] as const] : [])];
   // With the End Screen submenu the factory also sets the End Screen list's mode: picture list
   // (asked for GR3X_PICTURE_LIST_ID) or the camera's own (asked for End Screen itself).
-  const factory = o.endScreen ? p.code([...mapped.map(([id, to]) => [id, to, id === GR3X_PICTURE_LIST_ID ? 1 : -1] as const), [END_SCREEN_ID, END_SCREEN_ID, 0] as const]
+  // T17-RWD1: the factory notes which line opens Create New Folder's dialog: rewind byte 1 for Rewind
+  // Film; 0 when the menu is asked for (T17-RWD3: not the dialog's own id, which the camera asks again
+  // at each key event while the dialog is up; Create New Folder is always opened from the menu).
+  // r3 is free at the factory's start.
+  const rewindMode = rewind ? `movw ip,#${lo(rewind.id)};movt ip,#${hi(rewind.id)};cmp r1,ip;moveq r3,#1;beq rwset;
+    movw ip,#${lo(rewind.menu[0])};movt ip,#${hi(rewind.menu[0])};sub ip,r1,ip;cmp ip,#${rewind.menu[1] - rewind.menu[0]};bhi rwdone;mov r3,#0;
+    rwset:movw ip,#${lo(rewind.mode)};movt ip,#${hi(rewind.mode)};strb r3,[ip];rwdone:` : '';
+  const factory = o.endScreen ? p.code(rewindMode + [...mapped.map(([id, to]) => [id, to, id === GR3X_PICTURE_LIST_ID ? 1 : -1] as const), [END_SCREEN_ID, END_SCREEN_ID, 0] as const]
     .map(([id, to, mode], k) => `movw ip,#${lo(id)};movt ip,#${hi(id)};cmp r1,ip;bne f${k};movw r1,#${lo(to)};movt r1,#${hi(to)};` +
       (mode >= 0 ? `mov ip,#${mode};movw r3,#${lo(GR3X_PICTURE_MODE)};movt r3,#${hi(GR3X_PICTURE_MODE)};${r8 ? 'strb' : 'str'} ip,[r3];` : '') + `b done;f${k}:`).join('') +
     `done:movw r3,#0x13b;b #${FACTORY + 4};`)
-    : p.code(mapped.map(([id, to]) => `movw ip,#${lo(id)};movt ip,#${hi(id)};cmp r1,ip;
+    : p.code(rewindMode + mapped.map(([id, to]) => `movw ip,#${lo(id)};movt ip,#${hi(id)};cmp r1,ip;
     movweq r1,#${lo(to)};movteq r1,#${hi(to)};`).join('') + `movw r3,#0x13b;b #${FACTORY + 4};`);
   p.patch(FACTORY, movWord(3, 0x13b), branchWord(FACTORY, factory), o.picture ? `${what}: list controller` : 'date imprint: list controller');
   const keys = p.code('ldr r0,[r0];' + mapped.map(([id, to]) => `movw ip,#${lo(id)};movt ip,#${hi(id)};cmp r0,ip;

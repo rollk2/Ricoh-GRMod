@@ -1,0 +1,2571 @@
+# Mode pellicule : notes de cartographie
+
+Journal des découvertes pour GR III 2.10 (fwdc239b.bin) et GR IIIx 1.60 (fwdc243b.bin).
+Chaque entrée donne l'adresse, la fonction, la preuve et le niveau de certitude.
+
+Niveaux de certitude :
+- **Testé** : vérifié sur le boîtier.
+- **Émulé** : code officiel exécuté dans Unicorn, résultat observé.
+- **Statique** : lu dans le code désassemblé, pas exécuté.
+- **Supposé** : déduction plausible, à vérifier.
+
+## Phase 2.1 : octets de stockage du rouleau (2026-10-27)
+
+### Résultat
+
+**0x9b1, 0x9b2, 0x9b3** de l'enregistrement des réglages sont libres. Ce sont les trois octets de
+bourrage entre le drapeau 0x9b0 (champ mot de 0x9ac) et le champ octet 0x9b4. Leur situation est la
+même que celle de 0x9a9 à 0x9ab (après le drapeau 0x9a8 du champ mot 0x9a4), que GR Mod utilise
+pour l'image d'extinction et qui sont testés sur boîtier.
+
+Certitude : **statique et émulé**, identique sur GR III 2.10 et GR IIIx 1.60. **À confirmer sur le
+boîtier** (persistance après extinction).
+
+Proposition d'usage, à décider en phase 4 :
+- 0x9b1 : bit 7 = rouleau chargé, bits 0 à 6 = numéro de la vue à prendre (1 à 72).
+- 0x9b2 et 0x9b3 : numéro du dossier du rouleau (100 à 999), demi-mot petit-boutiste, aligné.
+
+Réserve, moins examinée : 0x905 à 0x907 (après le drapeau 0x904 du champ mot 0x900).
+
+### Méthode et preuves
+
+Outil : `tools/gr3x/settings_layout_probe.py --rtos <rtos> --report <json>` (environ 1 min 30).
+Le RTOS s'extrait avec `node tools/gr3x/inspect.mjs <firmware.bin> --rtos <sortie>`.
+
+1. **Carte des champs (émulé).** La fusion avec les valeurs d'usine, `0x53246df8` (elle se termine
+   par un saut vers `0x5324075c`), copie la valeur d'usine d'un champ quand son drapeau est
+   non nul. Chaque champ est une paire { valeur ; u8 drapeau }. Exécutée dans Unicorn avec un seul
+   octet à 1 à la fois (et des valeurs d'usine 0xff puis 0x5a), elle donne tous les champs :
+   **1043 champs**, et **253 octets** qui ne sont ni valeur ni drapeau (bourrage). Voisinage :
+
+   | Offset | Contenu |
+   |---|---|
+   | 0x99f / 0x9a0 | champ octet, drapeau (SetupMovieTransmit) |
+   | 0x9a1 à 0x9a3 | bourrage, pris par GR Mod (flou, date, image d'extinction) |
+   | 0x9a4 à 0x9a7 / 0x9a8 | champ mot (SetupAutoPowerOff), drapeau |
+   | 0x9a9 à 0x9ab | bourrage, pris par GR Mod (image d'extinction) |
+   | 0x9ac à 0x9af / 0x9b0 | champ mot, drapeau |
+   | **0x9b1 à 0x9b3** | **bourrage, libre** |
+   | 0x9b4 / 0x9b5 | champ octet, drapeau |
+
+   La fin de la fusion (`0x5324075c`) recopie 23 autres champs selon des drapeaux de
+   l'enregistrement en cours (0xaee, 0xaf0...). Elle ne touche pas 0x9b1 à 0x9b3.
+
+2. **Accès dans tout le programme (statique).** Balayage linéaire de 0x53000000 à 0x53b00000 :
+   chaque accès mémoire à offset immédiat (toutes tailles, y compris les offsets obtenus par `add`
+   ou par une constante dans un registre). Un accès est dit « par pointeur d'enregistrement »
+   quand sa base a été lue à [objet, #4 à #0x20] (enregistrement en cours ou copies stockées) ou
+   à `*0x55063f34`. Contrôles : le ratio (0x4c2), le film (0x1c2) et les touches ADJ (0x918) ont
+   bien des accès par pointeur d'enregistrement.
+   - 0x9b1 à 0x9b3 : **aucun accès exact par pointeur d'enregistrement**. Seulement deux
+     lectures de mot à +0x9b0 (`0x53520d0c`, `0x53738148`), exactement le profil de 0x9a1 à 0x9a3
+     et 0x9a9 à 0x9ab (lectures de mot à +0x9a0 et +0x9a8 par `0x534524b0`, `0x53693edc`,
+     `0x53738130`).
+   - Les 40 instructions qui touchent 0x9b1 à 0x9b3 quelle que soit leur base ont été revues à la
+     main. Ce sont des données lues comme du code (0x530ff20c, 0x5391..., 0x5395..., 0x5399...,
+     0x539c..., 0x539d..., 0x539e..., 0x53a1..., 0x53a2...) ou d'autres objets, reconnaissables à
+     une forme incompatible avec l'enregistrement : mots écrits à 0x9a0, 0x9a4, 0x9a8, 0x9ac,
+     0x9b0 (`0x5343b490`, `0x5350ebbc`, `0x5350f5a8`, `0x53645188`, `0x53816634`), qui
+     écraseraient aussi les octets de GR Mod testés sur boîtier ; demi-mots à 0x9ae, 0x9b0, 0x9b2
+     (`0x5364b14c`, `0x5364b164`) ; octets à 0x9ac, 0x9ad (`0x535156bc`) ; pointeur membre à
+     +0x9b0 d'un objet du pipeline d'image (`0x53520d0c`, lu par `0x535159cc`, `0x53516c84`,
+     `0x53519894`...) ; champ de bits dans un mot à +0x9b0 (`0x537da83c`, `0x537da85c`).
+   - Limite connue : un pointeur d'enregistrement reçu en paramètre n'est pas suivi. Ces accès
+     tombent dans la revue manuelle ci-dessus, puisqu'elle couvre toutes les bases.
+
+3. **Opérations en bloc (statique, et émulé pour le constructeur).**
+
+   | Adresse | Fonction | Effet sur 0x9b1 à 0x9b3 | Certitude |
+   |---|---|---|---|
+   | `0x5323f424` | constructeur des valeurs d'usine : memset 0 de 0xb28 octets, puis champ par champ, puis memcpy de 0xb26 octets (`0x532406b4`) et post-traitement `0x5323f328` | mis à 0 | émulé jusqu'au post-traitement |
+   | `0x532406fc` | renvoie l'enregistrement d'usine (construit une fois, gardé à +0x24 de l'objet) | | statique |
+   | `0x5324b284` | chargement : enregistrements du stockage (enregistrements 9 et 10 de `0x53828014`), sinon valeurs d'usine | copiés en bloc | statique |
+   | `0x5323f274` | sauvegarde (à l'extinction) | copiés en bloc | statique |
+   | `0x5324b760` | enregistrer les réglages en cours dans le mode n (1 à 6) : memcpy de 0xb26 octets, puis fusion | copiés vers le mode n | statique |
+   | `0x53279fa8` | rappel du mode n : si le mode actif est 0, copie l'enregistrement en cours vers la copie 0 ; puis copie le mode n vers l'enregistrement en cours (`0x5327a004`) | copiés depuis le mode n | statique |
+   | `0x5327a134` | remise de la copie 0 aux valeurs d'usine | mis à 0 | statique |
+   | `0x5327b35c` | autre copie entière (après recopie de 0xb12 à 0xb24) | copiés | statique, rôle à préciser |
+
+   Les copies de 0xb26 octets laissent 0xb26 et 0xb27 de côté. 0x9b1 à 0x9b3 sont bien copiés.
+
+### Conséquences pour la conception
+
+- **Le numéro du mode actif** est l'octet pointé par le premier mot de `UserDataModel`
+  (`ldr r3,[r0]; ldrb r3,[r3]` dans `0x53279fa8`). Statique.
+- **Quitter un mode U pour un autre ne sauvegarde pas l'état du mode quitté.** Seul le mode 0 est
+  recopié avant un rappel. Il faut donc écrire l'état du rouleau à la fois dans l'enregistrement en
+  cours (+4) et dans la copie stockée du mode actif (+8 + 4n). Confirme le conseil de Maxwooow.
+- « Enregistrer dans U » (`0x5324b760`) copiera le rouleau en cours dans le mode choisi. Cas à
+  traiter en phase 4 : interdire l'enregistrement pendant un rouleau, ou remettre l'état du
+  mode cible.
+- Le garde-fou (`guard.ts`) ne touche pas ces octets. Il pourra valider l'état du rouleau (vue
+  au plus égale à la longueur du rouleau, sinon rouleau déchargé).
+- Sauvegarde à l'extinction seulement : retirer la batterie fait perdre l'état depuis l'allumage.
+
+## Phase 2.2 : build de test des octets du rouleau (2026-10-27)
+
+But : confirmer sur le boîtier que 0x9b1 à 0x9b3 survivent à l'extinction, et observer ce que
+font les modes U et les BOX de réglages. Build de test uniquement, jamais une version publiée.
+
+- Module : `core/src/fw/gr3x/film-probe.ts` (option `filmProbe` de `buildGr3xAdjResearch`, round 10
+  avec date incrustée obligatoire, révision `T10-FILMPROBE`).
+- Construction : `node --experimental-transform-types tools/gr3x/build-film-probe.mjs <fwdc239b.bin officiel> <nouveau dossier>`
+  (round 10, date incrustée, sans film, un ratio ajouté XPan 65:24 car le constructeur en exige un).
+- Vérification : `core/test/gr3x-film-probe.test.ts` et `tools/gr3x/film_probe_check.py`.
+
+Fonctionnement, dans l'enregistrement en cours seulement :
+
+| Octet | Compteur | Incrémenté |
+|---|---|---|
+| 0x9b1 | démarrages | après le chargement des réglages (crochet sous le garde-fou) |
+| 0x9b2 | photos | chaque fois que l'incrustation demande l'heure (une fois par JPEG encodé) |
+| 0x9b3 | extinctions | juste avant la sauvegarde des réglages |
+
+L'incrustation affiche, au style long, `20SS.MM.01 OO:PP` : SS démarrages (modulo 100), MM numéro
+du mode actif + 1 (01 pour les réglages du boîtier, 02 à 07 pour un mode rappelé), OO extinctions
+(modulo 24), PP photos (modulo 60). L'horloge de remplacement est passée au module de date par son
+contexte (`get_time`) ; sans enregistrement chargé, c'est l'horloge du boîtier.
+
+Vérifié en émulateur (certitude : émulé) : le chargement et la sauvegarde passent par toute la
+chaîne de crochets du build (garde-fou à l'extérieur, sonde dessous, chargement et sauvegarde
+natifs remplacés), +1 au bon octet de l'enregistrement en cours, rien d'autre ne change, rien
+n'est écrit sans enregistrement ; la sauvegarde native voit bien le compteur déjà incrémenté.
+L'horloge : 2304 cas (toutes les valeurs d'octet, modes 0 à 200 et absent), valeurs toujours dans
+les bornes du module de date. Contre-épreuves : la sonde échoue si on attend le mauvais octet.
+Non vérifié : le module de date lui-même avec cette horloge (inchangé, testé sur boîtier), le
+démarrage réel, les menus.
+
+Questions que le test doit trancher sur le boîtier :
+1. Les trois octets survivent-ils à une extinction normale ? (attendu : oui)
+2. Le compteur de photos avance-t-il de 1 par déclenchement, ou plus (encodages multiples) ?
+   Avance-t-il au développement RAW intégré ? (utile pour la phase 3 : compter les captures)
+3. Que deviennent les compteurs en passant sur une BOX / un mode U, puis en revenant ?
+4. Retrait de la batterie sans éteindre : perte depuis l'allumage ? (attendu : oui)
+
+### Résultats sur le boîtier (GR III 2.10, build T10-FILMPROBE, 2026-10-27)
+
+Certitude : **testé**, relevés de l'utilisateur.
+
+| Cas | Observation | Conclusion |
+|---|---|---|
+| A1, A2 | `2001.01.01 00:01` puis PP = 02 | conforme |
+| A3 | pas de rafale ; 3e et 4e photos : PP +1 chacune | un encodage par photo simple |
+| B1, B2 | SS +1, OO +1, PP continue | **0x9b1 à 0x9b3 survivent à l'extinction : octets validés** |
+| B3 | extinction automatique puis réveil : SS et OO inchangés, PP +1 | la mise en veille n'est pas une extinction : **aucune sauvegarde** |
+| B4 | batterie retirée boîtier allumé : SS, OO et PP identiques à la photo d'avant | pas de sauvegarde ; l'état depuis l'allumage est perdu |
+| C1 | RAW+JPEG : PP +1 | un encodage |
+| C2 | développement RAW intégré : PP +1, puis +1 à la photo suivante | **le développement compte comme un encodage** (conseil de Maxwooow confirmé) |
+| C3 | lecture et zoom : PP +1 à la photo suivante seulement | la lecture n'encode pas |
+| C4 | multi-exposition, 3 vues superposées : PP +6 | **2 encodages par vue en multi-exposition** : l'encodeur ne peut pas servir de compteur |
+| D1 | U1 : MM = 04 | U1 rappelle la copie 3 |
+| D2 | retour sur P : compteurs de P retrouvés | la copie 0 est restaurée au retour (comme lu dans `0x53279fa8`) |
+| D3 | U1 : PP repart de la valeur de U1, MM = 04 ; U2 : MM = 03 | U2 rappelle la copie 2 ; chaque mode a ses propres octets |
+| D4 | sur U1, extinction puis rallumage : PP +1 | l'état de U1 tient après extinction (SS, OO à préciser) |
+| D5 | sur P (`2001.04.01 01:02` avant), enregistrement dans BOX5 puis rappel de BOX5 par le menu : `2005.01.01 04:33` | le rappel par le menu recopie la BOX dans les réglages du boîtier (mode 0) avec nos octets ; MM reste 01 |
+| U3 | `2006.06.01 05:35` | U3 rappelle la copie 5, qui contient les compteurs enregistrés dans BOX5 à l'étape D5 (puis +1 démarrage, +1 extinction, +2 photos) |
+
+Conséquences :
+- **Brique « octet de stockage » validée.** 0x9b1 à 0x9b3 sont persistants et propres à chaque mode.
+- **Sauvegarde :** la veille automatique ne sauvegarde pas. Le mode pellicule devra déclencher
+  lui-même une sauvegarde (au moins à chaque avance du film), sinon une batterie qui se vide en
+  veille fait perdre le rouleau.
+- **Détection d'une prise de vue :** ni le nombre d'encodages (développement RAW, 2 par vue en
+  multi-exposition) ni l'encodeur ne conviennent. Il faut un point propre à la capture (phase 2.3).
+- **Modes et BOX (testé, interprétation forte) :** les 7 copies stockées de l'objet des réglages
+  sont la copie 0 (réglages du boîtier, sauvegardés avant un rappel) et **BOX1 à BOX6** (copies 1
+  à 6, `0x5324b760` « enregistrer dans la BOX n »). Les positions U1, U2, U3 de la molette
+  rappellent chacune une BOX choisie par l'utilisateur : ici U1 = BOX3, U2 = BOX2, U3 = BOX5.
+  L'octet « mode actif » contient le numéro de la BOX rappelée (0 sur P, Av, Tv, M...).
+- **Rappel d'une BOX par le menu :** recopie la BOX dans les réglages du boîtier (mode 0), état du
+  rouleau compris. À traiter en phase 4 (rouleau dupliqué entre la BOX et le mode 0).
+
+## Phase 2.3 : détection d'une prise de vue, étape 1 (recherche statique, 2026-10-27)
+
+### Résultat
+
+Candidat : **`SetShootingInfoResultBeforeExpose` (`0x534322d8`)**, au début de chaque exposition
+d'une photo. GR Mod s'y accroche déjà (orientation de la date incrustée, `datestamp.ts`, testé sur
+boîtier depuis le round 8). Certitude : **statique** ; à confirmer par un build de test.
+
+### Chaîne d'appels (fichier source d'après les assertions : `src/FECaptureProcess.cpp`)
+
+| Adresse | Rôle | Preuve |
+|---|---|---|
+| `0x5342da08` | méthode virtuelle de réception des messages du processus de capture (table `0x53c1a1dc`, précédée des noms `OnRelease`, `OnReleaseContinuous`) ; aiguille selon l'identifiant du message | table de méthodes, `switch` sur r3 |
+| `0x5342ac64` | préparation d'une photo : appelle `0x53434200(exposition, 0)` | appel depuis `0x5342dce4` |
+| `0x53434200` | fixe le **type d'exposition** : `[[exposition + 0x20] + 0x24] = 1 - argument` | `eor r0,r1,#1 ; str r0,[r4,#0x24]` |
+| `0x5342adb4` | lance l'exposition : `0x534323d0(objet + 0x48)` | appel depuis `0x5342dbe0` |
+| `0x534323d0` | `StartStillExpopsureProcess` (sic) | chaîne d'assertion |
+| `0x534324f4` | n'appelle `BeforeExpose` **que si le type vaut 1** | `cmp r3,#1 ; bne` avant `bl 0x534322d8` |
+
+Les autres chemins vers `StartStillExpopsureProcess` mettent le type à 0, donc n'appellent pas
+`BeforeExpose` :
+- `0x534325e8`, **`SlowShutterNrProcess`** (seconde exposition, obturateur fermé, de la réduction
+  du bruit en pose longue) : `str r2(0),[ip,#0x24]` ;
+- `0x53430cd8`, calibration du bruit : `0x53434200(…, 1)`, donc type 0 ;
+- `0x5342fa80`, calibration liée au Pixel Mapping (`IsPixelMappingProcessView`) : ne fixe pas le
+  type lui-même (il garde la valeur précédente). Fonction de menu, hors prise de vue normale.
+
+Le développement RAW intégré ne passe pas par une exposition : il n'appelle pas `BeforeExpose`.
+
+### Ce qui reste à confirmer sur le boîtier
+
+Photo simple (+1), développement RAW (+0), multi-exposition 3 vues (+3), pose longue avec
+réduction du bruit (+1), et facultativement Pixel Mapping (attendu +0, à vérifier).
+
+## Phase 2.3 : étapes 2 et 3, build de test des expositions (2026-10-27)
+
+- Variante `filmProbe: 'exposures'` (révision `T10-FILMPROBE2`, `--exposures` pour
+  `tools/gr3x/build-film-probe.mjs`). PP (0x9b2) compte les expositions : +1 au début du crochet
+  déjà posé par la date incrustée sur `SetShootingInfoResultBeforeExpose` (`0x534322d8`), avant
+  son code d'orientation. L'horloge de remplacement ne fait plus que lire PP. SS et OO inchangés.
+- Le build `T10-FILMPROBE` ressort identique octet pour octet (SHA-256 `46ca299f…`).
+- Émulé (`tools/gr3x/film_probe_check.py`) : du crochet jusqu'à la deuxième instruction de la
+  fonction d'origine, PP +1 (rien sans enregistrement), r0 à r3, lr, sp intacts, ip = sp,
+  mots d'orientation et de film du cadre écrits comme sans la sonde. Contre-épreuves : la sonde
+  échoue si l'on intervertit les deux variantes.
+
+### Résultats sur le boîtier (GR III 2.10, build T10-FILMPROBE2, 2026-10-27)
+
+Certitude : **testé**, relevés de l'utilisateur (sur U3, MM = 06).
+
+| Cas | Observation | Conclusion |
+|---|---|---|
+| P1 | 2 photos JPEG : PP 36 puis 37 | +1 par photo |
+| P2 | RAW+JPEG : PP 38 | +1 |
+| P3 | JPEG développé depuis le RAW : PP 38 | **le développement RAW ne compte plus** |
+| P4 | multi-exposition 3 vues puis Complete : PP 41 | **+3, une par vue** (l'encodeur donnait +6) |
+| P5 | poses de 1,3 s puis 5 s : PP 42 puis 43 ; pose longue à ISO 128000 avec réduction du bruit (temps de traitement constaté) : PP 44 | **+1 par pose longue, la dark frame ne compte pas** |
+| P6 | non fait (Pixel Mapping) | facultatif |
+
+**Brique « détection d'une prise de vue » validée** : `SetShootingInfoResultBeforeExpose`
+(`0x534322d8`) compte une fois par vue, multi-exposition comprise, et ignore le développement RAW.
+
+## Phase 2.4 : verrou et « Complete », étape 1 (recherche statique, 2026-10-27)
+
+Certitude : **statique** pour tout ce qui suit.
+
+### État de la multi-exposition (la condition du verrou)
+
+- **Octet d'état : `+0x6c0` de l'enregistrement de prise de vue en direct** (objet unique
+  `0x553458b0`, getter `0x53525d5c`, puis `+0x518`, puis `[0]` ; le même enregistrement dont GR Mod
+  lit l'orientation à `+0xc8`). Lecture : `0x535493ac(objet)` (sous mutex, via `0x535512e0`
+  `ldrb r0,[r3,#0x6c0]`). Écriture : `0x5354700c(objet, état)` (via `0x53555e68`, qui notifie au
+  changement).
+- **Valeurs** (`0x5346a850`, au déclenchement, d'après le mode de déclenchement `+0x799`) :
+  0 normal ; 1 intervalle (modes 4, 5) ; **2 multi-exposition** (mode 3) ; 3 bracketing (mode 2).
+- **Le verrou natif teste « état == 2 »** : 33 appels à `0x535493ac`, dont 18 suivis de
+  `cmp r0,#2` et 5 de `sub r0,r0,#2`. Exemples : la disponibilité de 8 fonctions du levier ADJ
+  (`0x531a4d38`, fonctions 3, 4, 5, 10, 12, 16, 18, 19 de la table `0x53b39a14`, dont Image Control
+  12 et Crop 16) ; la commande distante de multi-exposition (`0x5328eca8`). Étendre le verrou =
+  traiter « rouleau chargé » comme l'état 2 **dans les seuls sites d'interface** (à trier : certains
+  sites peuvent servir au traitement d'image). Phase 5.
+
+### Phase de la multi-exposition et fin de séquence (« Complete »)
+
+Petite classe (compteur de phase à `+4`), appelée par la machine à états de prise de vue
+`ExecuteMessageEvent` (`0x534639d4`) :
+
+| Fonction | Rôle (déduit) | Déclencheur |
+|---|---|---|
+| `0x5346a850` | déclenchement : phase 1 puis 2, état 2 en multi-exposition | appels `0x534686b4`, `0x53468f50` |
+| `0x5346a8d8` | **Retake** : phase 1 → état 0, sinon état 2 | message `0x42411817` |
+| `0x5346a910` | **fin de séquence** : phase 0, état 0 | message `0x42411c16` |
+| `0x5346a96c` | remise à zéro de l'état | `0x53463190` |
+
+- **Identifiants des messages** : la commande de débogage n° 6 (`MSG_ID_CMD_SHOOTING_MULTI_EXPOSURE_END`)
+  envoie `0x42411c16`, la n° 7 (`..._RETAKE`) envoie `0x42411817` (`0x5301f83c`, `0x5301f954`, par
+  `0x535157b4`).
+- **Côté traitement d'image** (`BEStillImageProcess.cpp`) : `0x535186e0(this, 0)` termine la
+  multi-exposition (journal « Multi Exposure End »), `(this, 1)` la reprend (« Multi Exposure
+  Retake ») ; répartiteur `0x5351b9e8` (cas 0xb et 0xc) ; il renvoie `0x42411c16` à la fin
+  (`0x5351bc8c`). D'autres récepteurs écoutent `0x42411c16` (`HTControl.cpp`, `0x533b0fe8`).
+- Candidat pour l'événement « Complete » : **`0x5346a910`** (une fois par séquence terminée).
+  À vérifier : extinction en cours de surimpression, changement de mode.
+- Non trouvé : le dialogue Next shot / Retake / Complete et ses touches. Piste : la table de
+  touches de `QuickViewController` (`0x53b41324`, touches 0x2b4 à 0x2b6 et 0x2c5, 0x2c6 ; la
+  fonction `0x531ca7d8` publie l'événement 0xb7).
+
+## Phase 2.4 : étapes 2 et 3, build de test de la séquence (2026-10-27)
+
+- Variante `filmProbe: 'sequence'` (révision `T10-FILMPROBE3`, `--sequence`). Aucun crochet sur
+  le chargement ni la sauvegarde. Deux crochets d'entrée : `0x5346a910` (fin de séquence, 0x9b1
+  +1) et `0x5346a8d8` (Retake, 0x9b3 +1). Au début de chaque exposition : 0x9b2 +1, et l'état de
+  la multi-exposition (`+0x6c0` de l'enregistrement de prise de vue en direct) copié dans l'octet
+  `0x55804388` (mot réservé de GR Mod, inutilisé ; builds de test seulement).
+- Affichage : `20SS.MM.01 OO:PP` = SS fins de séquence, MM état + 1 à la dernière exposition,
+  OO Retake, PP expositions.
+- Les builds `T10-FILMPROBE` et `T10-FILMPROBE2` ressortent identiques.
+- Émulé : les deux crochets exécutés depuis l'entrée réelle des fonctions (compteur +1, rien
+  sans enregistrement, registres intacts, reprise à la deuxième instruction) ; le crochet
+  d'exposition avec une chaîne de pointeurs simulée (état et orientation lus, 0 si un pointeur
+  manque). Contre-épreuves : la sonde échoue si l'on inverse fin et Retake, ou les variantes.
+
+### Résultats sur le boîtier (GR III 2.10, build T10-FILMPROBE3, 2026-10-27)
+
+Certitude : **testé**, relevés de l'utilisateur (`20SS.MM.01 OO:PP`, SS fins de séquence, MM état
++ 1, OO Retake, PP expositions).
+
+| Cas | Relevé | Lecture |
+|---|---|---|
+| S1 photo normale | `2005.01.01 04:34` | référence ; MM 01 (état 0) |
+| S2 multi-exposition 2 vues + Complete | `2005.03.01 04:36` | PP +2 ; **MM 03 (état 2)** ; SS inchangé sur l'image finale |
+| S3 1 vue, Retake, 1 vue, Complete | `2006.03.01 05:38` | **OO +1** ; PP +2 ; SS +1 = la fin de S2, comptée **après** l'encodage de son image finale |
+| S4 2 vues puis extinction ; après rallumage, photo normale | `2008.03.01 05:40` puis `2008.01.01 05:41` | l'image superposée est enregistrée à l'extinction ; SS +2 = la fin de S3, puis la fin par extinction (comptée avant l'encodage de l'image) ; rien de plus au rallumage |
+| S5 2 vues puis changement de mode ; photo normale | `2009.01.01 05:44` | SS +1 : **le changement de mode termine aussi la séquence**, et l'image superposée est enregistrée (confirmé) ; PP +3 |
+| S6 bracketing, intervalle | non fait | facultatif |
+
+Conclusions :
+- **État de la multi-exposition validé** : 2 pendant une multi-exposition (MM 03), 0 sinon.
+- **`0x5346a910` = une fois par fin de séquence**, quelle qu'en soit la cause : Complete,
+  extinction, changement de mode. Pour Complete, il passe après l'encodage de l'image finale.
+  C'est l'événement « avance du film » du cahier des charges (l'extinction compte comme une
+  avance, comportement voulu).
+- **`0x5346a8d8` = Retake** (une fois par Retake).
+- Le verrou lui-même (grisé des menus) n'a pas été testé : le build ne le modifie pas.
+
+## Phase 2.5 : tri des lecteurs de l'état de multi-exposition (2026-10-27)
+
+Certitude : **statique**. Deux familles de lecteurs de l'octet d'état `+0x6c0`.
+
+### 1. Par le getter `0x535493ac` (33 appels)
+
+| Catégorie | Fonctions | Rôle (indice) |
+|---|---|---|
+| Interface : levier ADJ | `0x531a4d38`, `0x531a4d80` | disponibilité de fonctions ADJ (table `0x53b39a14` : 3, 4, 5, 10, 12 Image Control, 16 Crop, 18, 19) |
+| Interface : liste Fn | `0x531a6ecc` ← `0x531a6ef4` | `FnListController` |
+| Interface : mode de déclenchement | `0x531b307c` (8 appelants) | « does not DriveMode ID », `OnStart` |
+| Interface : ratio par touche | `0x5323a080`, `0x5323a1a4` | `ChangeAspectRatio` (`AppEventFunctionModel.cpp`) |
+| Interface : fonctions de commutation | `0x53296694` et 12 fonctions `0x53298024` à `0x53299314` | `CaptureReadySwitchFunctionModel` (`GetEventSwitchForAppControl`) |
+| Commandes distantes (app, câble) | `0x5328c25c`, `0x5328eca8`, `0x5328edd0`, `0x5328fc1c` | `RemoteCommandModel.cpp`, `DevelopmentCommandModel.cpp` |
+| Contrôle à distance (HT) | `0x533b70c8`, `0x533d702c`, `0x533d7054`, `0x533eea8c` | `HTPropertyFactory`, `HTCamEventMonitor`, `RemoteLvBuffer` ; surtout « état == 1 » (intervalle) |
+| Affichage | `0x532d5a84` | `LiveViewController::UpdateViewHistogram` |
+| Affichage | `0x532a328c` (état == 0) | `CaptureReadyModel` (`DispMediaFatalError`) |
+| **Prise de vue et traitement : ne pas toucher** | `0x5346a850` (calcul de l'état), `0x53515900`, `0x53515928`, `0x53517f0c` (`BEStillImageProcess`), `0x535a4ef0` (paramètres de fichier) | |
+
+### 2. Lectures directes `ldrb [x,#0x6c0]`
+
+- **Couche CommonProperty** (`0x53553a58` à `0x535545e0`) : une quarantaine de petites
+  fonctions « autorisé = état ≠ 2 », souvent pour certaines valeurs seulement (0, 1, parfois 2) :
+  disponibilité **valeur par valeur** d'options de réglages, par paires (réglage en cours / copie
+  en `+4`). Elles sont appelées par des fonctions rangées dans une table à `0x540927e8` (deux
+  tables de 265 entrées, entrée par défaut `0x5353ed9c` = toujours disponible) ; 65 entrées
+  dépendent de l'état. **Les réglages correspondants ne sont pas encore identifiés** (l'index n'est
+  pas l'ordre des champs de l'enregistrement ; le film et le ratio n'y figurent pas).
+- **Prise de vue et traitement : ne pas toucher** : `0x5342a690`, `0x5343ba60` et `0x5343e670`
+  (`LiveViewProcess`, `SelectSensorDriveMode`), `0x5346192c`, `0x5346b514` (28 appelants),
+  `0x535141fc` (`IsMaxFolderCheck`), `0x535168f4`, `0x536dc0f4`, `0x536dc860`.
+
+### Conséquence pour la phase 5
+
+Le verrou natif n'est pas un seul test mais **une vingtaine de points d'interface**, plus la
+couche CommonProperty. Étendre le verrou = faire voir « état 2 » à ces seuls points quand un
+rouleau est chargé, jamais au code de prise de vue.
+
+### Outil annexe
+
+`0x5334688c` et `0x53386230` : réglage par nom pour le débogage (« StillAspectRatio » appelle le
+setter du ratio `0x532525a4`, etc.). Permettra de nommer les champs de l'enregistrement.
+
+## Phase 2.6 : le dialogue Next shot / Retake / Complete (2026-10-27)
+
+### Observation sur le boîtier (utilisateur)
+
+**Ouvrir le MENU pendant une multi-exposition revient à faire Complete** : rien n'y est grisé,
+la séquence se termine. Le verrou natif ne concerne donc que ce qui reste accessible pendant la
+séquence (levier ADJ, Fn, molettes, touches), pas le menu principal. Conséquence pour la phase 5 :
+pendant un rouleau, le menu devra être verrouillé par nos soins (lignes grisées ou entrée
+bloquée) ; l'hypothèse « étendre la condition native » du cahier des charges ne suffit pas.
+
+### Chaîne Complete / Retake (statique)
+
+| Étage | Complete (fin) | Retake | Preuve |
+|---|---|---|---|
+| Événement d'interface | **0xb8** | **0xb7** | table de sauts de `0x53227830` (index = événement - 0x34, table `0x53227850`) |
+| Action | `0x532270f4` | `0x532270d4` | récupèrent le modèle (`0x5320b19c`) |
+| Modèle | `0x5323a080` | `0x5323a1a4` | **seulement si l'état vaut 2** ; écrivent `+0x2e = 1`, `+0x8a3 = 0` |
+| Commande vers la capture | `0x42411c16` | `0x42411817` | envoyée par `0x532286dc` |
+| Nom de la commande | `CMD_SHOOTING_MULTI_EXPOSURE_END` (index 21) | `..._RETAKE` (index 22) | table de noms `0x540b4444` ; identifiant = `0x4241` + taille + (index + 1) |
+| Machine à états | `0x5346a910` | `0x5346a8d8` | testé (`T10-FILMPROBE3`) |
+
+- Qui publie l'événement 0xb7 (Retake) : la commande distante (`0x5328edc4`) et
+  `QuickViewController` (`0x531ca7d8`, dans sa table de touches `0x53b41344` : touches 0x2b4,
+  0x2b5, 0x2b6 ; la deuxième mène à `0x531ca7d8`). Le dialogue est donc l'**aperçu après la vue**.
+- Qui publie l'événement 0xb8 (fin) : la commande distante (`0x5328ed48`) et neuf autres endroits
+  (`0x531a4d80`, `0x531a6ef4`, `0x531cb5f4`, `0x531b3838`, `0x532a7c84`, `0x532a7cb0`,
+  `0x532a7cdc`, `0x532a7d08`, `0x532a7f6c`) : vraisemblablement les sorties de la prise de vue
+  (menu, lecture, levier ADJ, mode de déclenchement...). À identifier une par une.
+- **Pour la phase 6** : avancer le film = publier l'événement 0xb8 (ou appeler `0x5323a080`) ;
+  surimpression = ne rien faire (le déclencheur reste en multi-exposition).
+
+### Les choix du dialogue (statique)
+
+Table de `QuickViewController` à `0x53b41344` : trois lignes, désignées par leurs **identifiants
+de texte** (vérifiés dans la table des textes anglais `0x55002bac`) :
+
+| Texte | Ligne | Fonction | Effet |
+|---|---|---|---|
+| 0x2b4 | « Next shot » | `0x531ca804` | ferme l'aperçu, rien d'autre |
+| 0x2b5 | « Retake shot » | `0x531ca7d8` | publie l'événement 0xb7 |
+| 0x2b6 | « Complete » | `0x531cb6a0` | `0x531cb5f4` (drapeau `+0x182`, publie 0xb8), puis ferme |
+
+La table voisine `0x53b41324` (0x2c5 « Cancel », 0x2c6 « Delete ») est le dialogue de suppression.
+Publier l'événement 0xb8 : `0x532288b0(0x5320aefc(0x5320ad88()), 0xb8, 0, 0)`.
+
+### Les émetteurs de l'événement 0xb8 (statique, à identifier sur le boîtier)
+
+| N° | Fonction | Indice |
+|---|---|---|
+| 1 | `0x531a4d80` | si `0x531a4d38` (état 2) ; près des fonctions ADJ |
+| 2 | `0x531a6ef4` | liste Fn (`FnListController`) |
+| 3 | `0x531b3838` | si `0x531b307c` (état 2) ; mode de déclenchement |
+| 4 | `0x531cb5f4` | « Complete » de l'aperçu |
+| 5 à 9 | `0x532a7c84`, `0x532a7cb0`, `0x532a7cdc`, `0x532a7d08`, `0x532a7f6c` | `CaptureReadyModel`, notifications 0xaa, 0x89, 0x8b à 0x8d, 0x35, 0x19a (méthode `0x532a8c4c`, table de sauts `0x532a8c70`) |
+
+Build de test `T10-FILMPROBE4` (`--emitters`) : chaque émetteur note son numéro ; la fin côté
+modèle (`0x5323a080`, avant l'encodage de l'image finale) le recopie pour l'affichage (10 si aucun
+des neuf). Émulé : chaque émetteur et la fin côté modèle exécutés depuis leur entrée réelle
+(registres intacts, numéro écrit, reprise normale) ; contre-épreuves : la sonde échoue si l'on
+inverse deux émetteurs ou les variantes. Les builds précédents ressortent identiques.
+
+## Phase 2.7 : compteur de vues restantes à l'écran (statique, 2026-10-27)
+
+Chaîne, du calcul à l'écran :
+
+| Étage | Adresse | Rôle |
+|---|---|---|
+| Calcul | `StillControl/src/AvailableCounter.cpp` (côté traitement) | nombre de vues restantes |
+| Message | `0x22080621` = `EVT_SHOOTING_UPDATE_AVAILABLE_COUNT_STILL` (index 32 de la table `0x540b4aa0`, octet bas = index + 1) | vers le modèle de prise de vue |
+| Réception | `0x5323a878` (répartiteur du modèle) → `0x53236838` | range le résultat (8 octets) à `+0x3c` du modèle (`0x5320b19c`) |
+| Getter | `0x53239e34` : `ldr r0,[r0,#0x3c]; bx lr` | **un seul appelant** |
+| Texte | `0x532aa1d4` → `0x532aa140` | « ----- » (texte `0x5407118c`) si `0x5354867c` ou (état du modèle `0x53236f28` == 2 et nombre 0) ; sinon `snprintf(%d)` du nombre plafonné à 99999, tampon de 6 caractères |
+| Écran | `LiveViewController` (`0x531714c8`, appel `0x531715b4`) | |
+
+**Point d'accroche pour la phase 7** : `0x532aa1f4`, juste après le getter (r0 = nombre de vues
+restantes) : y substituer le numéro de vue quand un rouleau est chargé. Ce chemin ne sert qu'à
+l'affichage ; le nombre réel (`+0x3c`) reste intact pour le reste du firmware (carte pleine,
+déclenchement). Le tampon de 6 caractères permet aussi « 12/36 ». Certitude : statique ; à
+vérifier par un build de test (afficher par exemple le nombre d'expositions).
+
+## Phase 2.8 : dossiers (statique, 2026-10-27)
+
+### Nom de dossier sur 5 caractères : natif
+
+- **Le GR III stocke un nom de dossier de 5 caractères dans ses réglages : `+0x936` à `+0x93a`**
+  (champ de 5 octets de la carte, drapeau `0x93c`). Setter `0x5326ca50` (copie dans les huit
+  enregistrements, donc réglage global), appelé par `0x5326caa0`, qui transmet ensuite le nom à
+  l'enregistrement de prise de vue en direct (`0x5354d138`). Réglage de débogage par nom :
+  `SetupFolderName` (`0x53330ba0`, 6 octets copiés).
+- **Type de nom : octet `+0x934`** (huit enregistrements), setter `0x53258604`, réglage de
+  débogage `SetupFolderNameType` (`0x53330b1c`, chaînes « Date » et « Any » ; valeurs à
+  confirmer). Textes du menu : « Folder Name » (0x235, 0x236), contrôleur `FolderNameController`
+  (`0x531de4b0`, `UpdateFolderName`).
+- Pour le mode pellicule : nom = code du film (`CCHRM`, `LEICA`...), type = nom libre. À vérifier :
+  quelle valeur de type utilise le nom libre, et si le menu natif le propose.
+
+### « Create New Folder » : un drapeau
+
+- Texte d'aide 0x2ab : « le dossier est créé à l'enregistrement de la prochaine image ».
+- Dialogue : `FolderCreateController` (table de méthodes `0x53b475d8`) ; préparation `0x531e5ec8`
+  (contrôleur 0x02000128) ; **validation `0x531e65b0`** : `0x5358515c(0x53584c74(), 1)`, puis le
+  message de confirmation (contrôleur 0x02000129).
+- `0x53584c74` renvoie l'objet d'informations fichiers (`0x55349808`, initialisé une fois) ;
+  `0x5358515c(objet, v)` écrit `v` aux octets `+0x116` et `+0x117` de la structure pointée par
+  `[objet + 0x248]`.
+
+### Numéro de dossier en cours (brique 5, candidat)
+
+Même structure (`[objet + 0x248]`) : `0x5358516c` lit un mot à `+0x118` et un demi-mot à
+`+0x11c` ; `0x53585188` les écrit ; `0x5358519c` les remet à (−1, 0). Probablement le numéro de
+dossier et le numéro de fichier en cours. Certitude : supposé ; à vérifier par un build de test.
+
+### Résultats sur le boîtier (build T10-FILMPROBE4, 2026-10-27)
+
+Certitude : **testé** (2 vues en multi-exposition avant chaque cas ; MM = émetteur + 1).
+
+| Cas | Relevé | Lecture |
+|---|---|---|
+| E1 « Complete » du dialogue | `2012.01.01 05:51` | MM 01 : la fin **ne passe pas** par la fin du modèle (`0x5323a080`) avant l'encodage ; autre chemin, à trouver |
+| E2 MENU | `2014.05.01 05:53` | MM 05 : émetteur 4, **`0x531cb5f4` (aperçu)** |
+| E3 Lecture | rien | la séquence continue, le dialogue reste |
+| E4 molette de mode | `2015.05.01 05:57` | MM 05 : émetteur 4 |
+| E5 Fn | rien | la séquence continue |
+| E6 levier ADJ | rien | la séquence continue |
+| E7 mode de déclenchement | non fait | |
+| E8 extinction | `2019.05.01 05:03` | MM 05 : émetteur 4 |
+| E9 retrait de la carte | photo non enregistrée | la surimpression est perdue |
+
+Conclusions : MENU, molette de mode et extinction terminent la séquence par l'aperçu
+(`0x531cb5f4` → événement 0xb8 → `0x5323a080`). Lecture, Fn et ADJ ne la terminent pas. « Complete »
+dans le dialogue la termine par un autre chemin.
+
+### Build de test T10-FILMPROBE5 (briques 3, 4, 5)
+
+`filmProbe: 'folders'` (`--folders`) :
+- compteur à l'écran = nombre d'expositions (crochet `0x532aa1f4`, juste après le getter) ;
+- à la fin du modèle (`0x5323a080` : MENU, molette, extinction), nom de dossier `TEST` + lettre
+  (`'A' + fins % 26`) par `0x5326caa0`, type « nom libre » (1) par `0x53258604`, drapeau de nouveau
+  dossier par `0x5358515c(0x53584c74(), 1)` ;
+- incrustation `20YY.MM.01 HH:mm` : YY numéro de dossier candidat (`+0x118`) % 100, MM 1 + drapeau
+  `+0x116` + 2 × drapeau `+0x117`, HH fins de séquence % 24, mm numéro de fichier candidat
+  (`+0x11c`) % 60.
+
+Émulé : chaque crochet exécuté depuis son site, avec bouchons pour les fonctions appelées (ordre et
+arguments vérifiés : nom, type 1, drapeau 1 ; rien sans réglages chargés), compteur à l'écran,
+400 cas d'horloge. Contre-épreuves : la sonde échoue si l'on inverse l'ordre des appels.
+
+Attention : le nom et le type de dossier sont des **réglages sauvegardés** ; après le test, les
+remettre depuis le menu (nom saisi au clavier virtuel, `SoftwareKeyboardController` `0x531dbce0` ;
+type dans la liste `0x531b76c4`).
+
+### Résultats sur le boîtier (build T10-FILMPROBE5, 2026-10-27, en cours)
+
+Arborescence de la carte après le test : `105RICOH` (avant le test), puis `106TESTT` (6823, 6824 :
+F1), `107TESTT` (6825, 6826 : F2), `108TESTU` (6827, 6828 : F3), `109TESTV` (6829, 6830 : F4),
+`110TESTW` (6831 : F5).
+
+- **Nom de dossier natif et drapeau de nouveau dossier : testés.** Chaque passage par la fin du
+  modèle a ouvert un nouveau dossier `NNNTESTx` à l'enregistrement suivant ; **l'image
+  superposée est enregistrée dans le nouveau dossier** (drapeau pris en compte avant son
+  enregistrement). La numérotation des dossiers continue (106 à 110).
+- La lettre retarde d'un cran : le crochet lit le compteur de fins avant `0x5346a910`.
+- La fin du modèle (`0x5323a080`) est appelée **aussi hors multi-exposition** (dossier `106TESTT`
+  créé avant F1) ; le test de l'état 2 est fait par la fonction d'origine, après le crochet. Le mode
+  pellicule devra tester l'état lui-même.
+- F4 (Complete du dialogue) a aussi créé un dossier : ce chemin passe par la fin du modèle avant
+  l'enregistrement (E1 avait laissé penser le contraire).
+- Candidat brique 5 : incrustations de F1 `2099.04.01 19:00` (6823 : mot `+0x118` > 999, deux
+  drapeaux levés) et `2001.01.01 19:46` (6824 : `+0x118` = 1, `+0x11c` % 60 = 46, alors que 6824 % 60
+  = 44).
+- Incrustations de F2 à F5 (photo : YY, MM, mm) : 6825 (107, superposée) 01, 04, 46 ; 6826 (107)
+  01, 01, 47 ; 6827 (108, superposée) 01, 04, 47 ; 6828 (108) 01, 01, 48 ; 6829 (109, superposée)
+  01, 04, 48 ; 6830 (109) 01, 01, 49 ; 6831 (110, après extinction) 01, 04, 49.
+- **Brique 5, lecture : testée.** Le demi-mot `[0x53584c74() + 0x248] + 0x11c` est le **numéro du
+  dossier en cours** (106 % 60 = 46, etc.) ; il garde l'ancien dossier tant que la demande de
+  nouveau dossier est en attente, et change à l'enregistrement qui crée le nouveau dossier. Les
+  octets `+0x116` et `+0x117` sont la **demande de nouveau dossier en attente** (levés au moment de
+  l'image superposée, à 0 ensuite). Le mot `+0x118` vaut 1 (−1 juste après le flash, photo 6823) :
+  rôle à préciser. Reste à tester : **écrire** un ancien numéro pour y revenir.
+- **Brique 3 : testée.** Compteur à l'écran pendant `T10-FILMPROBE5` : 81, 82, 83, 84, une photo
+  à chaque fois. Le crochet `0x532aa1f4` remplace bien l'affichage des vues restantes, sans gêner
+  le déclenchement.
+
+### Brique 5, écriture : le candidat n'est pas la commande (statique, 2026-10-27)
+
+- `0x53585188` (écriture de `+0x118` et `+0x11c`) a **un seul appelant**, `0x535b2ac4`, dans le
+  service de création DCF (`ContentsControl/Camera/DCF/src/DcfContentsCreateService.cpp`, appelé
+  par `0x535b2cbc` et `0x535b2e8c`, « namingInfo »). Il calcule d'abord le nom de l'objet à créer
+  (`0x535b6858`), puis, si une condition (`0x53585150`) est vraie, **recopie** dans `+0x118` /
+  `+0x11c` le résultat (mot `[service + 0x38]`, numéro de dossier) ; sinon il les remet à
+  (−1, 0) (`0x5358519c`). S'il faut créer un dossier, il le crée (heure par `0x536b6510`) puis
+  baisse les drapeaux (`0x5358513c(info, 0)`, `0x5358515c(info, 0)`).
+- Conclusion : `+0x11c` est un **compte rendu** du dossier du dernier objet créé, pas la variable
+  qui choisit le dossier du suivant. L'écrire ne ferait probablement rien.
+- Le choix du dossier se fait dans le calcul du nom DCF : `0x535b6858` aiguille entre trois
+  stratégies (`0x535b6678`, `0x535b66e0`, `0x535b67dc`) selon deux octets de la description de
+  nommage (`+0x15`, `+0x0`) ; chaînes voisines « GetDirectoryType », « dataCreationTime » ;
+  `0x535b6964` compare des noms de dossiers (préfixe « _ », numéro sur deux chiffres). À étudier.
+- Correction (phase 2.9) : `0x535b6858` ne choisit rien, elle **met en forme** le nom à partir d'un
+  numéro reçu en `r2` (voir ci-dessous).
+
+## Phase 2.9 : choix du dossier d'une photo (statique, 2026-10-27)
+
+Chaîne de création d'un fichier, toutes dans `DcfContentsCreateService.cpp` :
+
+- `CreateContents` `0x535b3070` (et `CreateVirtualContents` `0x535b32d8`, 4e argument 1) appelle
+  `SetFilePath` `0x535b2e8c(service, nommage, chemin, ...)` avec `chemin` = requête + `0xc`. Dans
+  `chemin` : demi-mot `+4` = **numéro de dossier**, demi-mot `+6` = numéro de fichier. Certitude :
+  forte (lecture du code).
+- `SetFilePath` : si `chemin+4` vaut **0**, le numéro est choisi par `GetTargetDirectoryNumber`
+  `0x535b21c8` (chaîne de log), le dossier est créé s'il diffère du dossier visé
+  (`0x535b2ac4`), puis le numéro est écrit dans `chemin+4`. Si `chemin+4` **n'est pas 0**, il est
+  pris tel quel : contrôle de plage (100 à 999), recherche dans la base des dossiers
+  (`0x535b7480`) ; **s'il existe, rien n'est créé**, sinon il est créé avec le nom en cours.
+- Base des dossiers : objet `X = [[service + 8] + 8]`. `X + 0x10` : table de 900 pointeurs
+  (dossiers 100 à 999, index = numéro − 100). `X + 0x28` : index du **plus petit** dossier,
+  `X + 0x2a` : index du **plus grand** (accesseurs `0x535b5bc4`, `0x535b5b98` ; « suivant » /
+  « précédent » `0x535b5bd4` / `0x535b5c5c` bouclent de l'un à l'autre). `X + 0x4a` : numéro
+  réservé par une demande de nouveau dossier.
+- Dossier visé (`0x535b5ba8`) : le **plus grand** dossier existant, ou 0 si `X + 0x4a` l'a
+  dépassé (on crée alors `max(plus grand, X + 0x4a) + 1`, `0x535b5ce0`). C'est la règle DCF
+  habituelle : **il n'existe pas de variable « dossier en cours »** à réécrire.
+- Le chemin vers un dossier existant est construit à partir de **son propre nom** dans la base
+  (`0x535b756c` → `0x535b74c0`, nom par la méthode `+8` de l'entrée), qui charge aussi la liste de
+  ses fichiers dans `[service + 0xc]`.
+- Numéro de fichier (`0x535b1efc`) : si `chemin+6` vaut 0, compteur continu des réglages
+  (`0x53584db8`) + 1, au moins le suivant libre du dossier (`0x535b7184`). Il continue donc la
+  numérotation même dans un ancien dossier.
+- `0x535b6858` : mise en forme du nom (3 chiffres + suffixe) ; `0x535b6678` nom fourni par la
+  description, `0x535b66e0` forme date `NNN_MMDD`, `0x535b67dc` nom libre des réglages
+  (`0x53585200`).
+- Conséquence pour la brique 5 : pour revenir dans un ancien dossier, il suffit d'écrire son
+  numéro dans `chemin+4` à l'entrée de `SetFilePath` quand il vaut 0. Octets identiques sur IIIx
+  1.60 à cet endroit.
+
+### Build de test T10-FILMPROBE6 (brique 5, écriture)
+
+- Crochet à l'entrée de `SetFilePath` (`mov ip,sp` remplacé). Si `chemin+4` vaut 0 **et** qu'un
+  mode U est rappelé (octet de mode `*(u8*)*(0x55063f30)` non nul), il écrit le **plus petit**
+  dossier existant (`X + 0x28` + 100), seulement si son entrée de table n'est pas vide. Tous les
+  registres sont conservés. Pas de compteur, horloge normale.
+- Vérifié en émulateur (`tools/gr3x/film_probe_check.py`, 36 cas : modes 1 à 255, index 0 à 899 ;
+  aucun effet si dossier déjà fourni, mode 0, pas de modèle, pointeur nul ou mal aligné, index
+  hors plage, entrée vide) ; contre-épreuves (mauvais dossier attendu, mode 0) détectées. La
+  fonction native elle-même n'est pas exécutée en émulateur.
+- Attendu sur le boîtier : en P, Av, etc., les photos vont dans le dossier le plus élevé ; en U1,
+  U2, U3, dans le plus ancien dossier, avec la numérotation continue.
+
+### Résultats sur le boîtier (build T10-FILMPROBE6, 2026-10-27)
+
+Dossiers au départ : `100RICOH`, `101RICOH`. Contenu à la fin (capture de l'utilisateur) :
+`100RICOH` : `_R016838.DNG`, `_R016839.DNG`, `_R016840.DNG` + `.JPG`, `_R016841.JPG`,
+`_R016842.JPG`, `R0016844.JPG` ; `101RICOH` : `R0016837.JPG` ; `102RICOH` (créé à 22:10) :
+`R0016843.JPG`, `R0016845.JPG`. (`_R` : espace couleur Adobe RGB de la BOX de U1.)
+
+- R1 (P) : 6837 dans `101`, le plus élevé. Conforme.
+- R2 à R4 (U1 : RAW, RAW+JPEG, multi-exposition) : 6838 à 6842 dans `100`, le plus ancien,
+  numérotation continue, DNG et JPEG ensemble. Conforme. R6 (U2, après extinction) : 6844 dans
+  `100`. Conforme.
+- **Brique 5, écriture : testée.** Imposer le numéro de dossier à l'entrée de `SetFilePath` fait
+  enregistrer dans un ancien dossier existant, sans erreur, nom du dossier respecté.
+- **Effet de bord** : R5 (retour en P après U1) a **créé `102RICOH`** au lieu d'écrire dans
+  `101`. R6 (P après la photo U2) va dans `102` sans nouveau dossier. Pistes statiques : dans
+  `GetTargetDirectoryNumber`, un nouveau dossier est pris si la demande `+0x116` est levée ou si
+  le bit du dossier visé est mis dans la table de bits `[info + 0x248] + 0x10 + emplacement * 0x80`
+  (`0x535853a4`) ; ces deux marques sont posées par `0x535a83a4` (« GetDcfInformationService »,
+  appelée par `0x535a84f8`) selon les drapeaux de l'entrée du dossier visé (octet `+0xe`, bits 1
+  et 2) et une analyse de ses fichiers (`0x535a81b8`). Cause exacte non établie.
+- **Suppression** : en lecture, la suppression de 2 photos anciennes a laissé « Data being
+  processed » affiché sans fin, alors que les photos ont bien été supprimées
+  (`DcfContentsDeleteService`, `0x535b3810`, touche aussi `+0x116` / `+0x117`). Lien avec le
+  crochet non établi.
+
+### Effet de bord : d'où vient le nouveau dossier (statique, 2026-10-27)
+
+- `GetTargetDirectoryNumber` (`0x535b21c8`), dossier visé = le plus grand. Pour un dossier au nom
+  libre identique au nom en cours (`GetDirectoryType` `0x535b6a48` rend 1 ; 0 = dossier date du
+  jour, 2 = autre), il prend un **nouveau dossier** (numéro + 1, `0x535b2148`) si : la description
+  de nommage demande la forme date (octet `+0`), ou la demande `+0x116` est levée, ou (octet `+0x16`
+  de la description) le bit du dossier est mis dans la table de bits `[info + 0x248] + 0x14 +
+  emplacement * 0x80` (lecture `0x535853a4`, écriture `0x5358533c(info, emplacement, dossier, 0/1)`).
+- `0x535a83a4` (préparation, appelée par `0x535a84f8`) lève `+0x116` pour le dossier visé si
+  l'entrée a le drapeau `+0xe` bit 2, ou, au premier contrôle (bit 1 absent), si son bit est mis
+  dans la table ou si l'analyse du **dernier fichier** du dossier (`0x535a81b8` : lecture de ses
+  métadonnées, étiquettes `0x6b`, `0xc`, `0x86`, `0x55`) le demande.
+- **Piste principale** : à la fermeture d'un fichier créé (`EventCloseCreateContents`,
+  `0x535a6b28`), si l'octet `+0x21` de la requête est non nul, le firmware met le bit du **plus
+  grand dossier** (`0x535b7424`) et non du dossier où le fichier a été écrit. Une photo écrite dans
+  `100` avec ce drapeau marque donc `101`, et la photo suivante en P part dans un nouveau dossier.
+  Qui pose `+0x21` (RAW ? multi-exposition ?) : non trouvé (la requête est remise à zéro en
+  `0x5359c4e4`). Certitude : moyenne.
+- La suppression (`DcfContentsDeleteService`, `0x535b3810`) écrit aussi dans cette table et dans
+  `+0x116` / `+0x117`.
+
+### Isolement du déclencheur (build T10-FILMPROBE6, 2026-10-27)
+
+Tests D1 à D4 (plus grand dossier au départ : `102`). Résultat (capture de l'utilisateur) :
+
+- D1 : P 6846 (supprimée ensuite en D4), U1 JPEG 6847 dans `100`, P 6848 dans `102`. Pas de
+  nouveau dossier.
+- D2 : U1 DNG 6849 dans `100`, P 6850 dans `102`. Pas de nouveau dossier.
+- D3 : U1 multi-exposition, 6851 et 6852 dans `100`, puis P 6853 dans **`103RICOH`, nouveau**.
+- D4 : suppression en P de 6846 (dossier `102`) sans blocage. D5 (suppression dans `100`) non
+  fait.
+- **Testé : la multi-exposition est le déclencheur**, en accord avec la piste statique (fin d'une
+  multi-exposition : le bit du plus grand dossier est mis à la fermeture du fichier, drapeau
+  `+0x21` de la requête). Le RAW et le JPEG seul ne déclenchent rien. R4 puis R5 (même suite) avaient
+  créé `102`.
+- Correction envisagée, un seul mot : en `0x535a6dac`, `mov r2,r7` (plus grand dossier) devient
+  `ldrh r2,[r6,#0x10]` (dossier où le fichier a été écrit : chemin de la requête, `+0xc + 4`). En
+  usage normal les deux sont égaux, donc rien ne change ; avec un dossier imposé, la marque va sur
+  le bon dossier. `r6` est la requête dans toute la fonction ; octets identiques sur IIIx 1.60.
+
+### Build de test T10-FILMPROBE7 (correction de la marque)
+
+- T10-FILMPROBE6 + le mot `0x535a6dac` : `mov r2,r7` (`e1a02007`) devient `ldrh r2,[r6,#0x10]`
+  (`e1d621b0`). Aucun code ajouté.
+- Vérifié en émulateur : 48 cas (les 36 du crochet, plus 12 sur la marque : r2 = dossier de la
+  requête quel que soit le plus grand, autres registres intacts) ; contre-épreuve sur le build
+  sans correction détectée. 321 tests passent (5 échecs habituels, fichiers privés GR IV absents).
+- Attendu sur le boîtier : une multi-exposition en U puis une photo en P ne crée plus de dossier.
+
+### Résultats sur le boîtier (build T10-FILMPROBE7, 2026-10-27)
+
+Plus grand dossier au départ : `103`. Contenu à la fin (capture de l'utilisateur) :
+
+- E1 : P 6854 dans `103` ; U1 multi-exposition, 6855 et 6856 (`_R`, Adobe RGB) dans `100` ; P 6857
+  dans **`104RICOH`, nouveau**. La correction de `0x535a6dac` **ne suffit pas**.
+- E2 : P 6858 dans `104` ; U2 multi-exposition, un seul fichier 6859 dans `100` ; P 6860 dans `104`.
+  Pas de nouveau dossier.
+- E3 / E4 : suppressions dans `100` (6847, 6849) et `101` (6837, dossier `101` disparu, vide)
+  sans blocage. Le blocage de la première fois ne se reproduit pas.
+- Observation : la multi-exposition en U1 donne toujours **deux fichiers** (R4, D3, E1), en U2 un
+  seul. Réglage de la BOX de U1 à identifier.
+- Autres poseurs de marques trouvés : `0x535aa224` (dans `0x535a9e18`, dossier lu dans un chemin,
+  `0x535b9788`), la suppression `0x535b3908` ; demande `+0x116` / `+0x117` posée par `0x535a5268`
+  selon un type de paramètre (2 : `+0x116` seul ; 3 : les deux, si rien n'est en attente).
+
+### Comportement natif de la multi-exposition avec vues intermédiaires (testé, 2026-10-27)
+
+- La BOX de U1 est en multi-exposition « Blended » **avec sauvegarde des vues intermédiaires** :
+  d'où deux fichiers par séquence de 2 vues (`_R016855` vue 1, `_R016856` superposition). U2 ne
+  sauvegarde pas : un seul fichier.
+- T1 (en P, crochet inactif) : séquence avec vues intermédiaires, 6861 et 6862 dans **`105RICOH`,
+  nouveau**. T2 (photo simple en P) : 6863 dans **`106RICOH`, nouveau**.
+- **Natif** : une séquence qui garde ses vues intermédiaires est isolée dans son propre dossier ;
+  le boîtier demande un nouveau dossier avant son premier fichier, et ferme ce dossier après
+  (marque à la fermeture, `0x535a6d60`). Le dossier imposé par le crochet laissait la première
+  demande en attente : la photo suivante en P la consommait (`102`, `103`, `104`). La correction
+  de la marque (T10-FILMPROBE7) traite le second point.
+
+### Build de test T10-FILMPROBE8 (annulation de la demande)
+
+- T10-FILMPROBE7 + : quand le crochet impose le dossier, il annule la demande de nouveau dossier
+  en attente (`0x5358513c(0x53584c74(), 0)`, `+0x116` et `+0x117` à 0).
+- Vérifié en émulateur (appel fait une fois à chaque dossier imposé, jamais sinon, registres
+  intacts) ; contre-épreuve sur le build sans annulation détectée. 322 tests passent (5 échecs
+  habituels).
+- Effet assumé pour le test : en mode U, « Create New Folder » est annulé par la photo suivante.
+
+### Résultats sur le boîtier (build T10-FILMPROBE8, 2026-10-27)
+
+Plus grand dossier au départ : `106`.
+
+- F1 : P 6864 dans `106` ; U1 (vues intermédiaires) 6865 `.JPG` (vue 1) et 6866 `.DNG`
+  (superposition, qualité de la BOX) dans `100` ; P 6867 dans **`107RICOH`, nouveau**. L'annulation
+  dans le crochet **ne suffit pas**.
+- F2 : U2 6868 dans `100` ; P 6869 dans `107`. Pas de nouveau dossier. Conforme.
+- F3 (P, natif) : séquence 6870 à 6872 dans **`108`, nouveau** ; photo simple 6873 dans **`109`,
+  nouveau**. Conforme au comportement d'origine : rien de cassé hors des modes U.
+- Lecture : la demande qui crée le dossier après la séquence est posée **après** le dernier
+  fichier de la séquence (le crochet ne repasse pas ensuite), ou par un autre mécanisme que la
+  marque de `0x535a6dac`. Candidat principal : `0x535a5268` (type 2 : `0x5358513c(info, 1)` puis
+  `0x5358515c(info, 0)` ; type 3 : les deux à 1), encore en mode U à la fin de la séquence.
+
+### Décision (2026-10-27)
+
+- Seuls U1, U2, U3 portent un rouleau ; P, Av, Tv, M restent libres (cahier des charges mis à jour).
+- Voie A : au chargement, le mod force **Save Interim Images à Off** et le verrouille pendant le
+  rouleau. Le dossier en trop après une séquence n'apparaît qu'avec ce réglage à On (R4, D3, E1,
+  F1 contre R6, E2, F2) : il disparaît à la source. Pas de build T10-FILMPROBE9 (blocage des
+  demandes de nouveau dossier abandonné). La correction de la marque (`0x535a6dac`) est gardée.
+- Prochaine étape : trouver le champ Save Interim Images dans l'enregistrement des réglages.
+
+### Champ Save Interim Images (statique, 2026-10-27)
+
+- Nom interne (table des propriétés, commande de débogage) : `StillMultiExposureSaveProcess`,
+  voisin de `StillMultiExposureCompositeType`. Analyseurs `0x53306c78` (texte vers valeur) et
+  `0x533668a0` (valeur vers texte).
+- **Octet `+0x482` de l'enregistrement des réglages** ; getter `0x532451d0(UserDataModel)`,
+  setter `0x53262990(UserDataModel, valeur)` (écrit l'octet puis prévient la prise de vue,
+  `0x5354c744`). La carte des champs le classe comme champ de BOX (drapeau `+0x483`) : chaque
+  mode U a le sien.
+- Valeurs : **0 `Off`**, 1 `Original`, 2 `Composite`, 3 `OriginalComposite`. Libellés du menu
+  (relevés sur le boîtier) : 1 **Unblended** (chaque vue seule), 2 **Blended** (superpositions
+  intermédiaires), 3 **Unblended + Blended**, 0 **Off**. U1 est en Blended (2) : après la vue 1, la
+  superposition intermédiaire est la vue 1 seule (`_R016855`, « photo normale »), puis la
+  superposition finale (`_R016856`). Certitude : forte.
+- Pour le chargement : `0x53262990(0x5320b31c(0x5320ad88()), 0)`.
+
+### Décision : une BOX = un rouleau (2026-10-27)
+
+- Ligne de menu « Mode pellicule : On / Off » enregistrée dans la BOX (octet libre de
+  l'enregistrement). Démarrage du rouleau à la première vue dans un mode U dont la BOX est sur On ;
+  fin de rouleau : nouveau rouleau automatique (nouveau dossier, vue 1) ; Off ou Save Settings sur
+  une BOX entamée = rembobiner. Plus de ligne « Charger » ni de chargement provisoire.
+
+## Phase 3.1 : état du rouleau et compteur de vues (2026-10-27)
+
+### Sauvegarde immédiate (statique)
+
+- `0x5323f274` (sauvegarde à l'extinction) écrit chaque copie des réglages dans un **fichier** de la
+  mémoire interne : `0x53826c54(stockage, index, taille, données)`, stockage =
+  `[0x53828014() + 8]`, nom `APData%02d` (`0x53826bdc`, « src/AppData.cpp »), lecteur interne
+  `H:\DOMDTBK`. Index : 0 l'octet de mode (1 octet), **1 l'enregistrement en cours**, **2 + k la
+  copie k** (table `0x53b59200` : 2..8), 9 et 10 les propriétés communes. On peut donc écrire un
+  seul enregistrement. Certitude : forte (lecture du code), non testé sur le boîtier.
+- Save Settings dans la BOX n : `0x5324b760(objet, n)` (memcpy de l'enregistrement en cours vers la
+  copie n, puis fusion `0x53246df8`), appelé par `UserModeBoxSelectController`.
+- Rappel d'un mode : dans `0x53279fa8`, `r6` garde le mode rappelé de `0x53279fb8` à `0x5327a00c` ;
+  l'enregistrement va aux valeurs actives en `0x5327a018`, après la copie (crochet du garde-fou).
+
+### Build de test T11-ROLL1 (`core/src/fw/gr3x/film-roll.ts`)
+
+- Mode pellicule forcé dans U1 à U3 (octet de mode 1 à 6), en attendant la ligne de menu.
+- État : `0x9b1` bit 1 rouleau entamé, `0x9b2` vue à prendre ; écrit dans l'enregistrement en cours
+  et dans la copie de la BOX active.
+- Première exposition (préfixe du crochet d'exposition) : démarre le rouleau, vue 1.
+- Fin du modèle `0x5323a080` (état de multi-exposition 2) : vue + 1 ; au-delà de la longueur (ratio
+  `+0x4c2` : 3:2 36, 1:1 12, XPan 21, sinon 36) le rouleau se termine ; puis écriture immédiate des
+  fichiers 1 et mode + 2.
+- Compteur à l'écran : vue à prendre en U (1 avant le démarrage), compte normal ailleurs.
+- Save Settings dans la BOX n : rouleau de la BOX n terminé (et celui en cours si n est le mode actif).
+- Rappel de U1 à U3 : Save Interim Images (`+0x482`) à Off dans l'enregistrement en cours, par le
+  crochet de rappel du garde-fou (option `recallAfter`).
+- Vérifié en émulateur (`tools/gr3x/film_roll_check.py`) : 1372 cas (exposition 48, fin 960 dont
+  108 avances et 72 fins de rouleau, compteur 192, Save Settings 72, rappel natif 28) ; trois
+  contre-épreuves détectées ; sonde du garde-fou adaptée et repassée. 324 tests passent.
+- Limites : seules les séquences de multi-exposition font avancer le film (la BOX doit être en
+  multi-exposition) ; pas encore de dossier de rouleau, ni de numéro de vue incrusté.
+
+### Résultats sur le boîtier (build T11-ROLL1, 2026-10-28)
+
+- G2 : U1, 2 vues + Complete : **un seul fichier** (6877), compteur 2. Save Interim Images forcé à
+  Off au rappel : **testé**.
+- G3 : une vue + Complete : 3 (6878) ; MENU sans vue : reste à 3. G4 : P montre le compteur normal,
+  retour sur U1 : 3.
+- G5 : **retrait de la batterie sans éteindre : 3 retrouvé** ; extinction normale : 3. L'écriture
+  immédiate des fichiers `APData` (index 1 et mode + 2) marche : **testée**.
+- G6 : U2 a son propre rouleau (1, puis 2), U1 garde 3. G7 : Save Settings dans BOX2 depuis U2 :
+  U2 revient à 1 (rembobinage : **testé**).
+- G7 suite : Save Settings dans BOX2 **depuis U1** a recopié les réglages en cours (ceux de la BOX3
+  rappelée par U1) dans la BOX2 : comportement natif (`0x5324b760` copie l'enregistrement en cours),
+  pas un effet du mod. La consigne de test était ambiguë ; l'utilisateur a perdu le monochrome de
+  la BOX2.
+- G8 : aucun message inhabituel ; les autres BOX intactes.
+
+## Phase 3.2.1 : dossier du rouleau (2026-10-28)
+
+### Conception
+
+- Numéro du dossier du rouleau : `0x9b3` (bits bas) + bits 2 et 3 de `0x9b1` (bits hauts), 10 bits.
+  Effacé au démarrage d'un rouleau, à sa fin et au rembobinage.
+- Crochet à l'entrée de `SetFilePath` (`0x535b2e8c`), quand le chemin n'a pas déjà un numéro :
+  - mode U avec rouleau entamé : le dossier du rouleau s'il existe dans la base des dossiers ; sinon
+    le numéro du prochain nouveau dossier donné par le boîtier (`0x535b742c` →
+    `max(plus grand, réservé) + 1`, 100 au minimum, 0 au-delà de 999), aussitôt mémorisé comme
+    dossier du rouleau (enregistrement en cours et BOX). `SetFilePath` crée un dossier imposé
+    absent par le même appel que pour un nouveau dossier natif (`0x535b2ac4(service, numéro,
+    nommage, 0)`, en `0x535b3060` au lieu de `0x535b2f2c`) : aucune demande de nouveau dossier
+    (`+0x116` / `+0x117`) n'est utilisée. Certitude : forte pour le chemin (lecture du code), non
+    testé sur le boîtier ;
+  - modes libres (et tout autre cas) : si le plus grand dossier (celui que le boîtier viserait) est
+    le dossier d'un rouleau entamé d'une BOX 1 à 6, le prochain nouveau dossier est imposé : les
+    photos libres ne vont jamais dans le dossier d'un rouleau (elles ouvrent leur propre dossier,
+    qui redevient le plus grand). Sinon rien ne change.
+- La marque de dossier de la multi-exposition va sur le dossier écrit (`0x535a6dac`, comme
+  T10-FILMPROBE7).
+- Le dossier est mémorisé en RAM tout de suite et écrit dans les fichiers à la fin de séquence
+  suivante ; un retrait de batterie avant la première fin de séquence d'un rouleau en perd le
+  dossier : la photo suivante en ouvre un autre.
+
+### Build de test T11-ROLL2
+
+- T11-ROLL1 + le dossier du rouleau. Vérifié en émulateur (`tools/gr3x/film_roll_check.py`) : 2028
+  cas, dont 584 sur `SetFilePath` (modes 0 à 7, rouleau entamé ou non, dossier mémorisé absent,
+  hors plage ou existant, prochain numéro 0 ou non, numéro déjà fourni) et 72 sur les modes libres
+  face au dossier d'un rouleau ; quatre contre-épreuves détectées ; sonde du garde-fou repassée.
+
+### Résultats sur le boîtier (build T11-ROLL2, 2026-10-28)
+
+Plus grand dossier au départ : `109RICOH`. Toutes les photos de H1 à H9 (6884 à 6893 : P en JPEG
+`R00`, U1 en DNG `_R`, U2 en JPEG) sont dans **`109RICOH`** : **aucun dossier créé**, ni pour les
+rouleaux (H2, H6, H9) ni pour P (H4). Compteur conforme (H9 : rembobinage puis 2).
+
+- Le code présent dans le build est conforme (désassemblé). Le crochet de `SetFilePath` n'a donc pas
+  pris le chemin prévu, ou `SetFilePath` n'a pas utilisé le numéro imposé. Hypothèses : numéro déjà
+  fourni à l'entrée pour ces photos, prochain numéro (`0x535b742c`) à 0, ou création refusée puis
+  repli. Non tranché statiquement : build de diagnostic proposé (T11-ROLL2D).
+- Remarque : les rouleaux de U1 et U2 démarrés sous T11-ROLL1 gardaient dans `0x9b3` et `0x9b1`
+  des restes des builds de sonde (compteurs) : leur « dossier » pouvait valoir n'importe quoi. Le
+  rouleau de U2 redémarré en H9 avait, lui, un dossier effacé.
+
+### Build de diagnostic T11-ROLL2D
+
+- T11-ROLL2 + enregistrement de ce que voit le crochet de `SetFilePath`, dans des mots libres
+  (zone `sbrk` remise à zéro du round 10) : `0x55804390` demi-mot numéro reçu, `+2` chemin
+  (1 mode libre inchangé, 2 dossier du rouleau, 3 nouveau dossier imposé, 4 pas de prochain numéro,
+  5 numéro déjà fourni, 6 mode libre déplacé hors d'un dossier de rouleau), `+3` résultat de
+  `SetFilePath` (la fonction est appelée, adresse de retour gardée en `0x5580438c`), `+4` nombre
+  d'appels, `+6` demi-mot prochain numéro demandé.
+- Date incrustée : `20YY.MM.DD HH:mm` = YY numéro reçu % 100, MM chemin (+ 6 si réussite),
+  DD 1 + appels % 28, HH dossier du rouleau en cours % 24, mm prochain numéro % 60.
+- Vérifié en émulateur : 2620 cas (dont 512 de diagnostic et 864 de l'horloge), deux
+  contre-épreuves détectées, sonde du garde-fou repassée.
+
+### Résultats sur le boîtier (build T11-ROLL2D, 2026-10-28)
+
+Plus grand dossier au départ : `109`.
+
+| Test | Fichier | Dossier | Date incrustée |
+|---|---|---|---|
+| I1 P | 6894 | 109 | 2000.01.01 21:00 |
+| I2 U1 | 6895 | **110, nouveau** | 2000.11.03 00:00 |
+| I3 U1 | 6896 | 110 | 2010.01.05 14:00 |
+| I4 P | 6897 | **111, nouveau** | 2010.11.07 21:00 |
+| I5 U2 | 6898 | **112, nouveau** | 2011.11.09 20:00 |
+
+- **Les dossiers marchent comme prévu** : nouveau dossier au premier fichier d'un rouleau (U1 110,
+  U2 112), retour dans le dossier du rouleau (I3), P déplacé hors du dossier d'un rouleau (I4 : 111).
+- Lecture du diagnostic : DD = 1, 3, 5, 7, 9 : **deux appels de `SetFilePath` par photo**, et la date
+  est lue **avant** les appels de la photo (I1 : aucun appel encore) ; chaque photo montre donc le
+  dernier appel de la photo précédente. Ce dernier appel reçoit un numéro déjà fourni et réussit
+  (MM 11 = chemin 5 + 6) ; I3 (MM 01 avec un numéro reçu de 110) reste inexpliqué. HH 14 en I3 = 110
+  mémorisé par le rouleau de U1 (110 % 24).
+- Pourquoi T11-ROLL2 n'a rien créé : non établi. Le code du dossier est identique dans les deux
+  builds (le diagnostic ajoute l'enregistrement et l'appel de la fonction) ; à vérifier que la mise
+  à jour T11-ROLL2 a bien été appliquée.
+
+## Phase 3.2.2 : compteur « vue/total » et multi-exposition imposée (2026-10-28)
+
+### Décisions
+
+- Rien n'est incrusté sur la photo. À l'écran, à la place du compteur de vues restantes (en haut à
+  droite) : `12/36`, le total selon le format.
+- Au rappel d'un mode U, le mode d'entraînement est mis en multi-exposition (comme Save Interim
+  Images à Off) : chaque vue passe par une fin de séquence, la prise de vue simple n'a pas à être
+  comptée à part.
+
+### Briques (statique)
+
+- Texte du compteur : `0x532aa140(objet, tampon, valeur)` = `snprintf(tampon, 6, "%d", min(valeur,
+  99999))` (`0x53141100`, format `0x53d52d54`), ou `-----` dans certains états. « 72/72 » tient en
+  5 caractères. Le firmware contient `"%d/%d"` (fin de `"%f, %d/%d"`, `0x53c0ca59`).
+- Mode d'entraînement : octet **`+0x472`** (`StillDriveMode`, getter `0x53245190`) : 0 Single,
+  1 Continuous, 2 Bracket, **3 MultiExposure**, 4 Interval, 5 IntervalMultiExposure. Setter
+  `0x5327b744(UserDataModel, mode)` : écrit l'octet puis applique l'enregistrement
+  (`0x532750f8`, comme le rappel) et publie l'événement `0x17b`.
+
+### Build de test T11-ROLL3
+
+- T11-ROLL2 + compteur `vue/total` (le crochet écrit le texte par `snprintf` puis rend la main à
+  l'appelant de `0x532aa1d4` ; hors mode U, compte normal) + multi-exposition au rappel ; le
+  crochet de `SetFilePath` appelle la fonction comme dans le diagnostic qui a marché (adresse de
+  retour en `0x5580438c`).
+- Limite : en mode U, le compteur ne montre plus `-----` (carte absente ou pleine).
+- Vérifié en émulateur : 2700 cas (dont 768 du compteur), quatre contre-épreuves détectées ;
+  sonde du garde-fou adaptée (multi-exposition au rappel) et repassée.
+
+### Résultats sur le boîtier (build T11-ROLL3, 2026-10-28)
+
+- J1 : U1 affiche `3/36`, mode d'entraînement en multi-exposition au rappel : **testé**.
+- J2 : 1 vue + Complete : compteur + 1, photo dans `110` (dossier du rouleau de U1).
+- J3 : P : compteur normal ; photo dans un nouveau dossier `113` (le plus grand, `112`, est celui
+  du rouleau de U2).
+- J4 : format 1:1 en U2 : `vue/12`, retour au format d'origine : `vue/36`.
+- J5 : mode d'entraînement mis en vue par vue en U1, passage en P puis retour : multi-exposition.
+- J6 : le texte `vue/total` tient à l'écran, « calé entre RAW et SD ».
+- **Phase 3 (cœur du rouleau sans menu) : testée sur le boîtier.** Demande de l'utilisateur pour la
+  suite : l'option « mode pellicule » par BOX (phase 4).
+
+## Phase 4 : ligne de menu « Film Roll Mode » (2026-10-28)
+
+### Emplacement (statique)
+
+- Le constructeur du menu (`0x5319a778`) recopie chaque onglet dans un emplacement fixe de l'objet
+  du menu (`0x384` octets, 38 lignes au plus par onglet). L'onglet Still Image Settings
+  (`0x53b36dec`) a 38 lignes ; seules ND (13) et HDF (25) dépendent du modèle, et GR Mod a déjà pris
+  la place de celle qui manque pour Date Imprint : **plus aucune place**. Onglets : vidéo 18 lignes,
+  lecture 16, **Customize Settings (C) 22** (`0x53b3649c`, Save Settings `0x020000e1` en premier,
+  pages `[0, 4, 13]`), Setup 30.
+- Décision de l'utilisateur : **sous Save Settings, dans Customize Settings**.
+- Le contrôleur du menu est construit à chaque ouverture (la fabrique `0x5316f3bc` appelle son
+  constructeur `0x5319aa68`) : la fonction de visibilité d'une ligne (comme ND / HDF, appelée par
+  `0x5319a720`) est réévaluée à chaque ouverture.
+- Griser une ligne : mécanisme non trouvé (les identifiants servent d'index dans des tables). La
+  ligne est **masquée** en P, Av, Tv, M par sa fonction de visibilité ; griser reste à étudier.
+
+### Mise en œuvre (`film-roll.ts`, forme 'menu' ; `datestamp.ts`)
+
+- Bit 0 de `0x9b1` = Film Roll Mode de la BOX. Tout le mode pellicule (démarrage, avance, compteur
+  `vue/total`, dossier, multi-exposition et Save Interim Images au rappel) ne s'applique qu'aux
+  modes U dont l'enregistrement en cours a ce bit.
+- Menu C recopié avec la ligne en position 1 (23 lignes, pages `[0, 5, 14]`) ; l'entrée du menu C
+  dans la table des onglets (`0x55001ec4`, initialisée depuis `0x5407d404`) pointe la copie.
+  Identifiant `0x020001b0` (contrôleur de liste de Horizon Correction, comme les listes de GR Mod).
+- Liste Off / On (textes et icônes encadrées du boîtier). Choisir On (en mode U) : bit 0 dans
+  l'enregistrement en cours, puis Save Interim Images à Off et multi-exposition par les setters du
+  boîtier (`0x53262990`, `0x5327b744`). Choisir Off : bit 0 effacé et rembobinage (rouleau terminé
+  dans l'enregistrement en cours et dans la BOX active). La BOX garde sa propre valeur jusqu'à Save
+  Settings (qui rembobine aussi).
+- Nom en 21 langues ; chaque caractère existe dans les textes du boîtier pour la langue, sauf le
+  chinois simplifié : 胶卷 n'existe dans aucun texte, remplacé par 底片模式 (底 et 片 existent dans
+  les textes en chinois traditionnel) ; à vérifier à l'écran.
+
+### Build de test T12-MENU1
+
+- Vérifié en émulateur (`tools/gr3x/film_roll_check.py`) : 2900 cas, dont 12 avec Film Roll Mode
+  à Off, 16 de visibilité, 32 de valeur courante, 96 de choix de valeur, la ligne et la liste ;
+  quatre contre-épreuves détectées ; sonde du garde-fou adaptée et repassée ; menu C recopié vérifié
+  (21 lignes officielles dans l'ordre, en-tête inchangé) ; T11-ROLL3 reconstruit identique.
+
+### Résultats sur le boîtier (build T12-MENU1, 2026-10-28)
+
+- K1 : en P, la ligne n'apparaît pas dans Customize Settings. K2 : en U1, la ligne est sous Save
+  Settings (U1 Off, U2 On au départ : restes des builds de sonde).
+- K3 : Off donne le compteur normal ; On donne `1/36`, multi-exposition et Save Interim Images Off.
+- K4, K5 : Save Settings dans la BOX3 puis 1 vue + Complete : nouveau dossier, `2/36`.
+- K6 : U3 sur Off : compteur normal, pas de rouleau (la BOX5 est elle-même en multi-exposition).
+- K7 : U1, P, U1 : `2/36`. K8 : Off sans Save Settings, puis P et retour : `1/36` (BOX sur On,
+  rouleau rembobiné).
+- K9 : nom affiché correctement en français, en chinois simplifié (底片模式) et en allemand.
+- **Phase 4 : testée sur le boîtier.** Reste : griser la ligne au lieu de la masquer (mécanisme à
+  trouver).
+
+### Décision : Off suspend, il ne rembobine plus (2026-10-28)
+
+- Off sans Save Settings ne fait qu'effacer le bit 0 de l'enregistrement en cours : le mode
+  pellicule est suspendu dans ce mode U, le rouleau est gardé ; au retour sur la BOX (toujours sur
+  On), le même rouleau reprend. Save Settings rembobine toujours. Il faut un moyen de rembobiner à
+  la main (proposition à faire). Build `T12-MENU2` (forme 'menu').
+
+## Phase 6 : avance du film par le levier ADJ (statique, 2026-10-28)
+
+- Avancer = l'émetteur 1 (`0x531a4d80`) : si l'état de multi-exposition est 2 (une vue prise), il
+  publie l'événement 0xb8 (fin de séquence, comme Complete) ; sinon rien. Pas d'avance sans vue.
+- Menu ADJ : `AdjModeController` (table de méthodes `0x53b394e0`, `OnEvent` `0x531a4db8`) ; les
+  événements 0x35, 0x89, 0xaa (déclencheur, etc.) y terminent la séquence par l'émetteur 1 ;
+  0xce à 0xd8 y font la sélection (`0x531a2a14(this, 0/1)`, `0x531a3bcc(this, 0/1)`, ...).
+- `LiveViewController` : table de méthodes `0x53b2f9e8`, `OnEvent` `0x531771c0` (traite quelques
+  événements puis transmet aux modèles `0x5320b61c` et `0x5320b25c`, méthode `+8`).
+- Touches : `ActionModel::OnEvent` (`0x53221a1c`) reçoit un code de touche (1 à 0x40) et le
+  traduit selon l'identifiant du contrôleur courant (`0x53228c4c`) : branchement sur 67
+  identifiants vers une fonction de traduction par contrôleur (exemple : `0x53212c38`, touche 4 vers
+  l'événement 0xaa, 0x40 vers 0x8f ; table de 64 touches de `0x53212c9c` : 1 à 3 vers 0x35, 4 vers
+  0xaa, 5, 7, 0x13 vers 0x86, 0xe, 0x32, 0x39 vers 0xa2, 0x3e vers 0x34, 0x40 vers 0x8f).
+  Publier un événement : `0x532288b0(modèle, événement, 0, 0)`.
+- Code de la touche du levier ADJ et événement produit en visée : non trouvés statiquement. Build de
+  sonde `T12-KEYS` : touche (hors 1 à 4) et événement suivant, affichés par la date incrustée
+  (YY touche % 100, MM 1 + touches comptées % 12, HH:mm événement en minutes).
+- Émulation : `rear_dial_probe.py` remplace `0x532288b0` par un bouchon ; la sonde du rouleau le
+  laisse passer pour vérifier le crochet. 3047 cas, deux contre-épreuves détectées.
+
+### Résultats sur le boîtier (build T12-KEYS, 2026-10-28)
+
+- L1 à L5 (ADJ droite, gauche, enfoncé ; pavé droite ; OK) : année **06** partout, minutes 49 (heure
+  cachée par l'écran du dialogue) : la dernière touche notée avant chaque photo est toujours la
+  touche 6, quel que soit le geste. Mois : 11, 10, 4, 0, 2 touches notées entre deux lectures (0 pour
+  une photo refaite sans toucher à rien : cohérent).
+- Lecture : soit une touche 6 arrive juste avant chaque prise de vue, soit les gestes ont des codes
+  1 à 4, que la sonde excluait (supposés être le déclencheur). Sonde mal conçue pour isoler un geste.
+- Observé : en visée, le levier ADJ à droite / à gauche règle directement la correction
+  d'exposition (+0.3 / -0.3) ; enfoncé, il ouvre le menu ADJ ; OK déplace le point de mise au
+  point.
+- M : Off puis P puis retour sur U1 : `8/36` retrouvé. **Suspension par Off : testée.**
+
+### Build de sonde T12-KEYS2
+
+- Table de quatre touches { code, nombre, premier événement après elle } à `0x55804390`, aucune
+  touche exclue, remise à zéro à la fin de séquence ; la date montre la touche la plus pressée. Le
+  geste testé est répété 5 fois. Vérifié en émulateur ; deux contre-épreuves détectées.
+
+### Résultats sur le boîtier (build T12-KEYS2, 2026-10-28)
+
+| Geste | Touche | Pressions | Événement |
+|---|---|---|---|
+| ADJ droite | 10 | 11 ou plus | 229 (0xe5, traité par la visée) |
+| ADJ gauche | 11 | 5 | 360 à 419 |
+| ADJ enfoncé | 14 | 5 | 360 à 419 |
+| pavé droite | 35 | 5 | 360 à 419 |
+| OK | 50 | 8 | 360 à 419 |
+| aucun (référence) | 57 | 1 | 120 à 179 (0xa2 attendu) |
+
+- La touche 57 arrive à chaque prise de vue (parasite). Visée : contrôleur `LiveViewController`,
+  identifiants 0x08000000 à 0x08000002 (fabrique `0x5316f3bc`, constructeur `0x53173204`).
+- Décision : la touche droite (Drive) avance le film ; puis demande de l'utilisateur : en faire une
+  fonction choisissable dans Fn Button Settings. Version « touche en dur » (T13-ADV1, non vérifiée)
+  mise de côté (stash).
+
+### Fn Button Settings (statique, 2026-10-28)
+
+- Champs de la BOX (un octet tous les deux) : `0x922` Fn Button, `0x924` ISO Button, **`0x926` Drive
+  Button (touche droite)**, `0x928` Movie/Wireless Button, `0x92a` Hold Movie/Wireless Btn., `0x92c`
+  Focus Settings. Getters `0x53246378` + 0xc × n, setters `0x532435f8` + 0x10 × n.
+- Listes : enregistrements 70 à 75 de la table des listes (`0x53b3c6c0`) ; 70 à 74 partagent le
+  vecteur de fonctions du contrôleur (`+0x1a4` début, `+0x1a8` fin), rempli à la construction
+  (`0x531be67c`) depuis la table de **36 numéros de fonction** `0x53b4eb7c` (boucle `add r6,r4,#0x24`),
+  filtrée par `0x531b9410` (seules ND 0x16 et 0x28 dépendent du modèle). Dessin d'une ligne :
+  icône `0x53293e6c(modèle, f)`, texte `0x53292ed0(modèle, f)` (chaînes de comparaisons qui
+  commencent par `cmp r1,#0`). Choix : setter du champ avec `[contrôleur + 0x1a4][ligne]`.
+- Fonctions 0 à 41 ; **0 = Off** ; 42 libre. Noms : 1 Focus, 2 Set MF, 3 Set Snap, ... 23 Drive Mode,
+  24 Drive, 27 Image Control, 30 4-way Controller Action, 31 Outdoor View Setting.
+- Exécution : `CaptureReadySwitchFunctionModel` ; Fn, ISO et Drive passent par
+  `GetEventCustomize` (`0x5329bcc8(this, out, f, ...)`, table de sauts de 42, assertion sinon) ;
+  Movie/Wireless et Hold passent par `GetEventSwitchWlan` (`0x53299f08`, `cmp r6,#0x29` en
+  `0x5329a0a0`, assertion sinon). Autres lecteurs des champs : texte d'aide (`0x53172280`, par la
+  fonction de texte), tests des fonctions 5 et 6 (AF) : sans risque pour 42.
+
+### Build de test T13-FN1 : Film Advance dans Fn Button Settings
+
+- Fonction 42 « Film Advance » : table des fonctions recopiée avec 37 entrées (42 à la fin), boucle
+  du constructeur des listes adaptée ; texte (21 langues ; japonais フィルム送り, 巻 et げ absents du
+  firmware) et icône (celle de Drive Mode, 0x121) par les fonctions de texte et d'icône ; à
+  l'exécution (`GetEventCustomize` pour Fn, ISO, Drive ; `GetEventSwitchWlan` pour Movie/Wireless et
+  Hold), 42 fait avancer le film (émetteur `0x531a4d80`, seulement en mode U avec Film Roll Mode et
+  une vue prise), puis le boîtier continue comme pour Off.
+- Vérifié en émulateur : la boucle native du constructeur remplit la liste avec 42 à la fin pour
+  les trois modèles (ND, HDF, autre) ; texte, icône, exécution sur les deux chemins ; trois
+  contre-épreuves détectées ; sonde du garde-fou repassée.
+
+### Résultats sur le boîtier (build T13-FN1, 2026-10-30)
+
+- B3 : Film Advance en dernière ligne de la liste de Drive Button. B5 : ouvrir le menu sans vue ne
+  fait pas avancer (1 reste 1).
+- C4 : vue, Next shot, touche droite : séquence terminée, compteur 1 → 2, pas de mode snap.
+- D2 : touche droite sans vue : rien (2 reste 2). E4 : deux vues superposées puis touche droite :
+  un seul fichier, compteur 3.
+- F1 : « Avance du film » en français. G1 : en P, la touche droite garde son action.
+- H2, H3 : Save Settings dans la BOX3 (rembobinage, 1/36), réglage gardé après P et retour, avance
+  confirmée.
+- **Phase 6 (avance du film par une touche réglable) : testée sur le boîtier.**
+- Demande suivante : éviter l'écran Next / Retake / Complete après chaque vue (revenir directement
+  en visée) ; Complete = la touche Film Advance ; Retake = appui long sur cette touche.
+
+### Écran Next / Retake / Complete (analyse statique, 2026-10-30)
+
+- Ouverture : événement d'interface 0x90 publié par `CaptureReadyModel` (`0x532a85dc`) quand le test
+  `0x532a848c` répond oui ; l'action `0x53226738` demande le passage au contrôleur
+  `QuickViewController` (identifiant 0x0800000c) par `0x5316c9d8(this, id, id courant)`, qui ne fait
+  que publier l'événement 0x193 avec la demande (certitude : lue dans le code).
+- Next shot (`0x531ca804`) : lève l'octet +0x180 de l'écran puis demande le retour à la visée
+  (0x08000000), et renvoie 1. Retake (`0x531ca7d8`) publie 0xb7. Complete passe par l'émetteur
+  `0x531a4d80` (événement 0xb8), déjà utilisé par Film Advance.
+- Hypothèse (à vérifier sur le boîtier) : si l'écran ne s'ouvre pas, la visée reste avec l'état
+  de multi-exposition 2 et le cliché transparent, comme après Next shot. Inconnue : le rôle de
+  l'octet +0x180, qui n'est pas levé quand l'écran est sauté.
+
+### Build de test T13-FN2 : pas d'écran après chaque vue, sonde de l'appui long
+
+- À l'entrée de `0x53226738` : en mode U, avec Film Roll Mode et l'état de multi-exposition 2,
+  l'action renvoie 1 sans ouvrir l'écran ; sinon l'écran s'ouvre comme avant (P, Av, Tv, M, Film
+  Roll Mode Off, autres cas).
+- Sonde des touches (même table qu'en T12-KEYS2, à `0x55804390`) gardée jusqu'à l'extinction : elle
+  n'est plus remise à zéro en fin de séquence. Date des photos : 20YY = touche la plus pressée,
+  MM = 1 + son nombre de pressions (12 au plus), DD = 1 + nombre de pressions de la deuxième,
+  HH:mm = code de la deuxième touche en minutes (HH × 60 + mm). But : voir quel code donne un appui
+  long sur la touche droite (le code 35 est l'appui court).
+- Vérifié en émulateur : écran sauté seulement dans le bon cas (120 combinaisons de mode, Film Roll
+  Mode, état et pointeurs), registres et pile rendus ; table gardée en fin de séquence ; horloge des
+  deux touches (égalités, plafonds) ; tout le reste de T13-FN1 et la sonde du garde-fou repassés.
+
+### Résultats sur le boîtier (build T13-FN2, 2026-10-30)
+
+- C2, D2 : l'écran Next / Retake / Complete n'apparaît plus en mode pellicule. G : avec Film Roll
+  Mode Off, il apparaît comme avant.
+- C3 : après la vue, le boîtier reste sur l'aperçu de la photo (affichage qui précède l'écran),
+  pas en visée : sauter l'action d'ouverture ne ramène pas en visée. F1 : deux vues prises à la
+  suite sont bien superposées (la séquence continue).
+- E2 : depuis la visée (retour par le déclencheur), la touche Film Advance ne fait rien ; depuis
+  l'aperçu, elle fait avancer le film. Hypothèse : sans passage par un contrôleur, la visée
+  retrouvée n'est pas celle de `CaptureReadyModel` qui exécute les fonctions des touches.
+- F2 : 2005.12.19 00:06, soit touche 5 (12 pressions ou plus) puis touche 6 (18 pressions). Le
+  code 35 n'est pas dans la table : remise à zéro seulement à l'allumage, la table de 4 entrées se
+  remplit de codes émis sans geste (5, 6, puis d'autres). Sonde non concluante pour l'appui long.
+- Conclusion : il ne faut pas sauter l'ouverture mais la rediriger vers la visée (0x08000000),
+  comme le fait Next shot ; et la sonde doit ignorer les codes parasites et repartir de zéro à
+  chaque vue.
+
+### Build de test T13-FN3 : la visée au lieu de l'écran, sonde corrigée
+
+- Dans l'action d'ouverture, en `0x53226760` (`mov r1,#0xc`, suivi de `movt r1,#0x800`) : en mode U,
+  avec Film Roll Mode et l'état de multi-exposition 2, r1 reçoit 0 au lieu de 0xc, donc la demande
+  vise le contrôleur de la visée (0x08000000) comme Next shot ; ailleurs, l'écran comme avant. Le
+  saut de T13-FN2 (`0x53226738`) n'est pas dans ce build.
+- Sonde des touches : table vidée au début de chaque vue (crochet d'exposition), codes 6 et 57
+  ignorés ; date = les deux touches les plus pressées depuis la dernière vue (même codage que
+  T13-FN2). Test prévu avec Film Advance sur Fn et la touche Drive sur Off, pour observer l'appui
+  long de la touche droite sans faire avancer le film.
+- Vérifié en émulateur : redirection seulement dans le bon cas (120 combinaisons), registres et pile
+  rendus ; table vidée par l'exposition, codes 6 et 57 ignorés, horloge ; T13-FN1 et T13-FN2
+  reconstruits identiques octet pour octet ; sonde du garde-fou repassée.
+
+### Résultats sur le boîtier (build T13-FN3, 2026-10-30)
+
+- B2 : l'écran Next / Retake / Complete n'apparaît pas ; B3, B4 : on reste sur l'aperçu, sans
+  retour en visée ni transparence. Demander la visée ne change rien.
+- Observation de l'utilisateur : pendant l'aperçu, toucher l'écran déplace le collimateur (fonction
+  de la visée). Conclusion (forte) : l'aperçu est un état du contrôleur de la visée ; la demande de
+  passer à 0x08000000 vise le contrôleur courant et reste sans effet. Seul le passage par
+  QuickViewController puis Next shot relance la visée avec la transparence.
+- D2 : Film Advance (sur Fn) fonctionne depuis l'aperçu (compteur 1 → 2).
+- E2 : 2008.02.01 00:00 : depuis la vue, une seule touche vue, code 8 (Fn), une fois. Les 5 appuis
+  longs sur la touche droite réglée sur Off n'ont donné aucun code : une touche sur Off n'arrive
+  pas au gestionnaire `0x53221a1c`. Appui long non mesuré.
+- Décisions : Retake par une seconde fonction « Film Retake » de Fn Button Settings (l'utilisateur
+  la mettra sur la touche gauche) ; pour l'écran, l'ouvrir puis déclencher Next shot
+  automatiquement (analyse à faire).
+
+### QuickViewController : démarrage et retour automatique (analyse statique, 2026-10-30)
+
+- Table virtuelle à `0x53b41380` (posée par le destructeur `0x531ca634` : `[this] = 0x53b41378 + 8`) :
+  [6] `0x531ca6b4` donne l'identifiant de l'écran (0x0800000c par défaut ; 0x0800000d, 0x0800000e,
+  0x08000011 selon l'octet +0x799 d'un modèle), [7] **`0x531cbde4` = démarrage** (état +0x16c = 6,
+  +0x182 = 0, préparation de l'affichage, publie 0xf1), [10] `0x531cbfc4` = événements (sélecteur sur
+  le code), [13] `0x531ca7b0` = transmission au modèle, [15] `0x531ca86c` = minuterie (si la minuterie
+  +0x178 expire avec l'état +0x16c ≤ 1 : +0x180 = 1 puis retour à la visée, comme Next shot).
+- Deux autres chemins font comme Next shot : `0x531ca82c` (Cancel du dialogue de suppression, après
+  `0x532300d4(…, 0)`) et `0x531cbf98`.
+- Retake hors de l'écran : l'événement 0xb7 est traité par la table globale des actions
+  (`0x53227830`) puis le modèle `0x5323a1a4`, seulement à l'état 2 ; la commande distante le publie
+  aussi sans écran. Le publier depuis la visée doit donc marcher, comme 0xb8 pour Film Advance
+  (certitude moyenne : à vérifier sur le boîtier).
+- Plan T13-FN4 : (1) à l'entrée du démarrage `0x531cbde4`, en mode pellicule (U, Film Roll Mode,
+  état 2), exécuter le démarrage natif puis appeler Next shot (`0x531ca804`) sur l'écran ; (2) fonction
+  43 « Film Retake » dans Fn Button Settings : publie 0xb7 si une vue a été prise.
+
+### Build de test T13-FN4 : l'écran se referme seul, Retake dans Fn Button Settings
+
+- À l'entrée du démarrage de QuickViewController (`0x531cbde4`) : en mode U, avec Film Roll Mode et
+  l'état de multi-exposition 2, le démarrage natif est appelé (pile d'entrée, ip = sp), puis Next shot
+  (`0x531ca804`, r0 = l'écran) ; ailleurs, le démarrage seul. Ni la sonde des touches ni les
+  crochets de T13-FN2 et T13-FN3 ne sont dans ce build.
+- Fonction 43 « Retake » : table des fonctions à 38 entrées (42 puis 43), texte du boîtier 0x2b5
+  (« Retake shot », « Reprendre photo » en français, vérifié dans les tables de textes), icône 0x121 ;
+  pressée (Fn, ISO, Drive, Movie/Wireless, Hold) : publie l'événement 0xb7
+  (`0x532288b0(0x5320aefc(0x5320ad88()), 0xb7, 0, 0)`, comme le bouton de l'écran) en mode U avec
+  Film Roll Mode et l'état 2, puis le boîtier continue comme pour Off.
+- Vérifié en émulateur : démarrage puis Next shot seulement dans le bon cas (120 combinaisons),
+  arguments, pile et retour ; Retake publié seulement dans le bon cas (mode, Film Roll Mode, état
+  0 ou 2) sur les deux chemins ; liste (38 fonctions pour les trois modèles), texte et icône ;
+  T13-FN1 et T13-FN3 reconstruits identiques octet pour octet ; sondes de T13-FN1 à T13-FN3 et du
+  garde-fou repassées.
+- Note d'émulation : Unicorn enchaîne les blocs déjà exécutés, un saut vers un bloc déjà atteint
+  n'est plus arrêté à l'adresse de fin ; les cas qui s'arrêtent en `fn + 4` passent donc en premier.
+
+### Résultats sur le boîtier (build T13-FN4, 2026-10-30)
+
+- A3 : « Reprendre photo » en dernière ligne de Fn Button Settings.
+- B2 à B4, C2, E2 : **l'écran Next / Retake / Complete n'apparaît plus du tout** (pas même un
+  éclair), retour direct en visée avec les vues précédentes en transparence. F : Film Advance fait
+  avancer (1 → 2). I2 : avec Film Roll Mode Off, l'écran apparaît et reste, comme avant.
+  **Suppression de l'écran : validée sur le boîtier.**
+- D2 : Retake sur la touche gauche **sans effet** (la fenêtre reste, puis lampe + fenêtre + livre).
+  Deux hypothèses : la touche gauche ne passe pas par `GetEventCustomize` ni `GetEventSwitchWlan`
+  (Film Advance n'a été testé que sur Fn et Drive), ou l'événement 0xb7 n'est pas traité hors de
+  QuickViewController. Test discriminant sans nouveau build : échanger les deux fonctions entre les
+  touches gauche et droite.
+- Test d'échange (même build) : Reprendre photo sur la touche droite, Film Advance sur la gauche.
+  X5 : Retake toujours sans effet ; X6 : la touche gauche fait avancer (2 → 3). G2 : la photo finale
+  superpose lampe, fenêtre et livre. Conclusion (forte) : la touche gauche passe bien par nos
+  crochets ; c'est l'événement 0xb7 publié en visée qui n'aboutit pas.
+
+### Build de test T13-FN5 : Retake par l'action du boîtier
+
+- La fonction 43 appelle directement l'action de l'événement 0xb7, `0x532270d4` (modèle de prise de
+  vue par `0x5320b19c`, puis son Retake `0x5323a1a4`, qui vérifie lui-même l'état 2), au lieu de
+  publier l'événement. C'est la jumelle de l'action Complete `0x532270f4`. Le reste est T13-FN4.
+- Vérifié en émulateur : l'action appelée seulement dans le bon cas, sur les deux chemins ; T13-FN4
+  reconstruit identique octet pour octet ; sondes de T13-FN1, T13-FN4 et du garde-fou repassées.
+
+### Résultats sur le boîtier (build T13-FN5, 2026-10-31)
+
+- D2 : Retake par l'action `0x532270d4` toujours sans effet (D3 compteur 1 ; E2 lampe, fenêtre,
+  livre ; F2 avance 1 → 2 ; G2 les trois vues sur la photo).
+- `QuickViewController` à l'arrêt (table [8] `0x531cab24`) : si Next shot n'a pas été choisi
+  (+0x180 = 0), il appelle `0x532a838c` sur le modèle `0x5320b61c` ; avec Next shot, rien.
+- Hypothèse (non établie) : le Retake natif n'annule que la vue en attente de décision ; une fois
+  Next shot passé (automatiquement dans T13-FN4 et T13-FN5), la vue est acceptée et Retake n'a plus
+  rien à annuler, ou bien le Retake du modèle refuse l'état. À trancher par une sonde : appels du
+  Retake du modèle `0x5323a1a4`, résultat de son test d'état (`0x535493ac`), appels de la machine à
+  états `0x5346a8d8`.
+- Observation de l'utilisateur (T13-FN5) : après un passage par le menu (pour vérifier la touche
+  gauche) puis retour, l'affichage de prise de vue (collimateur, informations) avait disparu, mais
+  une vue restait possible en superposition et la vue précédente restait en transparence (pas
+  d'avance). Natif : ouvrir le menu pendant une multi-exposition fait Complete (phase 2.6). À
+  comprendre (sortie de QuickViewController sans passage par l'arrêt normal ?).
+
+### Build de test T13-RT1 : où s'arrête le Retake
+
+- T13-FN5, plus une sonde (octets à `0x55804390`, nuls au démarrage) : + 0 appels du Retake du
+  modèle (`0x5323a1a4`), + 1 valeur de son test d'état + 1 (`0x5323a1d0`, `cmp r0,#2`), + 2 appels du
+  Retake de la machine à états (`0x5346a8d8`), + 3 sa phase (+ 4 de son objet) + 1, + 4 fins de
+  séquence (`0x5346a910`), + 5 appuis sur la fonction 43, + 6 appels de l'action Retake par notre code.
+- Date des photos : 20YY = + 0 ; MM = 1 + (+ 1) ; DD = 1 + (+ 2) ; HH = + 3 ; mm = 10 × (+ 6) + (+ 5).
+- Vérifié en émulateur (chaque crochet, registres et drapeaux rendus, horloge) ; T13-FN5 reconstruit
+  identique ; sondes repassées.
+
+### Résultats sur le boîtier (build T13-RT1, 2026-10-31)
+
+Lecture (attention : MM = valeur du test + 2, HH = phase + 1) :
+
+| Photo | Date | Notre code (+6 / +5) | Retake du modèle | Test d'état | Retake de la machine | Phase |
+|---|---|---|---|---|---|---|
+| B6 (mode pellicule, 1 appui gauche) | 2004.04.05 03:44 | 4 appels / 4 appuis | 4 | 2 (accepté) | 4 | 2 |
+| C4 (natif, Retake sur l'écran) | 2005.04.06 02:44 | inchangé | 5 (+1) | 2 | 5 (+1) | 1 |
+
+- **Un appui sur la touche gauche appelle `GetEventCustomize` 4 fois** (4 « appuis » comptés, 4
+  Retake). Film Advance est donc aussi appelé 4 fois par appui ; sans conséquence pour l'avance (le
+  modèle refuse la fin dès que l'état n'est plus 2), mais à filtrer pour Retake.
+- Notre Retake va jusqu'au bout de la chaîne : modèle (état 2 accepté), commande, machine à états.
+  Pourtant la vue n'est pas retirée (B : compteur 2 → 3, comme une avance normale).
+- Différence avec le natif : la phase. Natif (C) : phase 1 (première vue en attente), Retake → état
+  0, la vue est bien retirée (C4 : le livre seul). Mode pellicule (B) : phase 2, Retake → état 2.
+- Conclusion (probable) : une vue validée par Next shot (automatique depuis T13-FN4) ne peut plus
+  être retirée ; le Retake natif ne retire que la vue en attente de décision.
+- `0x532a838c` (appelé à l'arrêt de l'écran sans Next shot) : remise en état de CaptureReadyModel
+  (publie 0x66 et 0x15a), pas un retrait de vue.
+
+### Build de test T13-FN6 : Retake annule toute la vue en cours
+
+- Décision (2026-10-31) : la fonction 43 (texte du boîtier « Reprendre photo ») annule la vue en
+  cours entière (toutes ses expositions), sans avancer le film.
+- Fonction 43 : en mode U, Film Roll Mode, état 2, si le drapeau `0x55804398` est baissé : le lever
+  et appeler l'action Retake `0x532270d4` ; drapeau levé : rien (les 4 appels par appui n'en font
+  qu'un). Machine à états, entrée de `0x5346a8d8` : drapeau levé, phase (+ 4) forcée à 1 et drapeau
+  baissé ; la machine finit alors à l'état 0, comme le Retake natif de la première vue (vue vide).
+  Le drapeau tombe aussi à chaque exposition (préfixe du crochet d'exposition).
+- Vérifié en émulateur (machine, déduplication, effacement à l'exposition ; un défaut trouvé et
+  corrigé avant envoi : l'événement 0xb7 était aussi publié) ; T13-FN4, T13-FN5, T13-RT1 reconstruits
+  identiques ; sondes repassées.
+- Inconnues : la transparence en visée s'efface-t-elle ; le compteur et le dossier restent-ils justes.
+
+### Résultats sur le boîtier (build T13-FN6, 2026-10-31, partiels)
+
+- C2 : après l'annulation, la visée garde la lampe et la fenêtre en transparence ; C3 compteur 3
+  (inchangé). D2 : après la vue suivante, lampe, fenêtre et livre en transparence. E2 : avance (3 → 4).
+- G4 : vue, annulation, puis Film Advance : **aucun effet** ; l'annulation a bien remis la machine
+  hors de l'état 2 (sinon l'avance aurait eu lieu).
+- Conclusion provisoire : l'annulation agit sur la machine à états, mais pas sur l'image de
+  transparence en visée. À établir : le contenu de la photo de E (lampe et fenêtre comprises ou non).
+- **Bogue majeur signalé (2026-10-31)** : en mode pellicule, après Menu puis retour, l'affichage de
+  prise de vue a disparu (plus de collimateur ni d'informations), alors qu'une vue reste possible.
+  Déjà vu en T13-FN5. Cause inconnue ; à cerner (mode P, mode pellicule sans vue, avec vue).
+
+### Test guidé T13-FN6 (2026-10-31, réponses cliquées, U3)
+
+| Étape | Geste | Résultat |
+|---|---|---|
+| 1 | lampe, fenêtre, touche gauche | lampe et fenêtre toujours en transparence |
+| 2 | livre, touche droite | compteur + 1 |
+| 3 | lecture, dernière photo | **lampe, fenêtre et livre** : l'annulation ne retire rien de l'image |
+| 4 | Menu, Menu, sans vue en cours | affichage normal |
+| 5 | lampe, Menu, Menu | **affichage disparu**, plus de transparence |
+| 6 | | compteur non affiché |
+| 7 | lecture | la lampe : le menu a fait Complete (natif) |
+| 8 | mi-course | toujours disparu |
+| 9 | une vue | toujours disparu, la vue est en transparence |
+| 10 | touche droite | toujours disparu |
+| 11 | molette P puis U3 | toujours disparu |
+| 12 | extinction, rallumage | tout revient |
+| 13 | Film Roll Mode Off, vue, écran natif, Photo suivante, Menu, Menu | **affichage normal** |
+
+- L'image de la superposition est construite au fil des vues : une vue validée y reste. Retake vue par
+  vue ou annulation de la vue en cours : impossibles sans garder la décision sur l'écran natif.
+- Le bogue du menu vient de notre fermeture automatique (étape 13 : rien en natif). Hypothèse : le
+  chemin du menu (Complete par le menu) redémarre QuickViewController alors que l'état vaut encore 2,
+  et notre Next shot automatique demande la visée au milieu du passage au menu. Seul ouvreur trouvé
+  par recherche des identifiants 0x0800000c à 0x08000011 : l'action `0x53226738` (les autres
+  occurrences sont la fabrique `0x5316f3bc`, le gestionnaire de touches et QuickViewController).
+
+### Build de test T13-FN7 : correction du bogue du menu, sans Retake
+
+- Décision (2026-10-31) : pas de Retake en mode pellicule ; la fonction 43 est retirée.
+- Fermeture automatique seulement après un déclenchement : l'action d'ouverture `0x53226738` (événement
+  0x90) lève un drapeau (`0x55804399`) ; le démarrage `0x531cbde4` le consomme (toujours baissé) et
+  n'appelle Next shot que s'il était levé, en plus des conditions de T13-FN4. Le drapeau tombe aussi à
+  chaque exposition. Si le chemin du menu passe lui aussi par `0x53226738`, la correction ne suffira
+  pas : le test le dira.
+- Protection : une fonction supérieure à 42 (43 enregistrée par T13-FN4 à T13-FN6) se lit comme Off
+  (texte, icône, exécution sur les deux chemins).
+- Vérifié en émulateur : 240 cas de démarrage (avec et sans drapeau), drapeau levé par l'ouverture et
+  baissé par l'exposition, protection 43 et 200 ; T13-FN1, T13-FN4, T13-FN6 reconstruits identiques ;
+  sondes repassées.
+
+### Résultats sur le boîtier (build T13-FN7, 2026-10-31, test guidé, U3)
+
+- Vue : pas d'écran, visée et transparence. Vue puis Menu, Menu : **affichage normal** (bogue
+  corrigé), compteur + 1 (le menu fait Complete, natif). Deux vues : pas d'écran, transparence.
+  Film Advance : + 1. Touche gauche (43 enregistrée) : rien, pas de plantage ; sa ligne de Fn Button
+  Settings affiche Off sans plantage.
+- **Phase 6 (avance par une touche, sans écran après chaque vue) : validée sur le boîtier.**
+- Conclusion : le chemin du menu redémarrait QuickViewController sans passer par l'action
+  d'ouverture `0x53226738` ; le drapeau suffit.
+
+### Décisions du 2026-10-31 (suite de la phase 6)
+
+- Dossier : `NNN` + code Image Control (3) + longueur (2), par exemple `112NEG36` ; codes STD, VIV,
+  MON, SMO, HMO, HCB, POS, BLB, RET, HDR, CRP, NEG ; films de GR Mod : code fixé par film, saisi
+  dans l'application à l'ajout du film.
+- Pas de verrou : changer l'Image Control ou le format clôt le rouleau. JPEG non imposé.
+- Ligne « Rembobiner » sous Save Settings, avec confirmation Oui / Non.
+- Carte changée ou dossier supprimé : rouleau perdu, compteur à 1 dans un nouveau dossier.
+- Maintenabilité avec GR Mod : fonction intégrée comme les autres (application, build livrable sans
+  sondes).
+- Priorités : nom du dossier, puis extinction ou changement de mode pendant une vue, puis fin de
+  rouleau.
+
+### Nom du dossier du rouleau (analyse statique, 2026-10-31)
+
+- Le réglage d'origine Folder Name (`+0x936`, 5 octets) et son type (`+0x934`) sont copiés dans les
+  huit enregistrements (réglage global), puis transmis aux valeurs de prise de vue en direct :
+  `0x5326caa0` → `0x5354d138(live, nom)` (élément 0xfd de `0x5354b564`) ; `0x53258604` →
+  `0x5354d104(live, type)` (si `0x532585a4()`). `live = *0x53525d5c()`. Certitude : lu dans le code.
+- Le chemin du fichier est formé sur le gabarit `" :\DCIM\        \        .   "` (`0x53d26c68`,
+  utilisé par `0x536bd410` et `0x5383d430`) ; la recherche des dossiers existants utilise `"%03d*"`
+  (`0x5359efc0`). Le nom de 5 caractères d'un nouveau dossier vient donc des valeurs en direct.
+- T10-FILMPROBE5 a montré que nom, type et drapeau posés à la fin du modèle (`0x5323a080`, tâche de
+  l'interface) s'appliquent au dossier créé pour l'image qui suit.
+- Image Control actif : octet `+0x1c2` (11 Standard à 22 Negative Film ; les films de GR Mod ont
+  leurs propres valeurs).
+- Proposition : poser le nom du rouleau (code + longueur) et le type « nom libre » **seulement dans
+  les valeurs en direct** à la fin du modèle en mode pellicule et au rappel d'un mode U pellicule ;
+  remettre le nom et le type enregistrés au rappel d'un autre mode et quand Film Roll Mode passe à
+  Off. Le réglage enregistré de l'utilisateur n'est jamais modifié.
+
+### Nom des fichiers (analyse statique en cours, 2026-10-31)
+
+- Décision : fichiers du mode pellicule `NEG_6857.JPG` (code du film + `_` + numérotation continue du
+  boîtier).
+- Réglage d'origine File Name : 2 octets à `+0x93d` (copiés dans les huit enregistrements par
+  `0x5326cacc`), transmis aux valeurs en direct par `0x5326cb1c` → `0x5354d168(live, nom)`
+  (élément 0xfe). Le nom de fichier natif `R0016855` = préfixe de 2 caractères + 6 chiffres : ce
+  réglage seul ne permet pas 4 caractères.
+- Format `"%s%04d.%s"` (`0x53d26c14`) utilisé par `0x535b87f0` (préfixe de 4 caractères pris dans une
+  structure de fichier, numéro sur 4 chiffres) : semble servir à la lecture des fichiers existants ;
+  le point de fabrication du nom d'un nouveau fichier reste à trouver.
+
+### Build de test T14-DIR1 : nom du dossier du rouleau
+
+- T13-FN7, plus : à chaque avance en mode pellicule (fin du modèle, rouleau entamé, état 2), avant
+  l'enregistrement de l'image, le nom `code + longueur` (`NEG36`, 5 caractères et un zéro à
+  `0x558043b0`) et le type 1 (nom libre) sont donnés **aux seules valeurs en direct**
+  (`0x5354d138`, `0x5354d104` sur `*0x53525d5c()`). Code : octet `+0x1c2` (11 à 22 → STD ... NEG ;
+  autre valeur → FLM en attendant le code saisi dans l'application). Longueur : celle du compteur.
+- Au rappel d'un mode libre ou d'un mode U sans Film Roll Mode, et quand Film Roll Mode passe à Off :
+  le nom (`+0x936`) et le type (`+0x934`) enregistrés sont redonnés aux valeurs en direct. Le réglage
+  Folder Name enregistré n'est jamais modifié.
+- Vérifié en émulateur : nom et type donnés à chaque avance (180 cas, codes connus et inconnus,
+  ratios), rien sinon ; remise au rappel (15 cas) et non au rappel d'un U pellicule (13 cas) ; remise
+  par Off ; T13-FN7 et T13-FN1 reconstruits identiques ; sonde du garde-fou adaptée (substitution des
+  deux setters en direct) et repassée.
+- Inconnue : la création du dossier lit-elle bien les valeurs en direct (et non l'enregistrement) ?
+  T10-FILMPROBE5 passait par les setters complets.
+
+### Résultats sur le boîtier (build T14-DIR1, 2026-10-31, test guidé)
+
+- U3 (Negative Film, 3:2), Save Settings : 1/36 ; deux vues avancées : 3/36 ; P une photo ; U3 une vue
+  avancée : 4 puis 5. Carte : **dossier `137NEG36`** avec les 4 vues du rouleau ; la photo de P dans
+  un dossier au nom habituel (`NNNRICOH`). **Nom du dossier du rouleau : validé sur le boîtier**
+  (les valeurs en direct suffisent ; le réglage enregistré est intact).
+- Anomalie : en arrivant sur P depuis U3 (après vue et avance), l'affichage de visée manque
+  **parfois** jusqu'à la photo suivante (reproduit 1 fois sur 3 environ). P → Av → P (trois fois,
+  notre remise du nom passe aussi par là) : jamais. Cause non établie : à comparer avec T13-FN7
+  (même enchaînement), et à tester avec un délai entre l'avance et la molette.
+
+### Démarrage de QuickViewController et retour automatique (analyse statique, 2026-10-31)
+
+- Démarrage `0x531cbde4` : état `+0x16c` = 6, puis `0x531cb7bc(this, mode)` avec mode = identifiant
+  du contrôleur − 0x0800000c (`0x531cb028`, `0x5316d8d4`) ; l'écran ouvert par l'action
+  `0x53226738` est 0x0800000c, donc mode 0. Si l'état final ≤ 1 : `0x531caa7c`.
+- `0x531caa7c` = retour automatique natif (vue simple) : durée de Rec Review (`+0x900` de
+  l'enregistrement par `0x532462d0`) ; 0 → aussitôt `+0x180 = 1` et visée (`0x5316c9d8(this,
+  0x08000000, 0x10000000)`, exactement comme Next shot) ; −1 → rien (maintien) ; sinon minuterie
+  `0x5322b468` rangée en `+0x178`, traitée par `0x531ca86c` (même retour). `0x531cbe78` (publie 0xf1)
+  y mène aussi.
+- Conséquence : notre fermeture (Next shot juste après le démarrage) a la même forme que le retour
+  immédiat natif « Rec Review Off ». La course supposée n'est donc pas démontrée par le code ; la
+  différence tient à l'état de multi-exposition (écran de décision affiché) au moment du retour.
+- Piste retenue : appuyer sur Next shot au premier événement reçu par l'écran après son démarrage
+  (gestionnaire `0x531cbfc4`, entrée 10 de la table), c'est-à-dire quand l'écran est actif, comme un
+  appui réel.
+
+### Résultats et build de test T14-DIR2 (2026-10-31)
+
+- Précision de l'utilisateur sur T14-DIR1 : après P puis retour en U3, une vue fait **disparaître
+  l'affichage de visée** (la vue est en transparence) ; Film Advance valide la vue mais l'affichage
+  ne revient pas, ni en P, jusqu'à la photo suivante. Même famille que le bogue du menu.
+- T14-DIR2 : le démarrage de l'écran ne fait plus que noter l'écran (son adresse en `0x5580439c`,
+  0 sinon ; mêmes conditions que T13-FN7, drapeau d'ouverture compris) ; au premier événement reçu
+  par cet écran (gestionnaire `0x531cbfc4`), l'événement est traité normalement, puis Next shot.
+- Vérifié en émulateur : 120 cas de démarrage, gestionnaire inchangé pour un autre écran, appel du
+  gestionnaire puis de Next shot pour l'écran noté ; T14-DIR1 reconstruit identique ; sondes
+  repassées.
+- Résultat T14-DIR2 : vue sans écran, visée directe ; mais en enchaînant vue et Film Advance, l'affichage
+  est perdu à la 3e ou 4e fois. Le report de Next shot ne suffit pas.
+
+### Build de test T14-DIR3 : un seul Complete par vue
+
+- Hypothèse : un appui appelle `GetEventCustomize` 4 fois (T13-RT1), donc Film Advance publiait 4 fois
+  l'événement 0xb8 (l'émetteur `0x531a4d80` ne teste que l'état, qui change plus tard) ; le modèle
+  refuse les suivants, mais la visée reçoit quatre fins de séquence.
+- T14-DIR3 = T14-DIR2 et un drapeau (`0x5580439a`) : levé au premier envoi de Complete en mode
+  pellicule, il bloque les suivants jusqu'à l'exposition suivante (préfixe du crochet d'exposition).
+- Vérifié en émulateur : 4 appels, 1 seul envoi, sur les deux chemins ; rien hors mode pellicule ;
+  drapeau baissé par l'exposition ; T14-DIR2 et T13-FN1 reconstruits identiques ; sondes repassées.
+
+### Comparaisons sur le boîtier (2026-10-31)
+
+- T14-DIR3 : affichage perdu à la 3e vue (vue, avance, répétés).
+- A (T14-DIR3, Film Roll Mode Off, écran natif, Complete × 8) : jamais perdu.
+- B (T13-FN7, vue puis avance × 8) : **toujours à la 3e vue** (après la 2e avance). Le bogue existait
+  donc dès la fermeture automatique (T13-FN4 et suivants) ; il ne vient ni du nom de dossier ni des
+  quatre Complete. Systématique : probablement un déséquilibre interne cumulé à chaque fermeture
+  automatique.
+- C (écran natif) : un appui à mi-course sur le déclencheur ferme l'écran et revient en visée avec la
+  transparence (comme Photo suivante ; code `0x531cbf5c` → `0x531cbf98`, identique à Next shot).
+
+### Build de diagnostic T14-DG1 : les événements reçus par l'écran
+
+- T14-DIR3, plus un journal (`0x558043a0`) des événements reçus par QuickViewController
+  (gestionnaire `0x531cbfc4`, code = demi-mot pointé par r1) : effacé au démarrage, figé à l'arrêt
+  (`0x531cab24`, entrée 8 de la table) ; premier et deuxième codes, nombre.
+- Date des photos : HH:mm = premier code (HH × 60 + mm) ; 20YY = deuxième code % 100, DD = 1 +
+  centaines ; MM = 1 + nombre (au plus 11).
+- But : comparer la fermeture native (appui de l'utilisateur) et la nôtre (premier événement), et
+  le 3e cycle où l'affichage se perd.
+
+### Résultats T14-DG1 (2026-10-31)
+
+| Cycle | Date | Lecture |
+|---|---|---|
+| 1, 2, 3 (mode pellicule, vue puis avance ; perte au 3e) | 2068.03.03 06:39 | 2 événements : 0x18F puis 0x10C (identiques aux trois cycles) |
+| Référence native (Film Roll Mode Off, attente 2 s, Complete) | 2000.01.01 00:00 | journal vide à l'encodage (probablement effacé par un nouveau démarrage de l'écran après Complete) |
+
+- Le gestionnaire de l'écran ne traite ni 0x18F ni 0x10C en propre (cas par défaut `0x531cb3cc`).
+- Il traite **0xE7 → `0x531cbf5c`** ; supposé (à tort, voir T14-DG2) être l'appui à mi-course. Natif : le retour passe par la file des événements, après ceux du démarrage.
+
+### Build de test T14-DG2 : un appui à mi-course publié
+
+- T14-DIR3 sans Next shot appelé ; au démarrage de l'écran en mode pellicule (après une vue, même
+  drapeau d'ouverture), le démarrage natif est appelé puis l'événement 0xE7 est publié
+  (`0x532288b0(0x5320aefc(0x5320ad88()), 0xe7, 0, 0)`) ; l'écran le reçoit dans sa file. Journal de
+  T14-DG1 conservé.
+- Vérifié en émulateur : démarrage seul hors du bon cas (117 cas), démarrage puis publication de 0xE7
+  dans le bon cas ; journal, horloge ; sondes repassées ; T14-DG1 reconstruit identique.
+
+### Résultat T14-DG2 et build T14-DG3 (2026-10-31)
+
+- T14-DG2 sur le boîtier : après la vue, **le dialogue de suppression (Cancel / Delete)** s'affiche en
+  bas à droite, puis la photo en transparence. 0xE7 n'est donc pas l'appui à mi-course mais la touche
+  de suppression (`0x531cbf5c` → `0x531cb7bc(this, 4)`). Test arrêté, rien supprimé.
+- **0xB6 = « Photo suivante » de la commande à distance** (`0x5328eca8` publie 0xB6, 0xB7 Retake,
+  0xB8 Complete ; aucune action globale pour 0xB6, `0x53228520`). Sur l'écran, 0xB6 et 0xB7 mènent à
+  `0x531cc124` : `+0x180 = 1` et retour en visée. C'est un chemin officiel.
+- T14-DG3 : comme T14-DG2, avec 0xB6. Vérifié en émulateur ; T14-DG2 reconstruit identique ; sondes
+  repassées.
+
+### Résultats T14-DG3, tests X / Y et build T14-DIR4 (2026-10-31)
+
+- T14-DG3 (0xB6 publié) : visée directe, mais affichage perdu au 3e cycle, comme avant.
+- T13-FN1 (écran gardé) : X (vue, Complete sur l'écran, × 4) et Y (vue, Photo suivante, Film Advance,
+  × 4) : **jamais perdu**. Ni la sauvegarde du rouleau ni Film Advance depuis la visée ne sont en
+  cause ; seule la fermeture rapide de l'écran (quel que soit le chemin) l'est. Hypothèse : l'écran
+  doit finir son affichage (aperçu) avant d'être refermé.
+- Rec Review, en millisecondes (`0x5332cdb8` : 0, 500, 1000, 2000, 3000, −1 maintien), réglage
+  `+0x900` par `0x53243478`.
+- T14-DIR4 = T14-DIR3 sans Next shot : après le démarrage de l'écran en mode pellicule (mêmes
+  conditions), la minuterie d'aperçu de l'écran est lancée à 500 ms si aucune ne tourne
+  (`0x5322b468(0x5320b01c(0x5320ad88()), 500, this + 0x158)`, rangée en `+0x178`) ; à l'échéance,
+  `0x531ca86c` revient en visée si l'état `+0x16c` ≤ 1 (sinon l'écran reste : mi-course possible).
+- Vérifié en émulateur (240 cas, minuterie déjà lancée ou non) ; T14-DG3 reconstruit identique.
+- T14-DIR4 sur le boîtier : l'écran reste (la minuterie tourne, mais son gestionnaire ignore l'écran
+  de multi-exposition, état `+0x16c` > 1).
+
+### Build de test T14-DIR5 : Next shot à l'échéance de notre minuterie
+
+- T14-DIR4, plus : l'écran est noté (`0x5580439c`) quand notre minuterie est lancée ; le gestionnaire
+  de minuterie (`0x531ca86c`, première instruction `ldr r2,[r0,#0x178]`) appelle Next shot quand
+  c'est notre minuterie sur l'écran noté (identifiant en r1 = `+0x178`), après avoir effacé la note
+  et `+0x178` ; sinon il continue tel quel. Effet attendu : écran visible environ 0,5 s, puis Photo
+  suivante, comme l'appui de l'utilisateur au test Y.
+- Vérifié en émulateur (démarrages, note, gestionnaire : trois cas natifs, un cas Next shot) ;
+  T14-DIR4 reconstruit identique ; sondes repassées.
+- T14-DIR5 sur le boîtier : l'écran s'affiche et reste. Notre Next shot à l'échéance n'a pas lieu :
+  soit une minuterie native tournait déjà (`+0x178` non nul, notre minuterie n'est alors pas lancée),
+  soit la minuterie n'arrive pas au gestionnaire `0x531ca86c`. Non établi.
+
+### Build de test T14-DIR6 : l'aperçu d'une photo simple (demande de l'utilisateur)
+
+- Demande : garder l'écran avec la photo, sans Next shot / Retake / Complete ; mi-course pour revenir
+  en visée et superposer ; touche droite pour finaliser.
+- Démarrage de l'écran : `bl 0x531cb028` donne la présentation (identifiant − 0x0800000c), puis
+  `mov r1,r0` (`0x531cbe4c`) et `0x531cb7bc(this, présentation)` qui pose l'état `+0x16c` ; un état
+  ≤ 1 suit Rec Review (`0x531caa7c`) comme après une photo simple. En mode pellicule (après une vue,
+  drapeau d'ouverture), la présentation 0 (aperçu simple) est imposée ; plus aucun Next shot de notre
+  part.
+- Vérifié en émulateur (120 cas, registres, pile) ; T14-DIR5 reconstruit identique ; sondes repassées.
+- T14-DIR6 sur le boîtier : boutons toujours présents (la multi-exposition utilise déjà la
+  présentation 0 ; Rec Review de l'utilisateur : Hold).
+
+### Build de test T14-DIR7 : pas de boutons
+
+- Démarrage de l'écran : `bl 0x53233930` (modèle, octet +6 : multi-exposition en cours), `cmp r0,r5`,
+  `movne r1,#3` / `moveq r1,r5` (`0x531cbe2c`), puis `0x5316d354(this, jeu, [this + 0x15c])` : jeu de
+  boutons 3 (Next shot / Retake / Complete) ou 0 (aucun, comme après une photo simple). En mode
+  pellicule (après une vue, drapeau d'ouverture), le jeu 0 est imposé.
+- Vérifié en émulateur (240 cas, avec et sans multi-exposition, registres et pile) ; T14-DIR6
+  reconstruit identique ; sondes repassées.
+- T14-DIR7 sur le boîtier : boutons toujours présents. Le jeu passé à `0x5316d354` n'est pas (ou pas
+  seulement) ce qui affiche Next shot / Retake / Complete ; l'affichage des boutons reste à localiser
+  (pistes : `0x531cb7bc` et ses appels `0x531cb254`, `0x531cb6d4`, `0x531cb16c`).
+
+### Les boutons de l'écran (analyse statique, 2026-10-31)
+
+- Appui sur un bouton (`0x531cb4e4`) : seulement dans les états `+0x16c` 4 et 5 ; table
+  `0x53b412a4 + état × 0x20` (compte et textes, puis paires de pointeurs de fonctions membres) :
+  état 4 = Cancel / Delete (`0x53b41324`), état 5 = Next shot / Retake / Complete (`0x53b41344`).
+- L'état vient de l'identifiant de l'écran (`+0x124`, `0x5316d8d4`) − 0x0800000c (`0x531cb028`),
+  posé au démarrage par `0x531cb7bc`. L'identifiant est choisi par l'écran lui-même (entrée 6 de sa
+  table, `0x531ca6b4`) selon l'octet `+0x799` de `0x532372e8()` : 3 → 0x08000011 (multi-exposition,
+  état 5), 4 → 0x0800000d, 5 → 0x0800000c ou 0x0800000e, sinon 0x0800000c (photo simple, état 0).
+- Explique les échecs de T14-DIR6 et DIR7 (agir sur la présentation ou le jeu n'enlève pas l'état 5).
+
+### Build de test T14-DIR8 : l'identité d'une photo simple
+
+- En mode pellicule (U, Film Roll Mode, état de multi-exposition 2), l'octet `+0x799` lu par
+  `0x531ca6b4` (`0x531ca6e8`) vaut 0 au lieu de 3 : l'écran se déclare 0x0800000c (aperçu d'une photo
+  simple, sans boutons, Rec Review). Plus aucun autre crochet sur l'écran.
+- Vérifié en émulateur (240 cas, valeurs 0, 3, 4, 5) ; T14-DIR7 reconstruit identique ; sondes
+  repassées. Inconnue principale : la multi-exposition continue-t-elle après cet aperçu.
+
+### Résultats T14-DIR8 (2026-11-01)
+
+- Après une vue : **visée sans indications** (ni collimateur, ni cadre, ni informations) avec la vue
+  en transparence ; mi-course : mise au point, rien d'autre ; nouvelle vue puis Film Advance : les
+  indications reviennent ; la photo superpose bien les 2 vues.
+- Séquence détaillée de l'utilisateur : vue → indications perdues ; vue → retrouvées ; vue → gardées ;
+  avance (+1) ; quatre vues → gardées ; vue → perdues. Impression : dépend de la vitesse à laquelle on
+  déclenche la vue suivante.
+- Lecture : l'état « visée sans indications » est l'aperçu (Rec Review Hold) superposé à la visée ;
+  il bascule selon que l'aperçu est encore ouvert ou non au déclenchement suivant. Le bogue « affichage
+  perdu » des builds T13-FN4 à T14-DG3 est très probablement ce même état, resté ouvert.
+- Précision : le réglage de l'utilisateur « Affichage immédiat » (Instant Review, notre « Rec
+  Review ») était sur **Off** pendant le test T14-DIR8. Avec **1 s** puis **0,5 s** (6 cycles chacun) :
+  les indications reviennent **à chaque fois**, avec la transparence et sans boutons.
+- **Cause établie** : en multi-exposition, un aperçu fermé instantanément (Off, ou nos fermetures
+  immédiates T13-FN4 à T14-DG3) fait perdre les indications de la visée par moments ; un aperçu laissé
+  affiché un court instant ne pose aucun problème (comme le test Y).
+
+### Build de test T14-DIR9
+
+- T14-DIR8, et dans le retour de l'aperçu (`0x531caa7c`, `subs r5,r0,#0` en `0x531caaa4`) : en mode
+  pellicule, Instant Review Off (0) ou Garder (−1) valent 500 ms (décision de l'utilisateur) ; les
+  autres durées et les autres modes sont inchangés.
+- Vérifié en émulateur (300 cas, drapeau Z rendu) ; T14-DIR8 reconstruit identique ; sondes repassées.
+
+### Résultats sur le boîtier (build T14-DIR9, 2026-11-01)
+
+- Affichage immédiat sur Off puis sur Garder, 6 cycles chacun (vue, vue, avance) : aperçu d'environ
+  0,5 s puis visée complète avec la transparence, **à chaque fois** ; compteur + 1 à chaque avance.
+- P (photo, menu) puis retour en U3 : normal.
+- **Prise de vue sans écran Next / Retake / Complete : validée sur le boîtier (T14-DIR9).** Le build
+  garde le nom de dossier (T14-DIR1) et un seul Complete par vue (T14-DIR3).
+
+### Build de test T14-DIR10 (demande de l'utilisateur)
+
+- Seul Affichage immédiat **Off** est remplacé en mode pellicule, par **100 ms** ; Garder reste
+  Garder ; les autres durées et les autres modes sont inchangés.
+- Vérifié en émulateur (300 cas) ; T14-DIR9 reconstruit identique ; sondes repassées.
+- Résultats sur le boîtier (T14-DIR10, 2026-11-01) : Off → 100 ms, 6 cycles, visée complète avec
+  transparence à chaque fois ; Garder : la photo reste affichée jusqu'à une action (comportement
+  d'origine). **Réglage retenu : seul Off est remplacé, par 100 ms.**
+
+### Build de test T14-DIR11 (demande de l'utilisateur)
+
+- Comme T14-DIR10, avec Off remplacé par **25 ms** en mode pellicule (quasiment Off). Garder reste
+  Garder. Vérifié en émulateur ; T14-DIR10 reconstruit identique ; sondes repassées.
+- Résultat sur le boîtier (T14-DIR11, 2026-11-01) : Off → 25 ms, 8 cycles rapides, visée complète
+  avec transparence à chaque fois. **Réglage retenu : Off vaut 25 ms en mode pellicule.** Lecture : la
+  perte d'affichage vient du retour immédiat (durée 0, sans minuterie) ; passer par la minuterie,
+  même très courte, suffit.
+
+### Build de test T14-DIR12 (demande de l'utilisateur)
+
+- Comme T14-DIR11, avec Off remplacé par **10 ms**. Vérifié en émulateur ; T14-DIR11 reconstruit
+  identique ; sondes repassées.
+- Résultat sur le boîtier (T14-DIR12, 2026-11-01) : Off → 10 ms, 8 cycles rapides, visée complète
+  avec transparence à chaque fois. **Réglage retenu : Off vaut 10 ms en mode pellicule.**
+
+### Build de test T14-DIR13 (demande de l'utilisateur)
+
+- Comme T14-DIR12, avec Off remplacé par **1 ms**. Vérifié en émulateur ; T14-DIR12 reconstruit
+  identique ; sondes repassées.
+- Résultat sur le boîtier (T14-DIR13, 2026-11-01) : Off → 1 ms, 8 cycles rapides, visée complète
+  avec transparence à chaque fois. **Réglage retenu : Off vaut 1 ms en mode pellicule.** Confirme que
+  seul le passage par la minuterie compte, pas sa durée.
+
+### Point 1 : fin de séquence par la molette, l'extinction, le menu (T14-DIR13, 2026-11-01)
+
+- Menu pendant une vue : compteur + 1, photo dans le dossier du rouleau. Correct.
+- Extinction pendant une vue : compteur + 1, photo dans le dossier du rouleau (140). Correct.
+- **Molette (U3 → P) pendant une vue : photo enregistrée, mais compteur inchangé et photo dans un
+  nouveau dossier (141).** Le rappel du mode P a lieu avant la fin de séquence : la fin du modèle et
+  `SetFilePath` voient déjà le mode P (mode libre, plus grand dossier = dossier d'un rouleau, donc
+  nouveau dossier).
+
+### Build de test T14-DIR14 : la vue terminée par la molette
+
+- Octet `0x5580439b` (nul au démarrage) : à chaque exposition, le mode U de la vue en mode pellicule
+  (0 sinon) ; + 0x80 une fois la vue avancée en retard.
+- Fin du modèle : si ce mode diffère du mode en cours (rappel déjà fait par la molette), que son
+  rouleau est entamé et l'état 2 : avance du rouleau de cette BOX seule (fin de rouleau comprise),
+  écriture de son fichier `APData` (index mode + 2), rien d'autre.
+- `SetFilePath` : dans ce cas, l'image va dans le dossier du rouleau de cette BOX (nouveau dossier
+  noté dans la BOX s'il manque).
+- Vérifié en émulateur (64 fins, 18 chemins de dossier, exposition) ; T14-DIR13 et T13-FN1
+  reconstruits identiques ; sondes repassées.
+- Remarque à traiter avec la fin de rouleau : à la dernière vue, le rouleau est clos à la fin du modèle,
+  avant `SetFilePath` ; l'image de la dernière vue risque d'aller dans un nouveau dossier.
+- Résultats sur le boîtier (T14-DIR14, 2026-11-01) : vue puis molette U3 → P → U3 : compteur + 1, photo
+  dans le dossier du rouleau ; photo en P dans le dossier de P. **Point 1 (fin de séquence par le menu,
+  l'extinction ou la molette) : validé sur le boîtier.**
+
+### Parcours utilisateur (2026-11-01)
+
+- Document `docs/parcours-utilisateur.md` : parcours en place et 11 questions, tranchées le
+  2026-11-01 (section 10 du document).
+
+### Messages à l'écran (analyse statique, 2026-11-01)
+
+- Les messages du type « Memory card full. » sont des **écrans** (contrôleurs 0x08000003 à
+  0x0800000a, une même classe, table de méthodes `0x53b41ca8`). Démarrage (`0x531ce310`, entrée 7) :
+  pas de boutons (`0x5316d354(this, 0)`), `0x531ce278` (minuterie), `0x531ce0ac` (texte), `0x531ce2e8`.
+- Texte selon l'identifiant (`0x531ce0ac`, table de sauts `0x531ce104`) : 3 → 0x2f5 « Memory card
+  full. », 4 → 0x2f6 « Internal memory full. », 5 → 0x2f7 « Image folder cannot be created. »,
+  6 → 0x2f8 « Card is locked. », 7 → 0x2be « Unable to store image. » (`0x531ce174`), 8 → 0x2fc,
+  9 → 0x2fa, 10 → chaîne formatée. Le texte est posé par `0x5339c844(widget [this + 0x160], texte)`
+  (ou `0x5339c7c4` pour une chaîne).
+- Fermeture : ids 3 à 7 → minuterie de **5 s** (`0x5322b468(…, 0x1388, this + 0x158)`, `+0x168`), puis
+  retour en visée (`0x531cdd58`) ; ids 8 à 10 : pas de minuterie. Événement 0xd8 : retour immédiat en
+  visée ; 0x8b : vers 0x0200004a.
+- Ouverture : comme l'écran de revue, `0x5316c9d8(0x53228a90(), id, 0x53228c4c(0x5320aefc(0x5320ad88())))`
+  depuis la tâche de l'interface.
+- Proposition : ouvrir l'un de ces écrans (5 s) avec notre propre texte (21 langues), le texte
+  substitué dans `0x531ce0ac` tant qu'un message du mode pellicule est en attente.
+
+### Build de test T15-END1 : fin de rouleau et message
+
+- Fin de rouleau : à l'avance de la dernière vue, le rouleau garde son bit « entamé » et son dossier,
+  vue = 0 (rouleau terminé) : l'image de la dernière vue va dans le dossier du rouleau ; l'exposition
+  suivante démarre un nouveau rouleau (vue 1, dossier à créer). Le compteur affiche 1 pour un rouleau
+  terminé. Même chose pour la fin tardive (molette), sans message.
+- Message : l'octet `0x55804397` est levé et l'écran de message 0x08000007 est ouvert depuis la fin du
+  modèle (`0x5316c9d8(0x53228a90(q), 0x08000007, 0x53228c4c(q))`) ; son texte (`0x531ce174`,
+  `movw r1,#0x2be`) devient « Nouvelle pellicule chargée. » (21 langues, caractères vérifiés ; texte
+  après celui de Film Advance) tant que l'octet est levé, qui retombe alors. Fermeture native : 5 s ou
+  appui à mi-course.
+- Remarque : le nom chinois simplifié de Film Roll Mode (« 底片模式 ») utilise 底, absent des textes
+  chinois simplifiés du boîtier : à remplacer.
+- Vérifié en émulateur (fin, message, redémarrage, compteur, texte) ; T14-DIR14 et T13-FN1 reconstruits
+  identiques ; sondes repassées.
+- Résultat T15-END1 (2026-11-01, 1:1, 12 vues) : à la 12e avance, message à peine visible (recouvert
+  aussitôt) ; compteur 1/12 ensuite. Hypothèse : l'aperçu de l'image finale (Affichage immédiat Off)
+  s'ouvre après et revient aussitôt en visée.
+
+### Build de test T15-END2 : le message n'est plus recouvert
+
+- Crochet du changement d'écran `0x5316c9d8` : si le message attend (octet `0x55804397`) et que l'écran
+  de revue (table `0x53b41380`) revient en visée (0x08000000), il va vers l'écran de message
+  0x08000007 à la place ; quand l'écran de message (table `0x53b41ca8`) revient en visée, l'octet
+  retombe ; il retombe aussi à chaque exposition. Le texte ne l'efface plus.
+- Vérifié en émulateur (24 cas de changement d'écran, effacement à l'exposition) ; T15-END1
+  reconstruit identique ; sondes repassées.
+- Résultat T15-END2 (2026-11-01) : message un peu plus long mais encore illisible ; la 12e vue est
+  bien dans le dossier du rouleau ; compteur 1/12 ensuite. **Fin de rouleau (dernière vue dans son
+  dossier, nouveau rouleau) : validée.**
+
+### Build de test T15-END3 : le message tenu par sa propre minuterie, avec un mouchard
+
+- Tant que le message attend, l'écran de message ne revient en visée que par sa minuterie de 5 s
+  (adresse de retour `0x531cdd80`) ; toute autre demande est ignorée (renvoie 0). Chaque changement
+  d'écran demandé pendant ce temps est noté (`0x558043a0` : avant-dernier, dernier, nombre ; code =
+  étiquette × 32 + identifiant & 31, étiquette 1 revue, 2 message, 3 autre). Date des photos :
+  HH:mm = avant-dernier (HH × 60 + mm), 20YY = dernier % 100, DD = 1 + centaines, MM = 1 + nombre.
+- Vérifié en émulateur ; T15-END2 reconstruit identique ; sondes repassées.
+- Résultats T15-END3 (2026-11-01) : message lisible environ 5 s, retour seul en visée. Date de la photo
+  suivante `2064.05.01 01:04` : 4 changements d'écran pendant le message ; les deux derniers sont
+  « écran de message → visée » (code 64) : l'écran de message demandait lui-même un retour en visée
+  autrement que par sa minuterie (probablement l'événement 0xd8) ; la garde l'a retenu.
+  **Message de fin de rouleau : validé.** Conséquence : pendant ces 5 s, l'appui à mi-course ne ferme
+  plus le message. Le mouchard (date des photos) est à retirer du build suivant.
+
+### Décision et build de test T16-CLO1 : clôture quand le film ou le format change
+
+- Décision (2026-11-01) : changer l'Image Control ou le format fait sauter la pellicule, sans Save
+  Settings ; le retour sur la BOX ne ramène pas l'ancien rouleau (il est clos).
+- Octets libres `0x9c2` (film) et `0x9c3` (format) de l'enregistrement (bourrage, aucun accès exact du
+  firmware, seulement une lecture de mot à +0x9c0 par une fonction de débogage `0x537381d4`) : notés
+  au démarrage du rouleau, dans les deux enregistrements.
+- `filmRollCheck` : rouleau en cours (entamé, vue ≠ 0) dont le film ou le format diffère de ceux
+  notés → vue 0 (rouleau terminé), sauvegarde des deux enregistrements, renvoie 1. Un rouleau sans
+  note (0x9c2 = 0, démarré avant ce build) prend les réglages actuels.
+- Crochet du changement d'écran : sans message en attente, un retour en visée appelle d'abord ce
+  contrôle ; s'il clôt, le message attend et l'écran de message s'ouvre à la place de la visée.
+- Mouchard de T15-END3 retiré (dates des photos normales) ; garde du message conservée.
+- Vérifié en émulateur ; T15-END3 reconstruit identique ; sondes repassées.
+- Résultats T16-CLO1 (2026-11-01) : changement d'Image Control puis Menu : message puis compteur à 1 ;
+  Menu / Menu ensuite : pas de nouveau message ; vue suivante dans un nouveau dossier au code du
+  nouveau film. **Clôture à la sortie du menu : validée.**
+- Mais retour P → U3 (la BOX remet l'ancien film) : pas de clôture au retour (le rappel d'un mode ne
+  passe pas par un retour en visée) ; la vue suivante comptait encore dans le rouleau clos, puis
+  message et 1. Et Film Advance pressé très tôt après une vue ouvrait l'écran Next / Retake /
+  Complete (la séquence finie avant l'ouverture de la revue, la condition « état 2 » tombait).
+
+### Build de test T16-CLO2
+
+- Le même contrôle au rappel d'un mode U (`filmRollCheckAt(enregistrement, mode)` après la remise du
+  nom de dossier) : clôture et ouverture immédiate de l'écran de message.
+- Revue sans boutons et Affichage immédiat Off = 1 ms en mode pellicule **quel que soit l'état** de la
+  multi-exposition.
+- Vérifié en émulateur (rappel avec et sans changement, revue et durée sans condition d'état) ;
+  sondes repassées (garde-fou : écritures et ouverture d'écran substituées).
+- Résultats T16-CLO2 (2026-11-01) : Film Advance pressé tôt n'ouvre plus Next / Retake / Complete ;
+  visée toujours normale. Mais U3 (film changé, une vue) → P : **message sur P** (à tort) ; retour U3 :
+  pas de message, compteur 1. Lecture : pendant le changement de mode, le mode actif se lit encore U3
+  alors que l'enregistrement en cours est déjà celui de P ; le contrôle au retour en visée a clos le
+  rouleau de U3 sur la foi des réglages de P.
+- Demande : le compteur commence à 0 (vues enregistrées).
+
+### Build de test T16-CLO3
+
+- Contrôle au retour en visée seulement si l'enregistrement en cours porte le rouleau de la BOX (bit
+  entamé, vue et film notés identiques) ; le contrôle au rappel du mode U fait la clôture au retour.
+- Compteur : vues enregistrées (`vue - 1`), 0 pour un rouleau neuf, terminé ou non entamé ;
+  `0/12` ... `12/12`, puis `0/12`.
+- Vérifié en émulateur ; T16-CLO2 reconstruit identique ; sondes repassées.
+- Résultats T16-CLO3 : compteur à partir de 0 validé ; mais toujours un message en passant sur P.
+
+### Build de test T16-CLO4
+
+- Le contrôle au retour en visée ne se fait que si l'écran qui revient est un écran de menu
+  (identifiant `[this + 0x124]` de la famille 0x02xxxxxx, comme 0x0200004a). Le changement de mode
+  par la molette n'est plus concerné ; le retour sur la BOX reste traité au rappel du mode U.
+- Vérifié en émulateur (menu : clôture et message ; visée, revue, gestionnaire : rien) ; T16-CLO3
+  reconstruit identique ; sondes repassées. Inconnues : que la sortie du menu passe bien par l'écran
+  de menu lui-même, et que le message sur P ne venait pas d'ailleurs.
+- Résultats T16-CLO4 (2026-11-01) : changement d'Image Control puis sortie du menu : message, compteur
+  0 ; une vue ; P : pas de message ; retour U3 : message, compteur 0. **Clôture quand le film ou le
+  format change (point 3) : validée sur le boîtier.**
+
+### Rembobiner : analyse statique (2026-11-01)
+
+Certitude : lu dans le code (firmware 2.10), rien encore testé sur le boîtier.
+
+- La ligne « Create New Folder » (texte 0x233) est la ligne `0x02000128` de l'onglet Setup (mot en
+  `0x53b36c14`). Comme pour toutes les lignes, son identifiant est celui de l'écran ouvert.
+- Fabrique `0x5316f3bc` : les identifiants `0x02000128` à `0x0200012b` construisent une seule fois
+  `FolderCreateController` (0x174 octets, constructeur `0x531e6428`, rangé dans l'emplacement
+  `+0x138` de la fabrique), puis le réutilisent.
+- Le constructeur pose les deux boutons du dialogue : 0x2a9 « Execute » / « Exécuter » et 0x2aa
+  « Cancel » / « Annuler » (`0x531e6074`).
+- Démarrage `0x531e6534` :
+  - sans carte (`0x53237460` nul) : état `0x0200012b` ;
+  - sinon `0x531e64a8` renvoie un texte d'erreur (0x2f5 carte pleine, 0x2f6 mémoire interne
+    pleine, 0x2f7 dossier impossible, 0x2f8 carte verrouillée) : état `0x0200012a` (`0x531e5ffc`) ;
+  - sinon la question : `0x531e5ec8`, état `0x02000128`, texte 0x2ab.
+- Événements `0x531e663c` : 0xd0 / 0xd1 déplacent le choix, 0xd8 (OK) appelle `0x531e6600` :
+  bouton 0 (Exécuter) → validation `0x531e65b0`, sinon sortie `0x5316ca28`.
+- Validation `0x531e65b0` : `0x5358515c(0x53584c74(), 1)`, texte 0x2bb « Data process completed. »
+  (`0x531e5f3c`), état `0x02000129`, minuterie de 3 s.
+- Précédent dans GR Mod (`datestamp.ts`, End Screen) : la fabrique peut faire correspondre un nouvel
+  identifiant à un écran existant et poser au passage un octet de mode ; la table des touches
+  (`0x53221a4c`) reçoit la même correspondance.
+
+Proposition pour T17-RWD1 :
+
+- Nouvelle ligne `0x020001b1` dans le menu C, après Film Roll Mode, visible en mode U avec Film Roll
+  Mode sur On (même fonction de visibilité que Film Roll Mode, plus le bit 0).
+- Fabrique et touches : `0x020001b1` → `0x02000128` avec l'octet « rembobinage » à 1 ;
+  `0x02000128` lui-même le remet à 0 (Create New Folder reste intact).
+- Avec l'octet à 1 : démarrage directement sur la question (pas de contrôle de carte), texte de la
+  question remplacé ; Exécuter clôt le rouleau (vue 0 dans l'enregistrement en cours et dans la
+  BOX, comme la clôture de T16) au lieu de poser le drapeau de nouveau dossier ; texte de fin
+  « Nouvelle pellicule chargée. » au lieu de 0x2bb.
+- La vue en cours est déjà enregistrée à l'ouverture du menu : rien à ajouter pour Q7.
+- Décisions de l'utilisateur (2026-11-01) : boutons natifs Exécuter / Annuler ; ligne après Film
+  Roll Mode ; question longue « Rembobiner la pellicule ? La prochaine vue démarre une nouvelle
+  pellicule. » (EN « Rewind the film? The next shot starts a new roll. »).
+
+### Message « Nouvelle pellicule chargée. » : durée et fermeture (analyse statique, 2026-11-01)
+
+Certitude : lu dans le code.
+
+- Écran de message (table `0x53b41ca8`) : démarrage `0x531ce310` → `0x531ce278`, qui arme la
+  minuterie de **5000 ms** (`movw r1,#0x1388` en `0x531ce2d0`, `0x5322b468`, identifiant rangé en
+  `+0x168`) ; c'est la même pour tous les messages 3 à 7.
+- Rappel de la minuterie `0x531cdd58` : si `[this + 0x168]` vaut l'identifiant reçu, retour en visée
+  (`0x5316c9d8(this, 0x08000000, 0x10000000)`, adresse de retour `0x531cdd80`), puis `+0x168` à 0.
+- Événements `0x531cdd94` : **0xd8 (OK) ferme nativement le message** (retour en visée, adresse de
+  retour `0x531cddc0`) ; 0x8b ouvre l'écran `0x0200004a`. Rien d'autre n'est traité.
+- Notre garde (T15-END3) refuse tout retour en visée qui ne vient pas de la minuterie : c'est elle
+  qui bloque OK. Elle avait été ajoutée parce que des demandes de retour arrivaient seules juste à
+  l'ouverture (deux en T15-END3), ce qui fermait le message aussitôt.
+- Touche ADJ poussée : code d'événement inconnu pour cet écran (peut-être 0xd8, à mesurer).
+- Pas d'horloge système trouvée simplement ; on peut s'en passer avec la minuterie de l'écran.
+
+### Build de test T17-MSG1 : message de 2 s, fermé par OK ou ADJ après 0,5 s
+
+- Traduction des touches pour l'écran de message (`0x53221a1c` émulé avec l'écran courant
+  `0x08000007`, certitude : émulé) : **OK (touche 50) et ADJ enfoncé (14) donnent tous deux 0xd8**,
+  comme ADJ gauche / droite (11, 10), le pavé droit (35, la touche Film Advance) et une dizaine
+  d'autres ; la touche 57 (parasite à chaque prise de vue) donne 0x8b. Pour le dialogue
+  `0x02000128`, 14 et 50 donnent aussi 0xd8. Rien à ajouter pour ADJ.
+- Explication probable des demandes de fermeture parasites de T15-END3 : la touche Film Advance
+  (pavé droit) donne 0xd8 sur l'écran de message, donc l'appui qui ouvre le message peut le fermer.
+- Mise en œuvre (`installGr3xFilmMessage`, option `quick`, forme `msg1`) :
+  - armement `0x531ce2d0` : pour notre message, minuterie de 500 ms et étape 1 (octet
+    `0x5580439d`, nul au démarrage) ; sinon 5000 ms comme avant ;
+  - rappel `0x531cdd58` : à l'étape 1, étape 2 et nouvelle minuterie de 1500 ms, sans fermer ;
+  - garde : à l'étape 2, le retour en visée venant de OK (adresse de retour `0x531cddc0`) passe.
+- Vérifié en émulateur (section 30 de `film_roll_check.py` : OK retenu aux étapes 0 et 1, fermeture
+  à l'étape 2, 500 / 5000 ms à l'armement, réarmement de 1500 ms) ; T16-CLO4 reconstruit identique ;
+  `guard_probe.py` repassé ; tests du mode pellicule passés (les 5 échecs de `npm test` viennent de
+  fichiers privés absents, `official.decoded` et `B.bin`, et existaient déjà).
+- Résultats T17-MSG1 (2026-11-01) : tout conforme (2 s sans rien toucher, OK et ADJ ferment après
+  0,5 s, message lisible en fin de rouleau). **Message court et fermeture par OK / ADJ : validés.**
+
+### Build de test T17-RWD1 : la ligne Rembobiner
+
+Construit sur T17-MSG1 (forme `rwd1`). Certitude : vérifié en émulateur, à tester sur le boîtier.
+
+- Menu C : Save Settings, Film Roll Mode, **Rembobiner** (identifiant `0x020001b1`), puis les 21
+  lignes du boîtier ; page 1 de 6 lignes (pages `[0, 6, 15]`, 24 lignes). Ligne dessinée comme
+  Create New Folder (sans valeur, son nom) ; visible en mode U avec Film Roll Mode sur On
+  (`filmRewindVisible`, évaluée à l'ouverture du menu : après avoir mis Film Roll Mode sur On, il
+  faut ressortir du menu et y revenir pour voir la ligne).
+- Fabrique : `0x020001b1` ouvre le dialogue `0x02000128` et met l'octet de rembobinage
+  (`0x5580439e`) à 1 ; `0x02000128` lui-même le met à 0. Table des touches : même correspondance.
+- Dialogue, octet à 1 : pas de contrôle de carte (`0x531e6558`) ni de mémoire (`0x531e6568`),
+  notre question (`0x531e5ee8`), Exécuter appelle `filmRollRewind` au lieu de `0x5358515c`
+  (`0x531e65c8`), texte de fin « Nouvelle pellicule chargée. » (`0x531e5f40`) pendant 3 s.
+- `filmRollRewind` : en mode U avec Film Roll Mode sur On, un rouleau entamé (vue non nulle) est clos
+  comme à la clôture de T16 (vue 0 dans l'enregistrement en cours et dans la BOX, fichiers `APData`
+  écrits) ; sinon rien.
+- Textes en 21 langues, caractères vérifiés contre les textes du boîtier ; reformulés faute de
+  caractères : japonais « フィルムリセット » (巻 absent), coréen, espagnol (¿ absent) et chinois en
+  phrase affirmative, comme le texte natif de Create New Folder.
+- Vérifié : section 31 de `film_roll_check.py` (64 cas de rembobinage et de visibilité, dialogue
+  dans les deux modes, fabrique, touches, menu, ligne) ; T16-CLO4 et T17-MSG1 reconstruits
+  identiques ; `guard_probe.py` ; tests du mode pellicule.
+- Résultats T17-RWD1 (2026-11-01) : **gel à Exécuter** (batterie à retirer), compteur non remis à 0 ;
+  Film Roll Mode et Rembobiner **visibles en P**.
+- Cause du gel (certitude : prouvée en émulateur) : le texte de fin est posé en `0x531e5f40`, entre
+  `mov ip,sp` et le `push` de `0x531e5f3c` ; notre code y utilisait ip, d'où un cadre de pile faux et
+  un retour vers une adresse invalide. Corrigé (seul r1 est utilisé) ; l'émulateur contrôle
+  désormais ip sur ces sites (l'ancien build échoue, le nouveau passe). Le compteur non remis à 0
+  vient probablement du gel : l'écriture des réglages n'a pas pu se terminer.
+- Visibilité en P (hypothèse) : la fabrique ne construit le menu qu'une fois (emplacement `+0x74`,
+  constructeur `0x5319aa68`, seul appelant du constructeur d'onglets `0x5319a778`) ; les fonctions
+  de visibilité ne sont donc évaluées qu'à la première ouverture du menu depuis l'allumage. La note
+  « reconstruit à chaque ouverture » de T12 était fausse.
+- Build T17-RWD2 : T17-RWD1 avec le correctif du gel (même forme `rwd1`, révision renommée).
+  Vérifié en émulateur, garde-fou repassé, tests du mode pellicule passés.
+- Demande de l'utilisateur : garder les mêmes lignes en P mais **grisées**. À analyser.
+- Résultats T17-RWD2 (2026-11-01) : compteur 2/xx après 2 vues ; lignes Save Settings, Film Roll
+  Mode, Rembobiner ; question entière avec Exécuter / Annuler ; Annuler ne change rien. **Mais
+  Exécuter affiche « Data process completed. » et le compteur ne revient pas à 0** : le dialogue était
+  redevenu Create New Folder (drapeau de nouveau dossier posé).
+- Cause (certitude : déduite, la question était la nôtre puis plus rien) : pendant le dialogue, le
+  boîtier redemande l'écran courant à la fabrique à chaque événement de touche, avec l'identifiant du
+  dialogue `0x02000128`, que notre code traitait comme « Create New Folder » (octet remis à 0).
+- T17-RWD3 : l'octet est remis à 0 quand le menu est demandé (`0x0200004a` à `0x0200004d`, cas de la
+  fabrique qui construit le menu, emplacement `+0x74`), plus par l'identifiant du dialogue.
+  L'émulateur vérifie ce cas (l'ancien build échoue, le nouveau passe) ; garde-fou et tests passés.
+- Résultats T17-RWD3 (2026-11-01) : Exécuter affiche « Nouvelle pellicule chargée. », compteur à
+  0/xx en visée ; vue suivante dans un nouveau dossier ; Create New Folder (Setup) garde son texte
+  d'origine ; Rembobiner sur un rouleau à 0 : message puis 0/xx, sans gel.
+  **Ligne Rembobiner : validée.** Reste : lignes visibles en P quand le menu a d'abord été ouvert en
+  U (menu construit une seule fois) ; demande de l'utilisateur : les griser en P.
+
+### Griser une ligne : analyse statique (2026-11-01)
+
+Certitude : lu dans le code ; recherche non exhaustive.
+
+- Les fonctions de dessin des lignes (relevé de toutes les lignes des 5 onglets) n'appellent que des
+  fonctions qui posent icône, valeur et texte (`0x5339de20`, `0x5339de6c`, `0x5339df08`,
+  `0x5339debc`, titre `0x5339dc70`, qui affichent et remplissent des widgets) : aucune ne règle un
+  état grisé.
+- Le choix d'une ligne (`0x53198b38`, appelé si l'état `+0x1f0` vaut 2) lit l'identifiant de la
+  ligne visible (`[menu + 0x3e4 + 4 × (0xe1 × onglet + ligne)]`) et ouvre l'écran correspondant,
+  sans aucun test d'autorisation.
+- Le descripteur d'onglet n'a que trois colonnes par ligne (dessin, identifiant, visibilité).
+- Conclusion : aucun mécanisme de grisé trouvé ; le boîtier masque les lignes (ND, HDF), il ne
+  semble pas les griser. Ma remarque « le boîtier sait griser » était une supposition fausse.
+- Le constructeur d'onglets `0x5319a778` n'est appelé que par le constructeur du menu, une seule
+  fois (emplacement `+0x74` de la fabrique). Piste pour masquer en P : le rappeler à chaque ouverture
+  du menu ; risque à étudier : la position mémorisée du curseur dans le menu C.
+
+### Masquer une ligne : menu reconstruit à chaque ouverture (T18-HIDE1)
+
+Certitude : lu dans le code et émulé (vrai constructeur d'onglets), à tester sur le boîtier.
+
+- Demande de l'utilisateur : apprendre à masquer (brique réutilisable pour retirer plus tard la
+  partie vidéo du menu).
+- Démarrage du menu `0x53199f04` : `0x53199334(menu, id)` restaure ou remet à zéro la place de chaque
+  onglet (à zéro si l'id vaut `0x0200004a` ou si le réglage `0x5324645c` le demande ; sinon
+  `0x531991cc` relit les réglages TopMenu*), puis `0x53199eb0` (défilement à la première ligne de la
+  page), `0x531999b4`, `0x53199ba4` (nombre de lignes de l'onglet, puis `0x53395224(liste,
+  position, ligne)`, **sans aucune vérification** de la ligne).
+- État d'un onglet t (à `menu + 0x384 × t`) : pages `+0x290`, première ligne de chaque page
+  `+0x2a8 + page`, nombre de lignes `+0x2b3`, identifiants `+0x3e4 + 4 × ligne`. Place de l'onglet
+  (à `menu + 0xc × t`) : page `+0x1b4`, position `+0x1b8`, ligne de l'onglet `+0x1bc`.
+- Mise en œuvre (`installGr3xMenuRebuild`) : en `0x53199f3c` (`bl 0x53199eb0`), on rappelle d'abord le
+  constructeur d'onglets `0x5319a778`, puis on ramène chaque place dans ses limites (page hors des
+  pages → page 0 ; ligne hors de sa page → première ligne de la page, position 0).
+- Émulation : en U avec Film Roll Mode sur On, onglet C = 24 lignes (pages 0, 6, 15) ; sur Off,
+  23 lignes, Rembobiner absent ; en P, les 22 lignes d'origine ; autres onglets identiques ; 9 cas de
+  place vérifiés. T17-RWD3 reconstruit identique ; garde-fou et tests passés.
+- Résultats T18-HIDE1 (2026-11-01) : en U, page 1 du menu C à 6 lignes (curseur laissé sur la
+  dernière) ; passage sur P sans éteindre : 4 lignes, sans les nôtres, curseur valide ; autres
+  onglets et pages normaux ; retour en U : lignes revenues, Rembobiner fonctionne ; Film Roll Mode
+  sur Off : Rembobiner masqué, revenu après On. **Masquage par reconstruction du menu : validé.**
+
+### Carte changée ou dossier supprimé (T19-CARD1)
+
+- Analyse du crochet de SetFilePath (`filmRollFolder`) : dossier du rouleau présent sur la carte →
+  la vue y va, compteur conservé (décision Q10 déjà respectée) ; dossier absent → nouveau dossier
+  (`0x535b742c`), mais le compteur continuait.
+- Décision de l'utilisateur (2026-11-01) : dossier absent = **rouleau perdu** ; la vue prise est la
+  vue 1 d'un nouveau rouleau dans un nouveau dossier (compteur 1/xx), sans message.
+- Mise en œuvre (option `lost`, forme `card1`) : dossier mémorisé entre 100 et 999 mais absent de la
+  table des dossiers → vue mise à 2 (une vue enregistrée, la vue ayant avancé à la fin du modèle)
+  dans l'enregistrement en cours et la BOX, avant le nouveau dossier ; un rouleau qui vient de finir
+  (vue 0) garde son 0. Enregistré à l'avance suivante, comme le numéro du nouveau dossier.
+- Vérifié en émulateur (dossier absent 300 ajouté aux cas : vue à 2 avec `card1`, inchangée sans) ;
+  T18-HIDE1 reconstruit identique ; garde-fou et tests passés.
+- Résultats T19-CARD1 (2026-11-01) : carte A, 3 vues, compteur 3/xx, dossier 167 ; carte B (sans
+  167) : 3/xx avant la vue ; après une vue et Film Advance : **4/xx** et photo dans le **dossier
+  104**. Le rouleau n'a pas été déclaré perdu.
+- Lecture du code natif : `SetFilePath` avec un numéro fourni cherche le dossier (`0x535b7480` →
+  `0x535b5b6c`, même table que nous), le crée s'il manque (`0x535b2ac4`), puis exige le bit 4 de
+  l'octet d'état `+0xe` de l'entrée (`0x535b5d3c`). Hypothèses : l'entrée de 167 n'était pas vide sur
+  la carte B (entrée réservée, ou table non remise à zéro), ou le boîtier fournissait déjà un numéro.
+- Build de diagnostic T19-CARD2 (forme `card2`, comportement de T19-CARD1) : journal à `0x558043b8`
+  (appels, chemin, octet d'état de l'entrée + 1, 0 si pas d'entrée) affiché dans la date : année
+  2000 + appels, mois = chemin (1 mode libre, 2 dossier du rouleau trouvé, 3 nouveau dossier, 4 pas
+  de suivant, 5 numéro déjà fourni, 6 nouveau dossier en mode libre, 7 rouleau perdu, 12 aucun),
+  jour 1 = pas d'entrée sinon 2 + quartet bas de l'état, heure = quartet haut, minute = dossier du
+  rouleau % 60. Vérifié en émulateur (576 cas de journal, horloge) ; T19-CARD1 reconstruit identique.
+- Résultats T19-CARD2 (2026-11-01), carte A remise (dossier du rouleau 104, créé sur la carte B) :
+  compteur 1/xx à l'allumage ; vue + Film Advance : compteur resté à 1 ; vue suivante : 2.
+  Dates : `2000.12.01 00:44` (aucun appel encore : la date est posée **avant** SetFilePath ; dossier
+  du rouleau 104) puis `2002.05.01 00:48` (2 appels, le dernier avec un numéro déjà fourni : deux
+  appels par photo ; dossier du rouleau 108).
+- Lecture (certitude : forte) : **le rouleau perdu fonctionne** (carte B : vue 1 dans 104 ; carte A :
+  vue 1 dans 108). Le défaut est l'affichage : le compteur est dessiné à l'avance (fin du modèle),
+  avant SetFilePath ; la remise à la vue 1 n'apparaît qu'au dessin suivant (4/xx affiché sur la carte
+  B, 1/xx relu à l'allumage). Reste à rafraîchir le compteur après un rouleau perdu, ou à décider la
+  perte avant l'avance.
+- Affichage (analyse) : le compteur est dessiné par `LiveViewController` (`0x531714c8` →
+  `0x532aa1d4`) dans la tâche de l'interface ; SetFilePath tourne plus tard, dans la tâche
+  d'écriture. Plutôt que d'appeler l'affichage depuis là, la perte est décidée **à l'avance**.
+- Services de dossiers : objet unique `0x5535767c` (garde `0x55357678`, getter `0x535bb010`) ;
+  `+0x14` et `+0x18` = services des deux supports (carte, mémoire interne) ; `[service + 8]` = base
+  des dossiers (même table `+0x10` que SetFilePath). Certitude : lu dans le code (`0x535a6d60`).
+- T19-CARD3 (forme `card3`, sans journal) : à l'avance, rouleau entamé (vue non nulle), dossier
+  mémorisé entre 100 et 999 absent de tous les supports lisibles (au moins un) → vue mise à 1 (2 après
+  l'avance) et dossier à 0 (SetFilePath donne le nouveau dossier) ; le contrôle de SetFilePath reste
+  (dossier de même numéro sur l'autre support). Émulation : 9 cas (absent partout, présent sur l'un
+  ou l'autre, un seul support, aucun support, pas de garde, rouleau fini, pas de dossier, 999).
+- Résultats T19-CARD3 (2026-11-01) : carte A, 2 vues ; carte B (sans le dossier du rouleau) : une vue
+  + Film Advance → **1/xx tout de suite** ; vue suivante → 2/xx, même nouveau dossier.
+  **Carte changée / dossier supprimé : validé.** (Dossier de même numéro sur une autre carte : chemin
+  natif « dossier trouvé », déjà validé en T11 avec un dossier existant.)
+
+### Partie vidéo du menu : analyse statique (2026-11-01)
+
+Certitude : lu dans le code.
+
+- Onglets (table `0x55001eb8`) : 0 Still Image Settings (`0x53b36dec`, 38 lignes), **1 Movie Settings
+  (`0x53b37514`, 18 lignes, 7 pages)**, 2 Playback Settings (`0x53b37188`, 16), 3 Customize Settings
+  (`0x53b3649c`, 22), 4 Setup (`0x53b36a54`, 30).
+- **Visibilité d'un onglet** : premier mot du descripteur (pointeur de méthode, copié par le
+  constructeur en `menu + 0x228 + 0x384 × onglet`) ; les cinq valent une fonction qui renvoie 1
+  (`0x53196654` à `0x53196674`). Elle est appelée à chaque changement d'onglet (`0x53199cdc`,
+  `0x531995b8`) et au démarrage (`0x531991cc`), qui sautent un onglet invisible. Masquer l'onglet
+  vidéo : faire pointer ce mot vers une fonction qui renvoie 0. Rien à recopier.
+- Points à vérifier sur le boîtier : la barre des onglets (icône de l'onglet masqué), et l'ouverture
+  du menu en mode vidéo (`0x53199334` traite à part les identifiants `0x0200004c` / `0x0200004d`).
+- Octets : masquer ne libère rien ; retirer le code vidéo n'est pas réaliste (code et données
+  partagés), et GR Mod ajoute son code en fin d'image sans manquer de place.
+- Build T20-VID1 (forme `vid1`, sur T19-CARD3) : premier mot du descripteur Movie Settings
+  (`0x53b37514`) vers une fonction qui renvoie 0. Émulation : visibilité des 5 onglets (seul
+  l'onglet vidéo à 0) ; T19-CARD3 reconstruit identique ; garde-fou et tests passés.
+- Résultats T20-VID1 (2026-11-01) : en P, l'onglet Movie Settings n'apparaît plus (navigation et
+  barre des onglets correctes) ; en mode vidéo, le menu s'ouvre normalement sans onglet vidéo.
+  **Masquage de l'onglet vidéo : validé.**
+
+### Bloquer le mode vidéo (T20-VID2)
+
+Certitude : lu dans le code ; vérifié en émulateur.
+
+- Photo / vidéo : octet `+0x44` (et `+0x46`) des enregistrements, 0 photo, 1 vidéo ; getter
+  `0x53243e40` (58 appelants) ; **setter unique `0x5327b7cc(modèle, valeur)`**, appelé par la bascule
+  de la touche (`0x532261fc`, valeur = (actuel == 0)), ApplyStillMovieForceProperty (`0x5316dda8`,
+  `0x5316ddbc`), `0x531b6938` et les réglages de débogage (`0x532dcb40`, `0x532dcb58`). Il ne
+  prévient les écrans que si la valeur change.
+- T20-VID2 (forme `vid2`, sur T20-VID1) : à l'entrée du setter, toute valeur non nulle devient 0 ;
+  la touche vidéo ne fait plus rien. Risque à vérifier : un écran qui force la vidéo (lecture d'une
+  vidéo ?), et un boîtier éteint en mode vidéo (valeur 1 relue au démarrage, sans passer par le
+  setter).
+- Vérifié : émulateur (valeurs 0, 1, 2 → 0, registres conservés) ; T20-VID1 reconstruit identique ;
+  garde-fou et tests passés.
+- Résultats T20-VID2 (2026-11-01) : touche vidéo sans effet (on reste en photo) ; lecture d'une vidéo
+  non testée (aucune vidéo sur la carte) ; mode U pellicule, extinction et rallumage : tout normal.
+  **Blocage du mode vidéo : validé** (reste à vérifier la lecture d'une vidéo existante).
+
+### Lignes vidéo restantes (T20-VID3)
+
+Certitude : lu dans le code et émulé.
+
+- Titres des lignes lus en exécutant chaque fonction de dessin en émulation (texte passé à
+  `0x5339dc70`) : Still Image Settings ligne 19 et Movie Settings ligne 9 = **Still/Movie**
+  (`0x0200006e`, texte 0x5f) ; Playback Settings ligne 12 = **Movie Edit** (`0x04000033`).
+- Fonctions Fn (texte `0x53292ed0(modèle, f)` émulé) : **17 = Still/Movie** (16 Framerate, 0 Off ...).
+  Filtre des listes `0x531b9410(f)` (appelé trois fois par le constructeur des listes `0x531be67c`).
+- Masquage **par identifiant** (brique réutilisable) : l'appel de la visibilité d'une ligne par le
+  constructeur d'onglets (`bl 0x5319a720` en `0x5319a978`) passe par une liste d'identifiants masqués
+  (`sl` pointe alors l'identifiant de la ligne) ; fonctionne pour tous les onglets, y compris les
+  copies de descripteurs de GR Mod. Fn : le filtre refuse la fonction 17.
+- T20-VID3 (forme `vid3`, sur T20-VID2). Émulation : les deux identifiants absents de tous les
+  onglets reconstruits (présents sans `vid3`), filtre Fn (17 refusée, les autres comme le boîtier),
+  liste Fn construite sans 17 ; T20-VID2 reconstruit identique ; garde-fou et tests passés.
+- Résultats T20-VID3 (2026-11-01) : Still/Movie et Movie Edit absents du menu ; Still/Movie absent des
+  listes de Fn Button Setting, Film Advance présent ; mode pellicule, Film Roll Mode et Rembobiner
+  normaux. **Masquage par identifiant et retrait d'une fonction Fn : validés.**
+
+### Fin de la partie vidéo (T20-VID4)
+
+- Décisions de l'utilisateur (2026-11-01) : retirer la fonction Fn Framerate ; renommer la touche
+  latérale sans « Movie » (« Wireless Button », et « Hold Wireless Btn. » pour l'appui long) ; ADJ
+  Mode Setting déjà vérifié par l'utilisateur (rien de vidéo). Ce build clôt le point vidéo.
+- Textes de la touche : 0x1c1 / 0x1c2 (court / long), 0x1c3 / 0x1c4 (appui long), remplacés dans les
+  21 lignes de langue par une partie du nom natif (tous les caractères existent ; par exemple
+  « Touche sans fil », « 無線ボタン », « Drahtlostaste »). Fonction Fn 16 (Framerate) refusée par le
+  filtre, avec la 17.
+- Vérifié : émulation (textes lus par la table de langues redirigée, aucune mention vidéo dans les
+  21 langues ; liste et filtre Fn sans 16 ni 17) ; T20-VID3 reconstruit identique ; garde-fou et
+  tests passés.
+- Résultats T20-VID4 (2026-11-01) : lignes de la touche latérale renommées sans vidéo, lisibles ;
+  Framerate et Still/Movie absents des fonctions Fn, Film Advance présent.
+  **Point vidéo : clos** (onglet masqué, mode bloqué, lignes et fonctions retirées, touche renommée).
+
+### Réaffecter l'onglet vidéo en onglet « Pellicule » (analyse statique, 2026-11-01)
+
+Certitude : lu dans le code ; icônes extraites et affichées.
+
+- En-tête d'un descripteur d'onglet (copié par le constructeur `0x5319a7c0` à `0x5319a7e8`) :
+  `+0` visibilité de l'onglet (pointeur de méthode), `+8` titre (texte : 0x1e Still Image Settings,
+  0x20 Movie Settings, 0x22 Playback, 0x24 Customize, 0x26 Setup), `+0xa` icône blanche (titre de
+  page : 0x28c à 0x290), `+0xc` icône jaune (onglet actif : 0x50, 0x51, 0x52, 0x54, 0x55), `+0xe`
+  icône grise (onglet inactif : 0x8b à 0x8f). Onglet vidéo : 0x20, 0x28e, 0x52, 0x8d. Icônes 40 × 40
+  RGBA ; jaune = fond (255, 225, 0) plein et dessin noir ; grise = dessin (80, 80, 80) sur fond
+  transparent ; blanche = dessin blanc cerné de noir sur fond transparent.
+- **Changer le logo** : ajouter trois icônes (mécanisme de GR Mod : catalogue d'icônes étendu,
+  pixels ajoutés à ICONBIN) et mettre leurs numéros dans l'en-tête. Choix de l'utilisateur : **bande
+  de film**.
+- Table des onglets : entrée 1 en RAM `0x55001ebc` (image `0x5407d3fc`), lue seulement par le
+  constructeur (comme l'entrée du menu C déjà redirigée) : un descripteur à nous peut remplacer
+  l'onglet vidéo, avec jusqu'à 38 lignes.
+- Lignes : Film Roll Mode et Rembobiner peuvent quitter le menu C (qui redevient celui d'origine)
+  pour cet onglet, avec leurs identifiants, fabrique et touches inchangés.
+- Onglet sans ligne visible (en P) : à éviter ; la visibilité de l'onglet (appelée à chaque
+  changement d'onglet et au démarrage, qui sautent un onglet invisible) peut suivre la même règle que
+  les lignes (mode U).
+- Place mémorisée de l'onglet 1 (réglages TopMenu… classification 1) : ramenée dans ses limites par
+  T18-HIDE1.
+
+### Build de test T21-TAB1 : onglet « Mode pellicule »
+
+- Choix de l'utilisateur (2026-11-01) : titre « Mode pellicule » (anglais « Film Mode », les autres
+  langues reprennent le nom de Film Roll Mode) ; onglet visible en mode U seulement ; Film Roll Mode
+  et Rembobiner déménagent (menu C d'origine) ; icône de l'onglet = bande de film ; icône de Film
+  Advance = cartouche 135 (demande de l'utilisateur).
+- Mise en œuvre : descripteur à nous recopié de celui de Movie Settings (en-tête : visibilité =
+  `filmMenuVisible` (mode U), titre et titre de page = nouveau texte, icônes blanche / jaune / grise
+  ajoutées ; une page ; nos deux lignes ; le reste vidé) ; entrée de la table des onglets
+  `0x5407d3fc` redirigée ; menu C non modifié ; onglet vidéo non masqué par son mot (il n'est plus
+  référencé). Icônes dessinées en TypeScript (`core/src/fw/gr3x/film-mode-icons.ts`, aperçu
+  `docs/film-mode-icons.png`), ajoutées au catalogue d'icônes après toutes les autres ; Film Advance
+  (fonction 42) prend la quatrième.
+- Erreur corrigée en cours de route : un premier fichier avait écrasé `film-icons.ts` (fichier de
+  GR Mod) ; restauré depuis git avant tout commit.
+- Vérifié : émulation (descripteur, table des onglets, menu C intact, constructeur réel : onglet 1
+  = nos lignes en U, 1 ligne si Film Roll Mode Off, 0 en P ; icône Fn de 42) ; T20-VID4 reconstruit
+  identique ; garde-fou ; tests (les 5 échecs de `npm test` restent ceux des fichiers privés absents).
+- Résultats T21-TAB1 (2026-11-01) : en U, onglet à icône bande de film, titre « Mode pellicule »,
+  avec Film Roll Mode et Rembobiner ; menu C d'origine ; Rembobiner fonctionne ; icône cartouche 135
+  pour Film Advance dans Fn Button Setting ; en P, l'onglet disparaît, navigation normale.
+  **Onglet Mode pellicule et icônes : validés.**
+
+### Noms des fichiers NEG_6857.JPG (T22-NAME1)
+
+Certitude : lu dans le code et émulé.
+
+- Nom d'un fichier : `sprintf("%s%04d.%s", préfixe de 4 caractères, numéro, extension)`
+  (`0x535b87f0`, format `0x53d26c14`) : le préfixe est la partie libre du nom DCF ; le numéro, les 4
+  derniers chiffres du compteur continu.
+- Préfixe d'un nouveau fichier : méthode `0x535b6b28(this, type, ...)` : types 6 et 7 (Adobe RGB) →
+  `0x53584ff4` (« _ » + 1 caractère + 2 chiffres, tampon `0x55349800`) ; sinon `0x535850a0` (les 2
+  caractères du réglage File Name, lus par `0x5354b2fc`, puis `"%s%02d"` (`0x53d216f0`) avec les 2
+  premiers chiffres du compteur, tampon `0x553497f8`). Le nom natif `R0016855` = `R001` + `6855`.
+- T22-NAME1 (forme `name1`, sur T21-TAB1) : en tête de `0x535b6b28`, en mode U avec Film Roll Mode
+  sur On, le préfixe devient le code du film (Image Control de l'enregistrement en cours, mêmes codes
+  que le dossier, FLM inconnu) + `_`, dans le tampon `0x553497f8` : `NEG_6857.JPG`, et les autres
+  extensions (DNG) pareil. Ailleurs, rien ne change. Conséquence : en mode pellicule, un fichier Adobe
+  RGB perd le `_` initial du DCF.
+- Vérifié : émulation (NEG_, STD_, FLM_ ; natif en P, en U sans Film Roll Mode, hors mode U) ;
+  T21-TAB1 reconstruit identique ; garde-fou et tests passés.
+- Résultats T22-NAME1 (2026-11-01) : photo du rouleau `NEG_xxxx.JPG`, photo P `R00xxxxx.JPG`,
+  numérotation continue entre les deux, fichiers lisibles sur l'ordinateur et en lecture sur le
+  boîtier. **Noms de fichiers du mode pellicule : validés.**
+
+### Codes de 4 lettres et dossier unique des modes libres (T22-NAME2)
+
+- Demandes de l'utilisateur (2026-11-01) : récupérer le « _ » pour un code de film de 4 lettres
+  (fichiers `NEGF6857.JPG`, dossiers inchangés `112NEG12`) ; un seul dossier pour P (et les autres
+  modes libres), un dossier par pellicule.
+- Codes de fichiers : STND, VIVD, MONO, SMON, HMON, HCBW, POSF, BLBP, RETR, HDRT, XPRO, NEGF ; FILM
+  pour un film inconnu (films de GR Mod : code à saisir dans l'application).
+- Dossier des modes libres : demi-mot `0x906` (octets `0x906`, `0x907` : bourrage, profil identique
+  à `0x9c2`/`0x9c3` d'après `settings_layout_probe.py` : aucun accès exact par un pointeur
+  d'enregistrement, lecture de mot à `+0x904` par un dump, recopiés au rappel), écrit dans
+  l'enregistrement en cours et les sept enregistrements stockés. Au choix du dossier d'une photo en
+  mode libre (chemin `free` du crochet de SetFilePath) : le dossier mémorisé s'il est sur la carte et
+  n'est pas celui d'un rouleau entamé ; sinon le plus grand s'il n'est pas un rouleau, sinon le
+  prochain nouveau dossier ; celui-ci est mémorisé. Certitude des octets : supposé (même méthode
+  que les octets du rouleau, validés).
+- Limite : en mode libre, « Create New Folder » est sans effet (le dossier mémorisé reste choisi).
+- Vérifié : émulation (678 cas de dossier, modes libres, Film Roll Mode Off, préfixes de 4 lettres) ;
+  T21-TAB1 reconstruit identique ; garde-fou et tests passés.
+- Résultats T22-NAME2 (2026-11-01) : P, vue du rouleau, P, extinction, P : les trois photos P dans un
+  même dossier RICOH, la vue dans son dossier de rouleau, nommée avec le code de 4 lettres.
+  **Codes de 4 lettres et dossier unique des modes libres : validés** (persistance après extinction
+  comprise, donc les octets `0x906` / `0x907` tiennent).
+
+## Intégration à GR Mod : analyse de l'application (2026-11-01)
+
+Certitude : lu dans le code.
+
+- Application : interface `ui/src` (React ; état et sauvegarde dans `store.ts`, `project-gr3.json`
+  et presets `gr3-preset-…` pour GR III), moteur `core/src/app/engine.ts` (classe `Engine`,
+  options `BuildOptions`), coquille Go `shell/`.
+- Un film de GR III est un `ExtraSlot` (`store.ts`) : `key`, `name`, `preset`, `icon`, `halation` ;
+  il devient un look 64 à 83 au build. Aucun champ de code aujourd'hui.
+- Build livrable GR III : `Engine.fixedGr3x` → `buildGr3xTestFirmware(raw, …, features)` avec
+  round 10, Date Imprint (`dateImprint`, `dateMenu: 'submenu'`), images d'extinction, mise en page des
+  looks ; avec des films, `buildGr3xImageControls` → `buildGr3xLookMenuResearch` → couche ADJ.
+- Le mode pellicule n'existe que dans les formes de test (`features.filmRoll`, chaîne de formes
+  jusqu'à `name2`) ; aucune sonde active dans `name2` (journaux et horloges de diagnostic retirés
+  depuis T16-CLO1 / T19-CARD3).
+- Dépendances : le démarrage et l'avance du rouleau passent par l'étage Date Imprint (crochet
+  d'exposition) et le menu ajouté de GR Mod (`installGr3xMenuAdditions`) : le mode pellicule exige
+  Date Imprint. Les codes de film ne connaissent que les looks 11 à 22 (les films de GR Mod donnent
+  FLM / FILM). Jamais construit ni émulé avec des films de GR Mod : à vérifier (sites communs).
+- Nom chinois simplifié de Film Roll Mode : 底片模式, 底 absent des textes zh-CN du boîtier (présent
+  en zh-TW) ; les polices chinoises sont celles du GR IV, mais seuls 晕 / 暈 sont vérifiés
+  (`GR3X_FONT_VERIFIED_CHARS`) : à vérifier sur le boîtier, langue 简体中文.
+
+### Intégration, étape 1 : le moteur (T23)
+
+- Décisions de l'utilisateur (2026-11-01) : un champ de 4 caractères par film (fichiers sur les 4,
+  dossier sur les 3 premiers) ; le retrait de la vidéo est une option séparée ; moteur d'abord.
+- `core/src/fw/gr3x/adj.ts` : options `filmMode: { codes }` (codes par look 64 à 127, A-Z / 0-9) et
+  `noMovie`. Avec `filmMode`, la forme effective est `name2` si `noMovie`, sinon `film` (= `name2`
+  sans la partie vidéo ni l'onglet ; les lignes restent dans le menu C, icône cartouche de Film
+  Advance quand même). Les éléments vidéo (onglet masqué, mode bloqué, lignes, fonctions Fn, touche
+  renommée) dépendent de `noMovie` et marchent aussi sans mode pellicule.
+- Codes des films : dossier `folderName` (3 premiers caractères) et préfixe des fichiers (4).
+- Avec des films, c'est la couche Image Control (round 10) qui installe le garde-fou : elle reçoit
+  maintenant `filmRollRecall` (`recallAfter`), sans quoi le build échouait.
+- Recette (`ratio-recipe.ts`) : `filmMode` (codes) et `noMovie` inscrits et relus, pour que
+  l'application reconnaisse ses propres fichiers (inspection par reconstruction).
+- `core/src/app/engine.ts` : `BuildOptions.filmMode: { codes: { CY: 'PORT', ... } }` et `noMovie` ;
+  le mode pellicule ajoute l'étage Date Imprint ; exigent un round 10 complet.
+- Vérifié : builds avec 3 films (PORT, GOLD, un sans code) avec et sans `noMovie` : émulateur
+  (préfixes PORT / GOLD / FILM, noms de dossier, tout le reste), garde-fou, inspection par l'Engine ;
+  T21-TAB1 et T19-CARD3 reconstruits identiques, T22-NAME2 de même comportement (ordre d'ajout du
+  code changé) ; tests d'équivalence GR III / IIIx et round 6 passés ; `npm test` : seuls les 5
+  échecs des fichiers privés absents.
+
+### Intégration, étape 2 : l'application (2026-11-01)
+
+- `ui/src/store.ts` : état `filmMode`, `noMovie` (projet GR III), `code` par film (`SlotState`),
+  sauvegardés dans `project-gr3.json` ; setters `setFilmMode`, `setNoMovie`, `setFilmCode` (majuscules,
+  A-Z / 0-9, 4 au plus) ; `filmModeChoosable` (GR III / IIIx complet, nombre de films réglable) ; au
+  build, `filmMode: { codes }` (codes complets des films construits) et `noMovie`, refus si un code
+  est incomplet, lignes de confirmation (écriture sur carte).
+- `ui/src/pages.tsx` : interrupteurs « Film mode » et « No movie » sous Date Imprint ; champ « Film
+  code » dans chaque film quand le mode pellicule est actif (indication FILM, explication).
+- `ui/src/i18n.ts` (anglais, chinois), `ui/src/components.tsx` (icônes bande de film et caméra barrée).
+- Vérifié : typage et construction de l'interface ; coquille de développement (`shell/build.sh dev`)
+  pilotée par Playwright : chargement du firmware 2.10, format 65:24, 2 films, les deux
+  interrupteurs, code « por1 » devenu POR1, export dans un dossier ; le fichier exporté est reconnu
+  par l'application et sa recette porte `filmMode` (64 : POR1), `noMovie`, round 10.
+- Remarque : le mode pellicule ajoute l'étage Date Imprint (la ligne Date Imprint apparaît dans le
+  menu du boîtier, sur Off), même si l'interrupteur Date imprint est éteint.
+
+### Build de test T23 : mode pellicule tel que l'application le construit
+
+- Construit par l'Engine (`buildFirmware`) comme l'application : 3 films (Portra, code PORT ; Gold,
+  code GOLD ; Film 3 sans code, donc FILM / FLM), presets de test, format XPan, ADJ soft focus,
+  `filmMode` et `noMovie`. Fichier identique octet pour octet au build contrôlé en émulation
+  (`film_roll_check.py` complet avec les codes, `guard_probe.py`), reconnu par l'application.
+- À vérifier sur le boîtier : films de GR Mod et mode pellicule ensemble (dossier `xxxPOR..`,
+  fichiers `PORTnnnn.JPG`), onglet Mode pellicule, vidéo retirée, nom chinois 底片模式 (langue
+  简体中文).
+- T23b (2026-11-02) : demande de l'utilisateur : pouvoir couper Date Imprint depuis GR Mod tout en
+  gardant le mode pellicule. Avec `filmMode` sans `dateStamp`, l'Engine construit l'étage Date Imprint
+  (nécessaire au rouleau) avec `dateHidden` : la ligne Date Imprint (`0x020001a0`) est masquée par
+  identifiant (impression toujours sur Off, invisible). Inscrit dans la recette. Vérifié en émulation
+  (constructeur réel : ligne absente avec `dateHidden`, présente sans) ; garde-fou ; tests.
+- Résultats T23b (2026-11-02), en cours : onglet photo sans ligne Date Imprint, films Portra, Gold et
+  Film 3 dans Image Control ; mode U pellicule avec Portra : 1/xx, onglet Mode pellicule présent ;
+  passage à Gold puis Film 3 : message de nouvelle pellicule à chaque fois, compteur à 1 ; photo P
+  sans erreur ; en 简体中文, 底片模式 s'affiche entier (**le nom chinois n'a pas besoin de correction** :
+  la police a le glyphe 底). Noms de dossiers et de fichiers : capture de l'utilisateur attendue.
+- Résultats T23b, suite (capture de l'utilisateur) : `174POR12/PORT7175.JPG` (Portra),
+  `175GOL12/GOLD7176.JPG` (Gold), `176FLM12/FILM7177.JPG` (Film 3, sans code), photo P
+  `173RICOH/R0017178.JPG`, dans le dossier P d'avant le flash (dossier mémorisé conservé) ;
+  numérotation continue. **Intégration à GR Mod (moteur, codes des films, retrait de la vidéo,
+  Date Imprint masqué) : validée sur le boîtier.**
+
+## Recentrage du point AF à l'extinction : analyse statique (2026-11-02)
+
+Certitude : lu dans le code ; correspondance noms / champs : la liste de 1043 noms de réglages
+(`0x53b4ec18`, « CommonTv,CommonAv,… ») est dans l'ordre exact des 1043 champs relevés par
+`settings_layout_probe.py`.
+
+- Position de la zone AF : **`StillFocusAreaCenter`, 8 octets à `+0x120`** (drapeau `+0x128`) ; mode
+  de mise au point `StillFocus` `+0x11c`, `StillBackUpFocus` `+0x11e`.
+- Mode Memory (écran `ModeMemoryController`) : cases `AfterReleaseModeMemory…` de `+0xaee` à `+0xb24`
+  (Sv, Xv, **Focus `+0xaf2`**, FocusAssist, AeMode, FlashMode, WhiteBalance, StillMovie, Macro, Drive,
+  AspectRatio, Crop, ImageControl, AdjCustom, …).
+- Application : la fusion avec les valeurs d'usine `0x53246df8` se termine par `0x5324075c`, qui
+  pour chaque case décochée recopie les valeurs d'usine des champs concernés. Case Focus décochée :
+  `+0x11c`, `+0x11e`, `+0x4fc`, `+0x4fe` (modes de mise au point photo et vidéo) **mais pas la
+  position de la zone AF `+0x120`** : le boîtier garde toujours le point AF.
+- La fusion est appelée au chargement des réglages à l'allumage (`0x5324b284`, en `0x5324b388` et
+  `0x5324b3dc`) et à « Save Settings » dans une BOX (`0x5324b760`, en `0x5324b7a8`).
+- Mise en œuvre possible : au chargement seulement (pas à Save Settings), recopier les 8 octets
+  d'usine de `+0x120` (enregistrement d'usine `0x532406fc()`) dans l'enregistrement en cours. Effet :
+  à chaque allumage, point AF au centre, en P comme en U (la BOX garde son propre point jusqu'au
+  prochain rappel de mode).
+- Décision de l'utilisateur : recentrage lié à la case Focus de Mode Memory ; test sur T23b.
+- Précision : `0x53246df8` n'appelle `0x5324075c` (Mode Memory) que pour le mode 0 (`r2` = numéro de
+  mode ; les BOX passent par `0x532419cc`) : Mode Memory ne vaut que pour P, Av, Tv, M, au
+  chargement ; Save Settings dans une BOX n'est pas concerné. En U, la BOX garde son point AF.
+- T24-AF1 (option `afReset`, Engine et recette ; l'application l'active pour tout build GR III
+  complet) : la dernière instruction de la branche Focus décochée (`0x53240870`, `strh lr,[r4,r1]`)
+  devient un saut vers : la même écriture, puis copie des 8 octets d'usine de `+0x120` (r3) vers
+  l'enregistrement chargé (r4), retour en `0x53240874`. Vérifié en émulation (écriture d'origine,
+  copie du point, registres conservés), garde-fou, inspection par l'Engine ; build = T23b + afReset.
+- **Correction de l'utilisateur (2026-11-02)** : il ne veut pas lier le point AF à la case Focus
+  (pas de retour du mode de mise au point à l'usine), mais **une case à part dans Mode Memory, entre
+  Focus et Focus Peaking**, dont le nom dit la remise au centre. T24-AF1 abandonné (l'option
+  `afReset` reste dans le moteur, l'application ne l'active plus).
+
+### Écran Mode Memory : analyse statique
+
+- Ligne « Memory » du menu C : identifiant `0x0200009b`, écran `ModeMemoryController` (table de
+  méthodes `0x53b4d930`, démarrage `0x532070a8`).
+- Au démarrage, 24 cases lues une par une (fonctions `0x53206da8` à `0x53207088`, getters des champs
+  `+0xaee…` de UserDataModel) dans les octets `+0x174` à `+0x18b` de l'écran, puis `0x53206a30`
+  remplit la liste affichée (`+0x164` le widget, vecteur d'éléments de 0x28 octets en `+0x168` /
+  `+0x16c`, chacun avec ses pointeurs de méthode de dessin et d'action).
+- À poursuivre : construction des éléments (ordre, textes), bascule d'une case, écriture des cases
+  à la sortie ; un octet de réglage libre pour la nouvelle case (candidat `0x905`, à vérifier).
+- Décisions de l'utilisateur : case « Point AF », cochée = point gardé (comme les autres cases),
+  décochée = point AF au centre à l'allumage ; par défaut cochée (comportement actuel).
+- Table des éléments de Mode Memory : **24 éléments de 0x28 octets à `0x53b4d550`** (recopiés par
+  `0x53207348`, bornes `movw/movt r4,#0x53b4d550` et `add r5,r4,#0x3c0`) : `{ numéro, texte, fn1
+  (dessin de la coche : icône 0x10f cochée / 0x10e), fn2 (bascule de l'octet d'état de l'écran et
+  redessin de la ligne dont le numéro correspond), fn3 (écriture dans le réglage par le setter de
+  UserDataModel), visibilité facultative }` (pointeurs de méthode). Numéro 2 = Focus (texte 0x2a,
+  état `+0x176`), numéro 3 = Focus Peaking (0x4d). État lu à l'ouverture (`0x532070a8`, puis
+  `b 0x53206a30` en `0x532071f8` qui remplit la liste).
+- Nom de la case dans les 21 langues : la partie « point AF » du texte natif 0x211 (« AF Point+Focus »,
+  « Point AF+mise au pt », 測距点, 对焦点 …) : tous les caractères existent.
+- Réglage : octet `0x905` (bourrage, même profil que `0x906` / `0x907` validés), 0 = gardé (défaut),
+  1 = centrer ; écrit dans l'enregistrement en cours et les sept stockés.
+
+Plan T24-AF2 :
+1. Table recopiée à 25 éléments, le nouveau (numéro 24, texte « Point AF ») inséré après Focus ;
+   fn1, fn2, fn3 à nous (état dans un octet RAM libre de la zone des sondes) ; lecture du réglage à
+   l'ouverture de l'écran (crochet sur `b 0x53206a30`).
+2. À l'allumage, dans Mode Memory (`0x5324075c`, modes libres) : si `0x905` vaut 1, copie des 8
+   octets d'usine de `+0x120` (le centre) ; le mode de mise au point reste réglé par la case Focus.
+
+### Build de test T24-AF2 : case « Point AF » dans Mode Memory (2026-11-02)
+
+Option `afPoint` (moteur, recette, Engine ; l'application l'envoie pour tout build GR III complet à
+la place de `afReset`). Certitude : vérifié en émulation, à confirmer sur le boîtier.
+
+- Table recopiée en fin d'image : 25 éléments, le nôtre (numéro 24, texte « Point AF » dans les
+  21 langues) en 4e position, entre Focus et Focus Peaking. Patches : `0x53207350` / `0x53207354`
+  (`movw/movt r4`, adresse de la copie) et `0x53207364` (`add r5,r4,#0x3e8`, 25 × 0x28).
+- État de la case pendant l'écran : octet RAM `0x558043bc` (zone des sondes, 1 = cochée). Lu à
+  l'ouverture (le saut `b 0x53206a30` de `0x532071f8` passe par notre lecture : cochée sauf si
+  `+0x905` de l'enregistrement en cours vaut 1).
+- fn1 dessine la coche (0x10f / 0x10e) ; fn2 bascule l'octet, retrouve la ligne n° 24 dans le
+  vecteur `+0x168` / `+0x16c` et la redessine (`0x53394758` puis `0x533a8990`) ; fn3 écrit
+  `état ^ 1` dans `+0x905` de l'enregistrement en cours et des sept enregistrements stockés.
+- Allumage : `0x53240874` (`ldr r2,[fp,#-0x30]`, atteint que la case Focus soit cochée ou non)
+  devient un saut vers : la même lecture, puis si `+0x905` vaut 1, copie des 8 octets d'usine de
+  `+0x120` (r3) vers l'enregistrement chargé (r4) ; retour en `0x53240878`. r0, r1, ip sont libres
+  à cet endroit (rechargés par le bloc suivant).
+- Contrôles : `film_roll_check.py` section 41 (table, textes, dessin, bascule à toutes les places,
+  écriture avec et sans enregistrement en cours, lecture pour 0 / 1 / 2 / 255, allumage pour 0 / 1 /
+  2 avec registres conservés), `guard_probe.py`, inspection par l'Engine (build identique à celui du
+  moteur), test unitaire T24-AF2.
+- **Testé sur le boîtier (2026-11-02)** : case « Point AF » entre Focus et Focus Peaking, cochée
+  par défaut ; bascule et mémorisation correctes ; décochée, point AF au centre à l'allumage, mode de
+  mise au point gardé ; cochée, point gardé ; mode pellicule intact.
+- Découverte au test : **le recentrage vaut aussi en U** (contrôle : case cochée, U garde son point
+  à l'allumage). La fusion Mode Memory s'applique donc à l'enregistrement de travail chargé à
+  l'allumage quel que soit le mode, U compris (la précision « mode 0 seulement » plus haut désigne
+  l'enregistrement de travail, pas le mode P). Décision de l'utilisateur : garder ainsi (case
+  décochée = centre à chaque allumage, dans tous les modes).
+
+
+## BOX supplémentaires : analyse statique (2026-11-02)
+
+Certitude : lu dans le code (désassemblage), non testé.
+
+- **Objet UserDataModel (`0x55063f30`)** : `+0` pointeur de l'octet de mode, `+4` enregistrement en
+  cours, **`+8` à `+0x20` les 7 copies stockées** (copie 0 = réglages du boîtier, copies 1 à 6 =
+  BOX1 à BOX6), **`+0x24` l'enregistrement d'usine** (construit au premier appel de `0x532406fc`,
+  gardé en RAM, jamais sauvegardé). Les fonctions natives refusent l'index 7 (`cmp r1,#7` en
+  `0x5324b760` Save Settings et `0x5327a110` remise à zéro d'une BOX).
+- **Défaut trouvé dans notre code** : deux boucles écrivent dans les index 0 à 7 au lieu de 0 à 6,
+  donc aussi dans l'enregistrement d'usine : dossier P (`0x906`, T22-NAME2) et case Point AF
+  (`0x905`, T24-AF2). Effet limité (l'enregistrement d'usine est reconstruit à chaque allumage et
+  la fusion ne recopie que des champs nommés), mais à corriger : borne 6 au prochain build.
+- **Stockage** : fichiers `APData%02d.bin` (format `0x54056268`) par l'objet AppData
+  (`[0x53828014()+8]`) : écriture `0x53826c54(objet, id, taille, données)`, taille `0x538270bc`,
+  lecture `0x53827218`. Identifiants 0 à 11 seulement (`cmp r1,#0xb` en `0x53826bdc`, un octet
+  d'état par identifiant en `+0x10`) : 0 octet de mode, 1 enregistrement en cours, 2 à 8 les
+  7 copies (table `0x53b59200`), 9 noms des réglages (contrôle de version), 10 disposition des
+  champs. Au démarrage, une disposition différente efface les réglages (« Invalid user FwUp!!!!!
+  Clear UserData »).
+- **Champs des BOX dans l'enregistrement** (ordre des 1043 noms) : `CustomSettingBox1..3` (BOX de
+  U1, U2, U3) `+0x7e0`, `+0x7e2`, `+0x7e4` ; `CustomSettingBoxName1..6` 32 octets chacun de
+  `+0x7e6` à `+0x8af` ; `CustomSettingBoxRegist1..6` `+0x8b2` à `+0x8bc`.
+- **Écrans** : `UserModeBoxSelectController` (liste des BOX, format « BOX%1d: » `0x53b207c4`, un
+  seul chiffre ; boucles de 6 lignes en `0x531d0408` et `0x531d1754`, machine à états `+0x15c`
+  de 0 à 0xb) et `UserModeSelectDialController` (affectation à U1 à U3). Le nombre 6 y est écrit en
+  dur à de nombreux endroits.
+- **Accès indexés aux copies** : peu nombreux (`0x5324b780` Save Settings, `0x5327a130` remise à
+  zéro, chargement `0x5324b284` par pointeur incrémenté, sauvegarde `0x5323f274`), ce qui rend
+  possible le déplacement du tableau des copies.
+- Notre mode pellicule suppose partout un mode de 1 à 6.
+
+Pistes :
+- A. **Vraies BOX supplémentaires** (par exemple 12 ou 20) : tableau des copies déplacé et agrandi,
+  enregistrements alloués au démarrage, fichiers à nous pour les BOX 7 et plus (identifiants du
+  stockage limités à 11), noms hors de l'enregistrement (14 × 32 octets > 253 octets libres),
+  écrans de liste refaits (pages, deux chiffres), bornes du mode pellicule. Chantier important et
+  sensible (fichiers de réglages en mémoire interne).
+- B. **Accès rapide aux 6 BOX** : une fonction Fn « BOX suivante » qui change la BOX du mode U en
+  cours (U3 parcourt BOX1 à BOX6 sans passer par le menu). Petit chantier, 6 rouleaux au plus.
+- Décision de l'utilisateur (2026-11-02) : la voie B (fonction Fn « BOX suivante », plan T25-BOX1)
+  est retenue mais **mise en attente** ; priorité aux réglages ADJ. La correction des boucles 0..7
+  reste à faire au prochain build.
+
+### Build V1-RC1 : correction des boucles 0..7 (2026-11-02)
+
+- Dossier des photos P (`0x906`) et case Point AF (`0x905`) : écriture dans l'enregistrement en
+  cours et les sept copies stockées (index 0 à 6) ; l'enregistrement d'usine (index 7, `+0x24`)
+  n'est plus touché. L'émulateur le vérifie désormais (il échoue sur T24-AF2, passe sur V1-RC1).
+- Build V1-RC1 = T24-AF2 corrigé, candidat à la v1 « GR Mod Film ». À tester sur le boîtier.
+- Test de V1-RC1 sur le boîtier : en P, Point AF décoché recentre ; **en U, le point n'est plus
+  recentré**. Lecture du code : au démarrage, la fusion `0x53246df8` choisit en `0x5324b154`
+  Mode Memory complet (`0x5324075c`) pour le mode 0 et la fusion réduite des BOX (`0x532419cc`,
+  quelques champs vidéo et de mise au point, pas `+0x120`) pour un mode U. V1-RC1 suit donc le code.
+  Le recentrage en U de T24-AF2 venait très probablement de l'écriture de `0x905 = 1` dans
+  l'enregistrement d'usine (seule différence), par un chemin non identifié (certitude : probable).
+- Les cases natives de Mode Memory sont écrites dans l'enregistrement de travail et les 7 copies
+  (setters `0x53243a98` et suivants) : réglage global.
+
+### Build V1-RC2 : case « Appliquer en U » dans Mode Memory (2026-11-02)
+
+Demande de l'utilisateur : que Mode Memory puisse s'appliquer aussi aux modes U. Option `memoryU`
+(avec `afPoint`), moteur, recette, Engine, envoyée par l'application.
+
+- Case n° 25 en dernière position de Mode Memory (table recopiée à 26 éléments, fin
+  `add r5,r4,#0x410`, mot 0xe2845e41), nom en 21 langues (« Appliquer en U », « Apply to U modes »,
+  在U中应用 …, caractères tous présents dans le boîtier). Décochée par défaut.
+- Réglage : octet libre `0x943` (aucun accès exact du firmware par un enregistrement, mot lu en
+  `+0x940` par un relevé de débogage, recopié au rappel), 1 = appliquer en U, écrit dans
+  l'enregistrement de travail et les 7 copies. État pendant l'écran : `0x558043bd`.
+- Aiguillage `0x5324b154` (`cmp r7,#0`) remplacé par un saut : Mode Memory complet si mode 0, ou si
+  mode 1 à 6 **et** enregistrement fusionné = enregistrement de travail (`[r6,#4]`) **et** `0x943`
+  vaut 1 ; sinon la fusion réduite des BOX. Les copies stockées (fusionnées au démarrage et à Save
+  Settings avec leur numéro) ne sont jamais concernées.
+- Contrôles : `film_roll_check.py` section 41 étendue (table de 26, textes, dessin, bascule,
+  écriture, lecture des deux cases, aiguillage pour les modes 0 à 8, 0x943 = 0 / 1 / 2,
+  enregistrement de travail ou copie, registres conservés), garde-fou, Engine (identique), tests.
+- **V1-RC2 testé sur le boîtier : ouvrir Mode Memory éteint le GR III.** Cause (lu dans le code,
+  certitude forte) : la préparation de la liste `0x532067dc` (appelée en `0x532074e8`) remplit un
+  tableau de **24 octets** sur la pile (type de vue 0x2a par ligne) et le passe à `0x53394610(liste,
+  types, nombre de lignes, 0x3a)`, qui crée une vue par octet (`0x533ad7f0`, types 0 à 0x31 ; un autre
+  type part sur une assertion `0x533ade50`, le boîtier s'éteint). Au-delà de 24 lignes, les types
+  sont lus dans la valeur de protection de la pile : avec 25 (T24-AF2, V1-RC1), un octet, sans doute
+  0 (type valide, d'où aucun symptôme) ; avec 26, un octet quelconque, d'où l'arrêt.
+
+### Build V1-RC3 : la liste de Mode Memory au-delà de 24 lignes (2026-11-02)
+
+- L'appel `bl 0x532067dc` en `0x532074e8` est remplacé par le nôtre : tableau de 32 types 0x2a
+  sur la pile, nombre de lignes plafonné à 32, même appel `0x53394610`. Corrige aussi la 25e ligne
+  de T24-AF2 et V1-RC1.
+- Contrôle d'émulation : appel patché, types transmis pour 0, 1, 24, 25, 26, 32 et 40 lignes,
+  registres conservés. Garde-fou, Engine (identique), tests.
+- **V1-RC3 testé sur le boîtier (2026-11-02)** : Mode Memory s'ouvre, « Appliquer en U » en dernière
+  ligne, décochée ; décochée, U garde son point AF ; cochée (Point AF décoché), U revient au centre à
+  l'allumage ; rappel de la BOX par la molette intact ; mode pellicule intact. Candidat retenu pour
+  la v1 « GR Mod Film ».
+
+## Liste v2 (après la 0.9.0)
+
+- **Memory for U** : une deuxième ligne de menu ouvrant Mode Memory avec un jeu de cases propre aux
+  modes U (bits dans des octets libres à vérifier, `0x806`, `0x84a`, `0x88e`, `0x943` ; écran réutilisé
+  avec un octet de mode ; fusion en U avec échange temporaire des 24 octets de cases). 3 à 5 builds.
+- **BOX suivante** (fonction Fn, plan T25-BOX1).
+- Réglages ADJ supplémentaires, Image Control custom supplémentaires, palier de crop 40 mm.
+
+## Publication GR Mod Film 0.9.0 (2026-11-02)
+
+- Nom « GR Mod Film » : fenêtre, messages, `GR Mod Film.app` (identifiant
+  `io.github.rollk2.grmodfilm`), `GRModFilm.exe`, `grmod-film` (Linux), page d'accueil avec la mention
+  « based on GR Mod by Maxwooow (GPL-2.0) ». Dossier de données propre (`GRModFilm`, `grmod-film`) :
+  cohabite avec GR Mod. Version 0.9.0.
+- Mises à jour coupées (`filmEdition` dans `shell/updates.go`) ; le menu « ? » ouvre la page des
+  releases de rollk2/Ricoh-GRMod à la place de « Check for updates ».
+- README : section GR Mod Film en tête. Workflow `.github/workflows/release.yml` : un tag `vX.Y.Z`
+  (égal à la version de package.json) lance les tests Go, construit l'interface, les programmes
+  Linux, Windows et Mac (signé ad hoc par rcodesign), et publie la release.
+- Vérifié ici : tests Go, typage, builds Linux et Windows, application lancée (titre, accueil, menu,
+  aucune requête de mise à jour vers l'extérieur), firmware construit par l'application reconnu
+  (recette : filmMode, noMovie, dateHidden, afPoint, memoryU). Non vérifiable ici : build Mac
+  (outils externes), à valider par le workflow puis sur le Mac de l'utilisateur.
+
+### Build V1-RC4 : retours du test de l'application Mac (2026-11-02)
+
+Retours : Still/Movie visible dans Mode Memory (avec No movie) ; multi-exposition perdue après
+l'allumage en U avec « Appliquer en U » coché ; point AF recentré à l'allumage mais rechargé depuis
+la BOX au rappel par la molette.
+
+- Cause de la multi-exposition perdue (certitude forte, confirmée par l'utilisateur : case cochée,
+  constaté après allumage) : Mode Memory en U remet à l'usine les cases décochées, dont Drive
+  (`+0x472`) ; le mode pellicule ne force la multi-exposition qu'au rappel d'un U et à la ligne Film
+  Roll Mode.
+- Allumage en U (aiguillage `0x5324b154`) : Mode Memory est maintenant **appelé**
+  (`0x5324075c(UserDataModel, enregistrement)`) puis, si la BOX est en mode pellicule, Drive = 3 et
+  Save Interim Images = 0 sont remis ; sortie par une copie de l'épilogue de la fusion
+  (`sub sp,fp,#0x1c ; ldm sp,{r4-r7,fp,sp,pc}`, mots bruts 0xe24bd01c 0xe89da8f0, la fusion ne
+  sortant jamais par un `ldm ... pc` natif).
+- Rappel d'un U par la molette (décision de l'utilisateur : Mode Memory entier au rappel) : le
+  crochet de rappel du garde-fou appelle `memoryURecall` (Mode Memory sur l'enregistrement de
+  travail si `0x943` = 1, mode 1 à 6) puis le rappel du mode pellicule, qui reforce la multi-exposition.
+- Still/Movie (élément n° 8, texte 0x5f) masqué dans Mode Memory avec No movie : méthode de
+  visibilité `+0x20` vers une fonction qui renvoie 0 (même mécanisme que HDF, `0x532064b4`).
+- Contrôles : section 41 étendue (allumage : modes 0 à 8, `0x943`, enregistrement de travail ou copie,
+  BOX en mode pellicule ou non, épilogue et registres ; rappel : 36 cas ; Still/Movie), garde-fou,
+  Engine (identique), tests.
+- **V1-RC4 testé sur le boîtier (2026-11-02)** : Still/Movie absent de Mode Memory ; à l'allumage
+  en U, multi-exposition active et point AF au centre ; U3 → U2 → U3, idem.
+
+### Build V1-RC5 : Mode Memory n'agit pas sur le film, le format et Drive d'une BOX pellicule
+
+Demande de l'utilisateur : en mode pellicule, Image Control, Drive et Aspect Ratio de Mode Memory
+ne doivent pas avoir d'effet.
+- Cases de Mode Memory (lues dans l'enregistrement de travail) : Drive `+0xb04`, Aspect Ratio
+  `+0xb0a`, Image Control `+0xb0e` (1 = mémorisé ; noms `AfterReleaseModeMemory…`, n° 1026, 1029, 1031).
+- Dans les deux appels de Mode Memory en U (allumage, rappel), si la BOX a Film Roll Mode sur On :
+  les trois cases sont mises à 1 le temps de l'appel puis remises (valeurs gardées dans un registre).
+  Crop n'est pas concerné (non demandé).
+- Contrôles : section 41 (cases à 1 pendant l'appel pour une BOX pellicule, inchangées sinon,
+  rendues après), garde-fou, Engine (identique), tests.
+- **V1-RC5 testé sur le boîtier (2026-11-02)** : BOX pellicule intacte (film, format,
+  multi-exposition) à l'allumage et au rappel avec les trois cases décochées ; P remis à l'usine
+  comme prévu. Candidat retenu pour la 0.9.0.

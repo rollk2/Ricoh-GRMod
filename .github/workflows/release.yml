@@ -1,0 +1,105 @@
+# GR Mod Film: a tag vX.Y.Z builds the program for Windows, macOS and Linux and publishes a release.
+# A pull request to main builds the same programs as downloadable artifacts (no release), to test them.
+#
+# The tag must match the version in package.json. The firmware tests that need Ricoh's official files
+# cannot run here (the files are not in the repository): they are run on a developer's machine before
+# tagging. This workflow checks the shell (Go tests), type-checks and builds the UI, then the programs.
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Version (from the tag, which must match package.json)
+        id: version
+        run: |
+          pkg="$(node -p "require('./package.json').version")"
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            tag="${GITHUB_REF_NAME#v}"
+            if [ "$tag" != "$pkg" ]; then
+              echo "tag v$tag does not match package.json $pkg" >&2; exit 1
+            fi
+          fi
+          echo "version=$pkg" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: shell/go.mod
+          cache-dependency-path: shell/go.sum
+
+      - name: Tools (Windows resources, macOS ad hoc signing)
+        run: |
+          go install github.com/tc-hib/go-winres@v0.3.3
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          v=0.29.0
+          curl -sSL -o rcodesign.tar.gz "https://github.com/indygreg/apple-platform-rs/releases/download/apple-codesign%2F${v}/apple-codesign-${v}-x86_64-unknown-linux-musl.tar.gz"
+          mkdir -p "$HOME/bin" && tar -xzf rcodesign.tar.gz -C "$HOME/bin" --strip-components=1 --wildcards '*/rcodesign'
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+
+      - name: Install
+        run: npm ci
+
+      - name: Shell tests
+        working-directory: shell
+        run: |
+          # web/ is embedded; in a fresh checkout it is the placeholder page (build.sh replaces it by the UI).
+          mkdir -p web && cp placeholder/index.html web/index.html
+          GOTOOLCHAIN="$(sed -n 's/^toolchain[[:space:]]*\(go[0-9.]*\).*/\1/p' go.mod)" go test ./...
+
+      - name: UI (type check and bundle)
+        run: npm -w ui run build
+
+      - name: Programs
+        working-directory: shell
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          ./build.sh linux
+          ./build.sh windows
+          ./build.sh mac
+          v="$VERSION"
+          mkdir -p dist/release
+          cp dist/GRModFilm.exe "dist/release/GRModFilm-$v.exe"
+          cp dist/GRModFilm-mac.zip "dist/release/GRModFilm-$v-mac.zip"
+          cp dist/grmod-film "dist/release/grmod-film-$v-linux"
+          (cd dist/release && sha256sum * > SHA256SUMS.txt)
+
+      - name: Programs as artifacts (pull requests)
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: GRModFilm-${{ steps.version.outputs.version }}-test
+          path: shell/dist/release/*
+
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: GR Mod Film ${{ steps.version.outputs.version }}
+          files: shell/dist/release/*
+          body: |
+            GR Mod Film ${{ steps.version.outputs.version }}: GR Mod with a film mode for the Ricoh GR III (2.10) and GR IIIx (1.60).
+            See the README for what it does. Camera-tested on a GR III 2.10; the GR IIIx is not tested on a camera.
+
+            - Windows: `GRModFilm-${{ steps.version.outputs.version }}.exe`
+            - macOS (Intel and Apple silicon): unzip `GRModFilm-${{ steps.version.outputs.version }}-mac.zip` and move `GR Mod Film.app` to Applications.
+              The app is signed ad hoc, not by Apple: at the first start, open System Settings > Privacy & Security and click "Open Anyway".
+            - Linux (x64): `grmod-film-${{ steps.version.outputs.version }}-linux`
+
+            GR Mod Film is based on GR Mod by Maxwooow, GPL-2.0-only; the source is this repository at this tag.

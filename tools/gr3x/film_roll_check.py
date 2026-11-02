@@ -1,0 +1,1506 @@
+"""Film mode phase 3.1: the roll's state and frame counter (core/src/fw/gr3x/film-roll.ts), executed in the built image.
+
+ - The first exposure (the date imprint's exposure hook, SetShootingInfoResultBeforeExpose's entry):
+   in a mode 1..6 with no roll started, the record in use and the BOX's stored record get bit 1 of
+   0x9b1 and frame 1 (0x9b2); nothing else changes, nothing in mode 0, with a roll started, or with a
+   missing pointer; every argument register, lr and sp as they were, ip = sp at the function's second
+   instruction.
+ - The model's end (0x5323a080): with a roll started and the multi-exposure state 2, the frame
+   advances in both records; past the roll's length (from the ratio at +0x4c2: 36 for 3:2, 12 for
+   1:1, 21 for XPan, 36 otherwise) the roll ends (bit 1 and the frame cleared); then the record in use
+   and the BOX's record are written (0x53826c54(store, 1, 0xb26, record in use) then (store, mode + 2,
+   0xb26, BOX record), store = [0x53828014() + 8], both substituted); nothing at all otherwise;
+   every register kept, then the function's second instruction.
+ - The screen counter (0x532aa1f4): in a mode 1..6, snprintf(buffer, 6, "%d/%d", frame or 1 before
+   the roll starts, length) (substituted), then the text function's return (r4, r5, fp, sp, pc from
+   its frame); else r2 = the count (r0), r0, r1, r3 kept.
+ - Save Settings into BOX n (0x5324b760, the native body substituted from its second instruction):
+   the native result returned; BOX n's bit 1 and frame cleared (1 <= n <= 6), the record in use's too
+   when n is the active mode; nothing else.
+ - The mode recall, run natively from the copy of the stored record to just before the live values
+   (as guard_probe): the record in use's Save Interim Images (+0x482) is 0 after recalling 1..6, and
+   as copied after recalling 0; the drive mode (+0x472) likewise 3 (multi-exposure).
+ - Forms with folders: SetFilePath's entry gives the roll's folder (see film-roll.ts), the function
+   then runs as a call (substituted: entry stack, ip = sp) and its result comes back to the caller.
+This does not establish the camera's storage, menus or pictures.
+"""
+import argparse,hashlib,json,random,struct
+from pathlib import Path
+from unicorn import arm_const as reg
+from film_probe_check import Probe,TIME,UDM
+from guard_probe import RECALL_FROM,RECALL_TO,UD,RECS,SIZE
+from native_probe import STOP,STACK
+
+if not __debug__:raise RuntimeError('Validation requires Python assertions')
+
+FLAGS,FRAME,FOLDER,INTERIM,RATIO=0x9b1,0x9b2,0x9b3,0x482,0x4c2
+INTERIM_SET,DRIVE_SET=0x53262990,0x5327b744
+LINE_VALUE_ICON,TOP_SET_TITLE,LIST_SET_ITEM,ROW=0x5339de20,0x5339dc70,0x5339e8b0,0x6304a800
+SNPRINTF,FORMAT,BUF,DRIVE=0x53141100,0x53c0ca59,0x63049000,0x472
+SET_FILE_PATH,NEXT_FOLDER,FOLDER_MARK=0x535b2e8c,0x535b742c,0x535a6dac;SVC,WRAP,DIRS,TABLE,PATH=0x63050000,0x63051000,0x63052000,0x63053000,0x63054000
+MODEL=0x55063f30;POINTER=MODEL+4;STORED=MODEL+8;SINGLETON=0x553458b0
+BEFORE_EXPOSE,MODEL_END,COUNTER,BOX_SAVE=0x534322d8,0x5323a080,0x532aa1f4,0x5324b760
+APP_DATA,APP_WRITE=0x53828014,0x53826c54
+CUR,BOXES,OBJ,STORE,LIVE1,LIVE2,LIVE3=0x63040000,0x63042000,0x6304a000,0x6304b000,0x6304c000,0x6304d000,0x6304e000
+LENGTHS={0:36,3:12,4:21}
+LIVE_CELL,LIVE_OBJ=0x63058000,0x63058100
+LOOK_CODES={11:'STD',12:'VIV',13:'MON',14:'SMO',15:'HMO',16:'HCB',17:'POS',18:'BLB',19:'RET',20:'HDR',21:'CRP',22:'NEG'}
+
+class RollProbe(Probe):
+    def __init__(self,data,manifest):
+        super().__init__(data,manifest);self.writes=[];self.box_native=0;self.next=0;self.next_calls=0;self.sfp_ret=None;self.sfp_calls=0;self.entry_sp=None;self.prints=[];self.setters=[];self.ui=[];self.real_post=False;self.fn_stubs=False;self.posters=0;self.model_no=0;self.events=[];self.qv_stubs=False;self.qv=[];self.dir_stubs=False;self.live=[];self.timer_stubs=False;self.timers=[];self.end_stubs=False;self.opens=[];self.menu_stubs=False;self.memory_stubs=False;self.merge_stubs=False;self.kept_flags=None
+        for at in range(0x63040000,0x63059000,0x1000):
+            try:self.uc.mem_map(at,0x1000)
+            except Exception:pass
+    def _hook(self,cpu,at,size,user):
+        r=lambda n:cpu.reg_read(getattr(reg,'UC_ARM_REG_R%d'%n))
+        ret=lambda v:(cpu.reg_write(reg.UC_ARM_REG_R0,v),cpu.reg_write(reg.UC_ARM_REG_PC,cpu.reg_read(reg.UC_ARM_REG_LR)))
+        # rear_dial_probe stubs the UI event poster (0x532288b0); the key probe's hook there must run.
+        if at==0x532288b0 and self.real_post:return
+        if at==APP_DATA:ret(OBJ)
+        elif at==APP_WRITE:self.writes.append((r(0),r(1),r(2),r(3)));ret(1)
+        elif at==SET_FILE_PATH+4 and self.sfp_ret is not None:
+            # The diagnostic's call of the function: entry stack, ip = sp, return address its own.
+            assert cpu.reg_read(reg.UC_ARM_REG_SP)==self.entry_sp and cpu.reg_read(reg.UC_ARM_REG_IP)==self.entry_sp
+            self.sfp_calls+=1;ret(self.sfp_ret)
+        elif self.fn_stubs and at==0x532270d4:
+            self.events.append(('retake action',));ret(1)
+        elif self.dir_stubs and at==0x53525d5c:
+            ret(LIVE_CELL)
+        elif self.dir_stubs and at==0x5354d138:
+            assert r(0)==LIVE_OBJ;self.live.append(('name',bytes(cpu.mem_read(r(1),6))));ret(1)
+        elif self.dir_stubs and at==0x5354d104:
+            assert r(0)==LIVE_OBJ;self.live.append(('type',r(1)&0xff));ret(1)
+        elif self.fn_stubs and at==0x5320aefc:
+            self.queue_arg=r(0);ret(0xe0e0)
+        elif self.fn_stubs and at==0x532288b0:
+            assert r(0)==0xe0e0;self.events.append((r(1),r(2),r(3)));ret(1)
+        elif self.qv_stubs and at==0x531cbde4+4:
+            assert cpu.reg_read(reg.UC_ARM_REG_SP)==cpu.reg_read(reg.UC_ARM_REG_IP)
+            self.qv.append(('start',r(0),r(1),r(2),r(3),cpu.reg_read(reg.UC_ARM_REG_SP)));ret(0x77)
+        elif self.end_stubs and at==0x5320aefc:
+            ret(0xe0e0)
+        elif self.end_stubs and at==0x53228a90:
+            assert r(0)==0xe0e0;ret(0xa9a9)
+        elif self.end_stubs and at==0x53228c4c:
+            assert r(0)==0xe0e0;ret(0xc4c4)
+        elif self.end_stubs and at==0x5316c9d8:
+            self.opens.append((r(0),r(1),r(2)));ret(1)
+        elif self.timer_stubs and at==0x5320b01c:
+            self.timers.append(('queue',));ret(0xb0b0)
+        elif self.timer_stubs and at==0x5322b468:
+            assert r(0)==0xb0b0;self.timers.append(('start',r(1),r(2)));ret(0x7777)
+        elif self.qv_stubs and at==0x531cbfc4+4:
+            assert cpu.reg_read(reg.UC_ARM_REG_SP)==cpu.reg_read(reg.UC_ARM_REG_IP)
+            self.qv.append(('event',r(0),r(1),cpu.reg_read(reg.UC_ARM_REG_SP)));ret(0x55)
+        elif self.qv_stubs and at==0x531ca804:
+            assert cpu.reg_read(reg.UC_ARM_REG_LR)==STOP
+            self.qv.append(('next',r(0),cpu.reg_read(reg.UC_ARM_REG_SP)));ret(1)
+        elif self.fn_stubs and at==0x531a4d80:
+            self.posters+=1;ret(0x5a)
+        elif self.menu_stubs and at==0x5320c09c:
+            ret(0xc0c1)
+        elif self.menu_stubs and at==0x532dbee8:
+            assert r(0)==0xc0c1;ret(self.model_no)
+        elif self.fn_stubs and at==0x5320c09c:
+            assert r(0)==0xa0a0;ret(0xc0c0)
+        elif self.fn_stubs and at==0x532dbee8:
+            assert r(0)==0xc0c0;ret(self.model_no)
+        elif self.memory_stubs and at==0x53394758:self.ui.append(('row',r(0),r(1)));ret(0x6305a000)
+        elif self.memory_stubs and at==0x533a8990:self.ui.append(('tick',r(0),r(1)));ret(0)
+        elif self.memory_stubs and at==0x53394610:self.ui.append(('types',r(0),bytes(cpu.mem_read(r(1),r(2))),r(3)));ret(0)
+        elif self.merge_stubs and at==0x5324075c:self.ui.append(('memory',r(0),r(1)));self.kept_flags=bytes(cpu.mem_read(r(1)+0xb04,1)+cpu.mem_read(r(1)+0xb0a,1)+cpu.mem_read(r(1)+0xb0e,1));ret(0x7e57)
+        elif self.merge_stubs and at in (0x5324b15c,0x5324b168):self.ui.append(('merge',at));cpu.emu_stop()
+        elif at==LINE_VALUE_ICON:self.ui.append(('icon',r(0),r(1)));ret(0)
+        elif at==TOP_SET_TITLE:self.ui.append(('title',r(0),r(1),r(2)));ret(0)
+        elif at==LIST_SET_ITEM:self.ui.append(('item',r(0),r(1),r(2)));ret(0)
+        elif at in (INTERIM_SET,DRIVE_SET) and self.stubs_on:
+            self.setters.append(('interim' if at==INTERIM_SET else 'drive',r(0),r(1)));ret(1)
+        elif at==SNPRINTF:
+            self.prints.append((r(0),r(1),r(2),r(3),struct.unpack('<I',bytes(cpu.mem_read(cpu.reg_read(reg.UC_ARM_REG_SP),4)))[0]));ret(5)
+        elif at==NEXT_FOLDER:
+            assert r(0)==WRAP;self.next_calls+=1;ret(self.next)
+        elif at==BOX_SAVE+4:
+            assert r(1)==self.box_n;self.box_native+=1;ret(0x66)
+        else:super()._hook(cpu,at,size,user)
+
+def verify(data,manifest,seed=3101):
+    assert manifest.get('filmRoll') and manifest.get('round10')
+    e=manifest['entries'];sites={s['address']:s for s in manifest['sites']}
+    for at in (MODEL_END,COUNTER,BOX_SAVE):assert 'film roll' in sites[at]['reason'],hex(at)
+    max_id=max(r['id'] for r in manifest['menu'])
+    p=RollProbe(data,manifest);cpu=p.uc;rng=random.Random(seed);cases={}
+    count=lambda k:cases.__setitem__(k,cases.get(k,0)+1)
+    cpu.mem_write(OBJ+8,struct.pack('<I',STORE))
+    cpu.mem_write(LIVE_CELL,struct.pack('<I',LIVE_OBJ))
+    if manifest['filmRoll'] in ('dir1','dir2','dir3','dg1','dg2','dg3','dir4','dir5','dir6','dir7','dir8','dir9','dir10','dir11','dir12','dir13','dir14','end1','end2','end3','clo1','clo2','clo3','clo4','msg1','rwd1','hide1','card1','card2','card3','vid1','vid2','vid3','vid4','tab1','name1','name2','film','card1','card2','card3','vid1','vid2','vid3','vid4','tab1','name1','name2','film','card2'):p.dir_stubs=True
+    if manifest['filmRoll'] in ('end1','end2','end3','clo1','clo2','clo3','clo4','msg1','rwd1','hide1','card1','card2','card3','vid1','vid2','vid3','vid4','tab1','name1','name2','film','card1','card2','card3','vid1','vid2','vid3','vid4','tab1','name1','name2','film','card2'):p.end_stubs=True
+    p.film_close=False   # guard_probe's own stubs for T16-CLO2 (this probe has its own)
+    # T23: the GR Mod films' codes (4 characters; the folder takes the first 3).
+    FILM_CODES={int(k):v for k,v in manifest.get('filmCodes',{}).items()}
+    LOOK_CODES.update({k:v[:3] for k,v in FILM_CODES.items()})
+    def roll_name(rec):
+        L=LENGTHS.get(rec[RATIO],36) if rec[RATIO]<=max_id else 36
+        return (LOOK_CODES.get(rec[0x1c2],'FLM')+'%02d'%L).encode()+b'\0'
+    fromzero=manifest['filmRoll'] in ('clo3','clo4','msg1','rwd1','hide1','card1','card2','card3','vid1','vid2','vid3','vid4','tab1','name1','name2','film','card1','card2','card3','vid1','vid2','vid3','vid4','tab1','name1','name2','film','card2')
+    late=manifest['filmRoll'] in ('dir14','end1','end2','end3','clo1','clo2','clo3','clo4','msg1','rwd1','hide1','card1','card2','card3','vid1','vid2','vid3','vid4','tab1','name1','name2','film','card1','card2','card3','vid1','vid2','vid3','vid4','tab1','name1','name2','film','card2');end1=manifest['filmRoll'] in ('end1','end2','end3','clo1','clo2','clo3','clo4','msg1','rwd1','hide1','card1','card2','card3','vid1','vid2','vid3','vid4','tab1','name1','name2','film','card1','card2','card3','vid1','vid2','vid3','vid4','tab1','name1','name2','film','card2');end2=manifest['filmRoll'] in ('end2','end3','clo1','clo2','clo3','clo4','msg1','rwd1','hide1','card1','card2','card3','vid1','vid2','vid3','vid4','tab1','name1','name2','film','card1','card2','card3','vid1','vid2','vid3','vid4','tab1','name1','name2','film','card2');end3=manifest['filmRoll']=='end3';hold=manifest['filmRoll'] in ('end3','clo1','clo2','clo3','clo4','msg1','rwd1','hide1','card1','card2','card3','vid1','vid2','vid3','vid4','tab1','name1','name2','film','card1','card2','card3','vid1','vid2','vid3','vid4','tab1','name1','name2','film','card2');clo1=manifest['filmRoll'] in ('clo1','clo2','clo3','clo4','msg1','rwd1','hide1','card1','card2','card3','vid1','vid2','vid3','vid4','tab1','name1','name2','film','card1','card2','card3','vid1','vid2','vid3','vid4','tab1','name1','name2','film','card2');clo2=manifest['filmRoll'] in ('clo2','clo3','clo4','msg1','rwd1','hide1','card1','card2','card3','vid1','vid2','vid3','vid4','tab1','name1','name2','film','card1','card2','card3','vid1','vid2','vid3','vid4','tab1','name1','name2','film','card2');clo3=manifest['filmRoll'] in ('clo3','clo4','msg1','rwd1','hide1','card1','card2','card3','vid1','vid2','vid3','vid4','tab1','name1','name2','film','card1','card2','card3','vid1','vid2','vid3','vid4','tab1','name1','name2','film','card2');clo4=manifest['filmRoll'] in ('clo4','msg1','rwd1','hide1','card1','card2','card3','vid1','vid2','vid3','vid4','tab1','name1','name2','film','card1','card2','card3','vid1','vid2','vid3','vid4','tab1','name1','name2','film','card2');msg1=manifest['filmRoll'] in ('msg1','rwd1','hide1','card1','card2','card3','vid1','vid2','vid3','vid4','tab1','name1','name2','film','card1','card2','card3','vid1','vid2','vid3','vid4','tab1','name1','name2','film','card2');rwd1=manifest['filmRoll'] in ('rwd1','hide1','card1','card2','card3','vid1','vid2','vid3','vid4','tab1','name1','name2','film','card1','card2','card3','vid1','vid2','vid3','vid4','tab1','name1','name2','film','card2');hide1=manifest['filmRoll'] in ('hide1','card1','card2','card3','vid1','vid2','vid3','vid4','tab1','name1','name2','film','card2');card1=manifest['filmRoll'] in ('card1','card2','card3','vid1','vid2','vid3','vid4','tab1','name1','name2','film','vid1','vid2','vid3','vid4','tab1','name1','name2','film','vid2','vid3','vid4','tab1','name1','name2','film','vid3','vid4','tab1','name1','name2','film','vid4','tab1','name1','name2','film','tab1','name1','name2','film','name1','name2','film','name2','film','film');card2=manifest['filmRoll']=='card2';card3=manifest['filmRoll'] in ('card3','vid1','vid2','vid3','vid4','tab1','name1','name2','film','vid2','vid3','vid4','tab1','name1','name2','film','vid3','vid4','tab1','name1','name2','film','vid4','tab1','name1','name2','film','tab1','name1','name2','film','name1','name2','film','name2','film','film');vid1=manifest['filmRoll'] in ('vid1','vid2','vid3','vid4','tab1','name1','name2','film','vid3','vid4','tab1','name1','name2','film','vid4','tab1','name1','name2','film','tab1','name1','name2','film','name1','name2','film','name2','film','film');vid2=manifest['filmRoll'] in ('vid2','vid3','vid4','tab1','name1','name2','film','vid4','tab1','name1','name2','film','tab1','name1','name2','film','name1','name2','film','name2','film','film');vid3=manifest['filmRoll'] in ('vid3','vid4','tab1','name1','name2','film','tab1','name1','name2','film','name1','name2','film','name2','film','film');vid4=manifest['filmRoll'] in ('vid4','tab1','name1','name2','film','name1','name2','film','name2','film','film');tab1=manifest['filmRoll'] in ('tab1','name1','name2','film','name2','film','film');name1=manifest['filmRoll'] in ('name1','name2','film','film');name2=manifest['filmRoll'] in ('name2','film')
+    # T23: 'film' is 'name2' without the movie part (noMovie off): no movie checks, no Film Mode tab.
+    PEND_FRAME=0x5580439b;MSG=0x55804397
+    if manifest['filmRoll']=='film':vid1=vid2=vid3=vid4=tab1=False
+    menu_form=manifest['filmRoll'] in ('menu','keys','fn','fn2','fn3','fn4','fn5','rt1','fn6','fn7','dir1','dir2','dir3','dg1','dg2','dg3','dir4','dir5','dir6','dir7','dir8','dir9','dir10','dir11','dir12','dir13','dir14','end1','end2','end3','clo1','clo2','clo3','clo4','msg1','rwd1','hide1','card1','card2','card3','vid1','vid2','vid3','vid4','tab1','name1','name2','film','card1','card2','card3','vid1','vid2','vid3','vid4','tab1','name1','name2','film','card2');keys_form=manifest['filmRoll']=='keys';fn_form=manifest['filmRoll'] in ('fn','fn2','fn3','fn4','fn5','rt1','fn6','fn7','dir1','dir2','dir3','dg1','dg2','dg3','dir4','dir5','dir6','dir7','dir8','dir9','dir10','dir11','dir12','dir13','dir14','end1','end2','end3','clo1','clo2','clo3','clo4','msg1','rwd1','hide1','card1','card2','card3','vid1','vid2','vid3','vid4','tab1','name1','name2','film','card1','card2','card3','vid1','vid2','vid3','vid4','tab1','name1','name2','film','card2');fn2=manifest['filmRoll']=='fn2';fn3=manifest['filmRoll']=='fn3';fn4=manifest['filmRoll'] in ('fn4','fn5','rt1','fn6','fn7','dir1');fn7=manifest['filmRoll'] in ('fn7','dir1','dir2','dir3','dg1','dg2','dg3','dir4','dir5','dir6','dir7','dir8','dir9','dir10','dir11','dir12','dir13','dir14','end1','end2','end3','clo1','clo2','clo3','clo4','msg1','rwd1','hide1','card1','card2','card3','vid1','vid2','vid3','vid4','tab1','name1','name2','film','card1','card2','card3','vid1','vid2','vid3','vid4','tab1','name1','name2','film','card2');dir1=manifest['filmRoll'] in ('dir1','dir2','dir3','dg1','dg2','dg3','dir4','dir5','dir6','dir7','dir8','dir9','dir10','dir11','dir12','dir13','dir14','end1','end2','end3','clo1','clo2','clo3','clo4','msg1','rwd1','hide1','card1','card2','card3','vid1','vid2','vid3','vid4','tab1','name1','name2','film','card1','card2','card3','vid1','vid2','vid3','vid4','tab1','name1','name2','film','card2');dir4=manifest['filmRoll'] in ('dir4','dir5');dir6=manifest['filmRoll']=='dir6';dir7=manifest['filmRoll']=='dir7';dir8=manifest['filmRoll'] in ('dir8','dir9','dir10','dir11','dir12','dir13','dir14','end1','end2','end3','clo1','clo2','clo3','clo4','msg1','rwd1','hide1','card1','card2','card3','vid1','vid2','vid3','vid4','tab1','name1','name2','film','card1','card2','card3','vid1','vid2','vid3','vid4','tab1','name1','name2','film','card2');dir9=manifest['filmRoll'] in ('dir9','dir10','dir11','dir12','dir13','dir14','end1','end2','end3','clo1','clo2','clo3','clo4','msg1','rwd1','hide1','card1','card2','card3','vid1','vid2','vid3','vid4','tab1','name1','name2','film','card1','card2','card3','vid1','vid2','vid3','vid4','tab1','name1','name2','film','card2');dir10=manifest['filmRoll'] in ('dir10','dir11','dir12','dir13','dir14','end1','end2','end3','clo1','clo2','clo3','clo4','msg1','rwd1','hide1','card1','card2','card3','vid1','vid2','vid3','vid4','tab1','name1','name2','film','card1','card2','card3','vid1','vid2','vid3','vid4','tab1','name1','name2','film','card2');dir11=manifest['filmRoll']=='dir11';dir12=manifest['filmRoll']=='dir12';dir13=manifest['filmRoll'] in ('dir13','dir14','end1','end2','end3','clo1','clo2','clo3','clo4','msg1','rwd1','hide1','card1','card2','card3','vid1','vid2','vid3','vid4','tab1','name1','name2','film','card1','card2','card3','vid1','vid2','vid3','vid4','tab1','name1','name2','film','card2');dir14=manifest['filmRoll'] in ('dir14','end1','end2','end3','clo1','clo2','clo3','clo4','msg1','rwd1','hide1','card1','card2','card3','vid1','vid2','vid3','vid4','tab1','name1','name2','film','card1','card2','card3','vid1','vid2','vid3','vid4','tab1','name1','name2','film','card2');dir5=manifest['filmRoll']=='dir5';dir2=manifest['filmRoll'] in ('dir2','dir3','dg1');dir3=manifest['filmRoll'] in ('dir3','dg1','dg2','dg3','dir4','dir5','dir6','dir7','dir8','dir9','dir10','dir11','dir12','dir13','dir14','end1','end2','end3','clo1','clo2','clo3','clo4','msg1','rwd1','hide1','card1','card2','card3','vid1','vid2','vid3','vid4','tab1','name1','name2','film','card1','card2','card3','vid1','vid2','vid3','vid4','tab1','name1','name2','film','card2');dg2=manifest['filmRoll'] in ('dg2','dg3');dg3=manifest['filmRoll']=='dg3';dg1=manifest['filmRoll'] in ('dg1','dg2','dg3');fn5=manifest['filmRoll'] in ('fn5','rt1','fn6');rt1=manifest['filmRoll']=='rt1';fn6=manifest['filmRoll']=='fn6'
+    # T19-CARD3: the folder services' singleton (guard word 0x55357678, object 0x5535767c), not built here.
+    try:cpu.mem_map(0x55357000,0x1000)
+    except Exception:pass
+    cpu.mem_write(0x55357678,bytes(0x20))
+    def setup(mode,cur=None,box=None,model=True,pointer=True,state=2,film=True):
+        cur=bytearray(rng.randrange(256) for _ in range(SIZE)) if cur is None else bytearray(cur)
+        # Form 'menu': the record in use's Film Roll Mode (bit 0 of 0x9b1) on unless asked off.
+        if menu_form:cur[FLAGS]=(cur[FLAGS]|1) if film else (cur[FLAGS]&~1)
+        boxes=[bytearray(rng.randrange(256) for _ in range(SIZE)) for _ in range(8)]
+        if box is not None:boxes[mode]=bytearray(box)
+        cpu.mem_write(CUR,bytes(cur))
+        for i,b in enumerate(boxes):cpu.mem_write(BOXES+i*0x1000,bytes(b))
+        cpu.mem_write(OBJ+0x100,bytes([mode]))
+        cpu.mem_write(MODEL,struct.pack('<II',OBJ+0x100 if model else 0,CUR if pointer else 0))
+        cpu.mem_write(STORED,b''.join(struct.pack('<I',BOXES+i*0x1000) for i in range(8)))
+        cpu.mem_write(SINGLETON,struct.pack('<I',LIVE1));cpu.mem_write(LIVE1+0x518,struct.pack('<I',LIVE2));cpu.mem_write(LIVE2,struct.pack('<I',LIVE3))
+        cpu.mem_write(LIVE3+0x6c0,bytes([state]))
+        if late:cpu.mem_write(PEND_FRAME,b'\0')
+        return cur,boxes
+    def state():
+        return bytes(cpu.mem_read(CUR,SIZE)),[bytes(cpu.mem_read(BOXES+i*0x1000,SIZE)) for i in range(8)]
+    def kept(regs,second=None):
+        for k,v in regs.items():assert cpu.reg_read(getattr(reg,'UC_ARM_REG_R%d'%k))==v,k
+        assert cpu.reg_read(reg.UC_ARM_REG_LR)==STOP
+        if second:assert cpu.reg_read(reg.UC_ARM_REG_IP)==cpu.reg_read(reg.UC_ARM_REG_SP)
+    # 1. The first exposure (the date imprint's hook, which runs the roll's code first).
+    hook=e['exposureOrientation']
+    for mode in range(8):
+        for started in (False,True):
+            for model,pointer in ((True,True),(False,True),(True,False)):
+                cur,boxes=setup(mode,model=model,pointer=pointer)
+                for b in [cur]+boxes:b[FLAGS]=(b[FLAGS]&~2)|(2 if started else 0)
+                if end1:
+                    for b in [cur]+boxes:b[FRAME]=b[FRAME] or 1
+                cpu.mem_write(CUR,bytes(cur))
+                for i,b in enumerate(boxes):cpu.mem_write(BOXES+i*0x1000,bytes(b))
+                cpu.mem_write(SINGLETON,bytes(4))
+                if late:cpu.mem_write(PEND_FRAME,b'\x83')
+                regs={0:5,1:6,2:7,3:8};p.run(hook,BEFORE_EXPOSE+4,regs);count('exposure');kept(regs,True)
+                if late:assert cpu.mem_read(PEND_FRAME,1)[0]==(mode if 1<=mode<=6 and model and pointer else 0),(mode,model,pointer)
+                c2,b2=state()
+                want_c,want_b=bytearray(cur),[bytearray(b) for b in boxes]
+                if 1<=mode<=6 and not started and model and pointer:
+                    for b in (want_c,want_b[mode]):
+                        b[FLAGS]=(b[FLAGS]|2)&~0xc;b[FRAME]=1;b[FOLDER]=0
+                        if clo1:b[0x9c2]=cur[0x1c2];b[0x9c3]=cur[RATIO]
+                assert c2==bytes(want_c) and b2==[bytes(b) for b in want_b],(mode,started,model,pointer,[hex(i) for i in range(SIZE) if c2[i]!=want_c[i]],[(j,[hex(i) for i in range(SIZE) if b2[j][i]!=want_b[j][i]]) for j in range(8)])
+    # 2. The model's end.
+    for mode in range(8):
+        for ratio in sorted(set([0,3,4,max_id,1,2]+[rng.randrange(256)])):
+            L=LENGTHS.get(ratio,36) if ratio<=max_id else 36
+            for frame in (1,2,L-1,L,L+5):
+                for started,st in ((True,2),(True,0),(True,1),(False,2)):
+                    cur,boxes=setup(mode,state=st)
+                    for b in (cur,boxes[mode]):
+                        b[FLAGS]=(b[FLAGS]&~2)|(2 if started else 0);b[FRAME]=frame&255;b[RATIO]=ratio
+                    cpu.mem_write(CUR,bytes(cur));cpu.mem_write(BOXES+mode*0x1000,bytes(boxes[mode]))
+                    p.writes=[];p.live=[];p.opens=[];end1 and cpu.mem_write(MSG,b'\0');regs={0:0xa1,1:0xb2,2:0xc3,3:0xd4,4:0x44,5:0x55,6:0x66}
+                    if dir1 and rng.random()<0.5:cur[0x1c2]=rng.choice([11,12,13,14,15,16,17,18,19,20,21,22,0,23,40]);cpu.mem_write(CUR,bytes(cur))
+                    p.run(MODEL_END,MODEL_END+4,regs);count('end');kept(regs,True)
+                    if dir1:
+                        assert p.live==([('name',roll_name(cur)),('type',1)] if 1<=mode<=6 and started and st==2 else []),(p.live,mode,ratio,cur[0x1c2])
+                        if p.live:count('folder name given')
+                    c2,b2=state();want_c,want_b=bytearray(cur),[bytearray(b) for b in boxes]
+                    advance=1<=mode<=6 and started and st==2
+                    if advance:
+                        nf=frame+1
+                        for b in (want_c,want_b[mode]):
+                            if nf>L and end1:b[FRAME]=0
+                            elif nf>L:b[FLAGS]&=~0xe;b[FRAME]=0;b[FOLDER]=0
+                            else:b[FRAME]=nf&255
+                        if end1:
+                            assert p.opens==([(0xa9a9,0x08000007,0xc4c4)] if nf>L else []),p.opens
+                            assert cpu.mem_read(MSG,1)[0]==(1 if nf>L else 0)
+                        assert p.writes==[(STORE,1,0xb26,CUR),(STORE,mode+2,0xb26,BOXES+mode*0x1000)],p.writes
+                        count('advance' if nf<=L else 'roll end')
+                    else:assert p.writes==[]
+                    assert c2==bytes(want_c) and b2==[bytes(b) for b in want_b],(mode,ratio,frame,started,st)
+    cur,boxes=setup(2,model=False);p.writes=[];p.run(MODEL_END,MODEL_END+4,{});assert p.writes==[] and state()==(bytes(cur),[bytes(b) for b in boxes])
+    cur,boxes=setup(2,pointer=False);p.writes=[];p.run(MODEL_END,MODEL_END+4,{});assert p.writes==[]
+    cur,boxes=setup(2);cur[FLAGS]|=2;cpu.mem_write(CUR,bytes(cur));cpu.mem_write(SINGLETON,bytes(4));p.writes=[];p.run(MODEL_END,MODEL_END+4,{});assert p.writes==[]
+    # 3. The screen counter, run from inside 0x532aa1d4 with a frame of {r4, r5, fp, sp, pc}.
+    FRAME_AT=0x63048000
+    for mode in range(8):
+        for started in (False,True):
+            for frame in (0,1,17,72):
+                for ratio in (0,3,4,2):
+                    for count_v in (0,93,123456):
+                        cur,boxes=setup(mode);cur[FLAGS]=(cur[FLAGS]&~2)|(2 if started else 0);cur[FRAME]=frame;cur[RATIO]=ratio;cpu.mem_write(CUR,bytes(cur))
+                        cpu.mem_write(FRAME_AT,struct.pack('<5I',0x4444,0x5555,0x6666,STACK,STOP));p.prints=[]
+                        regs={0:count_v,1:0x11,3:0x33,4:BUF,5:0x55,11:FRAME_AT+0x14}
+                        film=1<=mode<=6
+                        p.run(COUNTER,STOP if film else COUNTER+4,regs);count('counter')
+                        if film:
+                            L=LENGTHS.get(ratio,36) if ratio<=max_id else 36
+                            assert p.prints==[(BUF,6,FORMAT,((max(frame-1,0) if started else 0) if fromzero else (frame or (1 if end1 else 0)) if started else 1),L)],(p.prints,mode,started,frame,ratio)
+                            assert cpu.reg_read(reg.UC_ARM_REG_R0)==5 and cpu.reg_read(reg.UC_ARM_REG_R4)==0x4444 and cpu.reg_read(reg.UC_ARM_REG_R5)==0x5555 and cpu.reg_read(reg.UC_ARM_REG_R11)==0x6666
+                        else:
+                            assert p.prints==[] and cpu.reg_read(reg.UC_ARM_REG_R2)==count_v,(mode,count_v)
+                            kept({0:count_v,1:0x11,3:0x33,4:BUF})
+    cur,boxes=setup(3,pointer=False);p.prints=[];p.run(COUNTER,COUNTER+4,{0:55,4:BUF});assert cpu.reg_read(reg.UC_ARM_REG_R2)==55 and p.prints==[]
+    assert bytes(data[FORMAT-0x53000000:FORMAT-0x53000000+6])==b'%d/%d\0'
+    # 4. Save Settings into BOX n.
+    for active in range(8):
+        for n in range(9):
+            cur,boxes=setup(active)
+            for b in [cur]+boxes:b[FLAGS]|=2;b[FRAME]=9
+            cpu.mem_write(CUR,bytes(cur))
+            for i,b in enumerate(boxes):cpu.mem_write(BOXES+i*0x1000,bytes(b))
+            # The object's first eight words as UserDataModel's: r0 is the object (0x55063f30).
+            p.box_n=n;p.box_native=0
+            p.run(BOX_SAVE,STOP,{0:MODEL,1:n});count('box save')
+            assert p.box_native==1 and cpu.reg_read(reg.UC_ARM_REG_R0)==0x66
+            c2,b2=state();want_c,want_b=bytearray(cur),[bytearray(b) for b in boxes]
+            if 1<=n<=6:
+                want_b[n][FLAGS]&=~0xe;want_b[n][FRAME]=0;want_b[n][FOLDER]=0
+                if active==n:want_c[FLAGS]&=~0xe;want_c[FRAME]=0;want_c[FOLDER]=0
+            assert c2==bytes(want_c) and b2==[bytes(b) for b in want_b],(active,n)
+    # 5. The mode recall (guard_probe's layout: object UD, records at RECS + i * 0x1000).
+    for mode in range(7):
+        for _ in range(4):
+            recs,ud=p.records(rng)
+            p.live=[];p.run(RECALL_FROM,RECALL_TO,{5:UD,6:mode});count('recall')
+            got=bytes(cpu.mem_read(RECS,0xb26));src=recs[1+mode]
+            forced=mode and (not menu_form or src[FLAGS]&1)
+            if dir1:
+                assert p.live==([] if forced else [('name',bytes(src[0x936:0x93b])+b'\0'),('type',src[0x934])]),(mode,p.live)
+                count('folder name restored' if p.live else 'folder name kept')
+            assert got[INTERIM]==(0 if forced else src[INTERIM]),(mode,got[INTERIM],src[INTERIM])
+            assert got[DRIVE]==(3 if forced else src[DRIVE]),(mode,got[DRIVE])
+            assert bytes(cpu.mem_read(RECS+(1+mode)*0x1000,SIZE))==src
+    # 6. Form 'folders': the roll's folder at SetFilePath's entry.
+    folders=manifest['filmRoll'] in ('folders','folders-diag','menu','keys','fn','fn2','fn3','fn4','fn5','rt1','fn6','fn7','dir1','dir2','dir3','dg1','dg2','dg3','dir4','dir5','dir6','dir7','dir8','dir9','dir10','dir11','dir12','dir13','dir14','end1','end2','end3','clo1','clo2','clo3','clo4','msg1','rwd1','hide1','card1','card2','card3','vid1','vid2','vid3','vid4','tab1','name1','name2','film','card1','card2','card3','vid1','vid2','vid3','vid4','tab1','name1','name2','film','card2');diag=manifest['filmRoll']=='folders-diag'
+    D=0x55804390
+    def diag_check(given,code_want,next_want,ret,calls_before):
+        d=bytes(cpu.mem_read(D,8))
+        assert struct.unpack_from('<H',d,0)[0]==given and d[2]==code_want and d[3]==(1 if ret else 0) and d[4]==(calls_before+1)&255 and struct.unpack_from('<H',d,6)[0]==next_want,(d.hex(),given,code_want,next_want,ret)
+    assert (SET_FILE_PATH in sites)==folders and (FOLDER_MARK in sites)==folders
+    if folders:
+        enc=lambda b,f:(b.__setitem__(FLAGS,(b[FLAGS]&~0xc)|((f>>8)&3)<<2),b.__setitem__(FOLDER,f&255))
+        dec=lambda b:b[FOLDER]|((b[FLAGS]>>2)&3)<<8
+        def dirs(existing,highest):
+            cpu.mem_write(SVC+8,struct.pack('<I',WRAP));cpu.mem_write(WRAP+8,struct.pack('<I',DIRS))
+            cpu.mem_write(DIRS+0x10,struct.pack('<I',TABLE));cpu.mem_write(DIRS+0x2a,struct.pack('<H',highest-100))
+            t=bytearray(0x1000)
+            for f in existing:struct.pack_into('<I',t,(f-100)*4,0x7000+f)
+            cpu.mem_write(TABLE,bytes(t))
+        # T22-NAME2: the free modes' one folder (halfword 0x906 of every record).
+        PF=0x906
+        def pfree(cur,boxes,existing,highest,nxt):
+            def usable(n):
+                if not (100<=n<=999 and n in existing):return False
+                return not any(boxes[i][FLAGS]&2 and dec(boxes[i])==n for i in range(1,7))
+            r_=struct.unpack_from('<H',cur,PF)[0];want_c,want_b=bytearray(cur),[bytearray(b) for b in boxes]
+            if usable(r_):return r_,want_c,want_b
+            n=highest if usable(highest) else nxt
+            if n:
+                # The record in use and the seven stored ones (0..6); the factory record (index 7) untouched.
+                for b in [want_c]+want_b[:7]:struct.pack_into('<H',b,PF,n)
+            return n,want_c,want_b
+        def run(given):
+            path=bytearray(rng.randrange(256) for _ in range(16));path[4:6]=struct.pack('<H',given);cpu.mem_write(PATH,bytes(path))
+            regs={0:SVC,1:0x1111,2:PATH,3:0x3333,4:0x44,5:0x55,6:0x66};p.next_calls=0
+            if folders:
+                p.sfp_ret=rng.choice((0,1,0x5a));p.entry_sp=STACK;p.sfp_calls=0;run.calls=cpu.mem_read(D+4,1)[0]
+                p.run(SET_FILE_PATH,STOP,regs);count('folder');assert p.sfp_calls==1
+                assert cpu.reg_read(reg.UC_ARM_REG_R0)==p.sfp_ret and cpu.reg_read(reg.UC_ARM_REG_LR)==STOP
+                for k in (4,5,6):assert cpu.reg_read(getattr(reg,'UC_ARM_REG_R%d'%k))==regs[k]
+            else:p.run(SET_FILE_PATH,SET_FILE_PATH+4,regs);count('folder');kept(regs,True)
+            return path,struct.unpack_from('<H',bytes(cpu.mem_read(PATH,16)),4)[0],bytes(cpu.mem_read(PATH,16))
+        log_n=cpu.mem_read(0x558043b8,1)[0]
+        for mode in range(8):
+            for started in (False,True):
+                for folder in (0,99,100,105,300,512,999,1000,1023):
+                    for nxt in (0,113):
+                        for given in (0,107):
+                            dirs([100,105,107,512,999],112);p.next=nxt
+                            cur,boxes=setup(mode)
+                            for b in [cur]+boxes:b[FLAGS]=(b[FLAGS]&~2)|(2 if started else 0);enc(b,folder)
+                            # Free modes: no other BOX's roll in folder 112 (the highest).
+                            for i in range(1,7):
+                                if i!=mode and dec(boxes[i])==112:enc(boxes[i],0)
+                            cpu.mem_write(CUR,bytes(cur))
+                            for i,b in enumerate(boxes):cpu.mem_write(BOXES+i*0x1000,bytes(b))
+                            path,got,raw=run(given)
+                            want_c,want_b=bytearray(cur),[bytearray(b) for b in boxes]
+                            roll=1<=mode<=6 and started
+                            if given:want=given
+                            elif roll and folder in (100,105,512,999):want=folder
+                            elif roll:
+                                want=nxt or 0
+                                if nxt:
+                                    for b in (want_c,want_b[mode]):enc(b,nxt)
+                                # T19-CARD1: a roll's folder no longer on the card: the roll is lost (frame 2).
+                                if card1 and folder==300 and cur[FRAME]:
+                                    for b in (want_c,want_b[mode]):b[FRAME]=2
+                            elif name2:want,want_c,want_b=pfree(cur,boxes,[100,105,107,512,999],112,nxt)
+                            else:want=0
+                            assert got==want and raw[:4]==bytes(path[:4]) and raw[6:]==bytes(path[6:]),(mode,started,folder,nxt,given,got,want)
+                            assert state()==(bytes(want_c),[bytes(b) for b in want_b]),(mode,started,folder,nxt,given)
+                            if card2:
+                                # T19-CARD2: the log (count, path, table entry: the test's entries are no RAM pointers → 0).
+                                if given:cw=5
+                                elif roll and folder in (100,105,512,999):cw=2
+                                elif roll:cw=(7 if folder==300 else 3) if nxt else 4
+                                else:cw=1
+                                lg=bytes(cpu.mem_read(0x558043b8,3))
+                                assert lg[0]==(log_n+1)&255 and lg[1]==cw and lg[2]==0,(mode,started,folder,nxt,given,lg.hex(),cw)
+                                log_n=lg[0];count('folder log')
+                            if diag:
+                                if given:cw,nw=5,0
+                                elif roll and folder in (100,105,512,999):cw,nw=2,0
+                                elif roll:cw,nw=(3 if nxt else 4),nxt
+                                else:cw,nw=1,0
+                                diag_check(given,cw,nw,p.sfp_ret,run.calls);count('diagnostic')
+        # Free modes: the highest folder is a started roll's folder of a BOX.
+        for mode in (0,2,7):
+            for owner in range(1,7):
+                for owner_started in (True,False):
+                    for nxt in (0,113):
+                        dirs([100,112],112);p.next=nxt
+                        cur,boxes=setup(mode)
+                        cur[FLAGS]&=~2
+                        for i in range(1,7):
+                            boxes[i][FLAGS]&=~2;enc(boxes[i],0)
+                        boxes[owner][FLAGS]|=2 if owner_started else 0;enc(boxes[owner],112)
+                        if mode==owner:cur=bytearray(boxes[owner]);cur[FLAGS]&=~2
+                        cpu.mem_write(CUR,bytes(cur))
+                        for i,b in enumerate(boxes):cpu.mem_write(BOXES+i*0x1000,bytes(b))
+                        path,got,raw=run(0)
+                        want=nxt if owner_started else 0;want_c,want_b=cur,boxes
+                        if name2:want,want_c,want_b=pfree(cur,boxes,[100,112],112,nxt)
+                        assert got==want,(mode,owner,owner_started,nxt,got)
+                        assert state()==(bytes(want_c),[bytes(b) for b in want_b])
+                        count('free mode, roll folder highest' if owner_started else 'free mode')
+                        if diag:diag_check(0,6 if owner_started else 1,nxt if owner_started else 0,p.sfp_ret,run.calls)
+        if diag:
+            # The clock: { 2000 + entry % 100, path + 6 when it succeeded (1..12), 1 + calls % 28, roll folder % 24, next % 60 }.
+            for entry_f in (0,107,999):
+                for code_v in (0,1,3,6):
+                    for ok in (0,1):
+                        for calls in (0,27,28,255):
+                            for folder in (0,110,999):
+                                for nxt in (0,110,999):
+                                    cur,boxes=setup(3);enc(cur,folder);cpu.mem_write(CUR,bytes(cur))
+                                    cpu.mem_write(D,struct.pack('<HBBBBH',entry_f,code_v,ok,calls,0,nxt))
+                                    cpu.mem_write(TIME,bytes(16));p.call(e['filmProbeTime'],0x1234,TIME);count('clock')
+                                    mm=code_v+(6 if ok else 0) or 1
+                                    want=struct.pack('<H',2000+entry_f%100)+bytes([min(mm,12),1+calls%28,folder%24,nxt%60])+bytes(10)
+                                    assert bytes(cpu.mem_read(TIME,16))==want,(entry_f,code_v,ok,calls,folder,nxt)
+            cpu.mem_write(POINTER,b'\0\0\0\0');p.clock=0;p.call(e['filmProbeTime'],0x1234,TIME);assert p.clock==1
+    # 7. Form 'menu': Film Roll Mode off, and the menu line's handlers.
+    if menu_form:
+        dirs([100,105,112],112)
+        for mode in range(1,7):
+            for started in (False,True):
+                cur,boxes=setup(mode,film=False)
+                for b in [cur]+boxes:b[FLAGS]=(b[FLAGS]&~2)|(2 if started else 0);enc(b,105)
+                for i in range(1,7):
+                    if dec(boxes[i])==112:enc(boxes[i],0)
+                cpu.mem_write(CUR,bytes(cur))
+                for i,b in enumerate(boxes):cpu.mem_write(BOXES+i*0x1000,bytes(b))
+                before=state()
+                cpu.mem_write(SINGLETON,bytes(4));p.run(e['exposureOrientation'],BEFORE_EXPOSE+4,{0:5,1:6,2:7,3:8});assert state()==before
+                cpu.mem_write(SINGLETON,struct.pack('<I',LIVE1));p.writes=[];p.run(MODEL_END,MODEL_END+4,{});assert p.writes==[] and state()==before
+                p.prints=[];p.run(COUNTER,COUNTER+4,{0:77,4:BUF});assert p.prints==[] and cpu.reg_read(reg.UC_ARM_REG_R2)==77
+                if name2:
+                    p.next=0;want,want_c,want_b=pfree(cur,boxes,[100,105,112],112,0)
+                    path,got,raw=run(0);assert got==want and state()==(bytes(want_c),[bytes(b) for b in want_b]),(mode,started,got,want)
+                else:path,got,raw=run(0);assert got==0 and state()==before,(mode,started,got)
+                count('film off')
+        V,IC,SET=e['filmMenuVisible'],e['filmMenuIsCurrent'],e['filmMenuSet']
+        for mode in range(8):
+            for model in (True,False):
+                cur,boxes=setup(mode,model=model);p.call(V,0x1234);count('menu visible')
+                assert cpu.reg_read(reg.UC_ARM_REG_R0)==(1 if model and 1<=mode<=6 else 0),(mode,model)
+        for mode in range(8):
+            for film in (False,True):
+                for v in (0,1):
+                    cur,boxes=setup(mode,film=film);p.call(IC,0x1234,v);count('menu current')
+                    want=(1 if (film and menu_form)==bool(v) else 0) if 1<=mode<=6 else 0
+                    assert cpu.reg_read(reg.UC_ARM_REG_R0)==want,(mode,film,v)
+        p.stubs_on=True
+        for mode in range(8):
+            for film in (False,True):
+                for started in (False,True):
+                    for v in (0,1,2):
+                        cur,boxes=setup(mode,film=film)
+                        for b in [cur]+boxes:b[FLAGS]=(b[FLAGS]&~2)|(2 if started else 0);enc(b,333);b[FRAME]=9
+                        cpu.mem_write(CUR,bytes(cur))
+                        for i,b in enumerate(boxes):cpu.mem_write(BOXES+i*0x1000,bytes(b))
+                        p.setters=[];p.log=[]
+                        p.live=[];regs={0:0x1234,1:v,4:0x44,5:0x55,6:0x66};p.run(SET,STOP,regs);count('menu set')
+                        if dir1:assert p.live==([('name',bytes(cur[0x936:0x93b])+b'\0'),('type',cur[0x934])] if 1<=mode<=6 and v==0 else []),(mode,v,p.live)
+                        for k in (4,5,6):assert cpu.reg_read(getattr(reg,'UC_ARM_REG_R%d'%k))==regs[k]
+                        want_c,want_b=bytearray(cur),[bytearray(b) for b in boxes]
+                        u=1<=mode<=6
+                        if u and v==1:
+                            want_c[FLAGS]|=1
+                            assert p.setters==[('interim',UDM,0),('drive',UDM,3)],p.setters
+                        else:assert p.setters==[],p.setters
+                        # Off suspends: only the record in use's bit 0, the roll is kept.
+                        if u and v==0:want_c[FLAGS]&=~1
+                        assert state()==(bytes(want_c),[bytes(b) for b in want_b]),(mode,film,started,v)
+        p.stubs_on=False
+        # The line (this, row): value icon (boxed OFF 296 / ON 297), then the title (r1 = r2).
+        for mode in (0,3,7):
+            for film in (False,True):
+                cur,boxes=setup(mode,film=film);p.ui=[]
+                p.run(e['filmLine'],STOP,{0:0x1234,1:ROW});count('menu line')
+                on=film and 1<=mode<=6
+                assert p.ui[0]==('icon',ROW,297 if on else 296) and p.ui[1][0]=='title' and p.ui[1][1]==ROW and p.ui[1][2]==p.ui[1][3] and len(p.ui)==2,p.ui
+        # The list's values: Off (296, text 2), On (297, text 1).
+        for v in (0,1):
+            p.ui=[];p.run(e['filmDraw'],STOP,{0:0x1234,1:ROW,2:v});count('menu list')
+            assert p.ui==[('item',ROW,296 if v==0 else 297,2 if v==0 else 1)],p.ui
+    # 8. Form 'keys': the key probe (a table of four { key, count, event }, pending entry at + 16).
+    if keys_form:
+        K=0x55804390;KEY_EVENT,POST_EVENT=0x53221a1c,0x532288b0
+        def table():
+            d=bytes(cpu.mem_read(K,17));return [(d[4*i],d[4*i+1],struct.unpack_from('<H',d,4*i+2)[0]) for i in range(4)],d[16]
+        def key(k):
+            regs={0:0x1111,1:k,2:0x22,3:0x33};p.run(KEY_EVENT,KEY_EVENT+4,regs);count('key');kept(regs,True)
+        def post(ev):
+            p.real_post=True;regs={0:0x1111,1:ev,2:0x22,3:0x33};p.run(POST_EVENT,POST_EVENT+4,regs);count('event');kept(regs,True);p.real_post=False
+        def clock():
+            cpu.mem_write(TIME,bytes(16));p.call(e['filmProbeTime'],0x1234,TIME);count('key clock');return bytes(cpu.mem_read(TIME,16))
+        def date(k,c,n,ev):return struct.pack('<H',2000+k%100)+bytes([1+min(c,11),1+ev//60,n,ev%60])+bytes(10)
+        cur,boxes=setup(3)
+        # Model's end clears the table (whatever the roll does).
+        cpu.mem_write(K,bytes(range(1,18)));p.writes=[];p.run(MODEL_END,MODEL_END+4,{0:1,1:2,2:3,3:4});assert table()==([(0,0,0)]*4,0)
+        assert clock()==date(0,0,0,0)
+        # A sequence: key 6, then the gesture 33 five times (each followed by an event), key 6 again.
+        key(6);post(0x31)
+        for i in range(5):key(33);post(0xd4+i)
+        key(6);post(0x31)
+        t,pend=table();assert t==[(6,2,0x31),(33,5,0xd8),(0,0,0),(0,0,0)] and pend==0,(t,pend)
+        assert clock()==date(33,5,2,0xd8)
+        assert clock()==date(33,5,2,0xd8)   # the clock does not clear (two encodes per frame)
+        # No event after a key: the event stays; an event with nothing pending changes nothing.
+        key(1);post(0x99);t,_=table();assert t[2]==(1,1,0x99)
+        post(0x77);assert table()[0][2]==(1,1,0x99)
+        # A fifth different key is not counted; counts stop at 255; equal counts: the first entry.
+        key(2);key(3);t,pend=table();assert t[3]==(2,1,0) and pend==4 and all(x[0]!=3 for x in t)
+        cpu.mem_write(K,bytes([7,255,1,0, 8,255,2,0])+bytes(9));key(7);assert table()[0][0][1]==255
+        assert clock()==date(7,255,2,1)
+        cpu.mem_write(K,bytes([9,3,5,0, 10,3,6,0, 11,2,7,0])+bytes(5));assert clock()==date(9,3,3,5)
+        cpu.mem_write(K,bytes([60,1,0x1a4&255,0x1a4>>8])+bytes(13));assert clock()==date(60,1,1,0x1a4)
+    # 10. Form 'fn': Film Advance (function 42) in Fn Button Settings.
+    if fn_form:
+        TABLE_OFF=bytes(cpu.mem_read(0x53b4eb7c,36));tbl=e['filmFnTable'];ADDED=bytes([42,43] if fn4 and not fn7 else [42])
+        assert bytes(cpu.mem_read(tbl,36+len(ADDED)))==TABLE_OFF+ADDED
+        p.stubs_on=True;p.fn_stubs=True
+        # The lists' constructor (native loop, table and count patched): the vector it fills.
+        VEC=0x63055000;OBJF=0x63056000
+        for model,dropped in ((0,0x28),(1,0x16),(2,None)):
+            cpu.mem_write(OBJF+0x1a4,struct.pack('<III',VEC,VEC,VEC+0x100));p.model_no=model
+            p.run(0x531be67c,STOP,{0:OBJF});count('fn list')
+            end=struct.unpack('<I',bytes(cpu.mem_read(OBJF+0x1a8,4)))[0]
+            got=bytes(cpu.mem_read(VEC,end-VEC))
+            want=bytes(f for f in TABLE_OFF+ADDED if not (model!=0 and f==0x16) and not (model!=1 and f==0x28) and not (vid3 and f==17) and not (vid4 and f==16))
+            assert got==want,(model,got.hex(),want.hex())
+        # Text and icon: 42 ours, the others the camera's.
+        for fn,text0 in ((0,2),(42,None))+(((43,2),(200,2)) if fn7 else ((43,0x2b5),) if fn4 else ()):
+            p.call(0x53292ed0,0x1234,fn);t=cpu.reg_read(reg.UC_ARM_REG_R0)
+            if fn==42:assert 786<=t<1000,t
+            else:assert t==text0
+            count('fn text')
+        # T21-TAB1: Film Advance's own icon, the one after the Film Mode tab's three (header + 0xa: the white one).
+        fa_icon=e['filmIconBase']+3 if 'filmIconBase' in e else 0x121
+        if tab1:assert struct.unpack('<H',bytes(cpu.mem_read(e['filmTab']+0xa,2)))[0]==e['filmIconBase']
+        for fn,icon in ((0,0x113),(23,0x121),(24,0x120),(42,fa_icon))+(((43,0x113),(200,0x113)) if fn7 else ((43,0x121),) if fn4 else ()):
+            p.call(0x53293e6c,0x1234,fn);assert cpu.reg_read(reg.UC_ARM_REG_R0)==icon,(fn,hex(cpu.reg_read(reg.UC_ARM_REG_R0)));count('fn icon')
+        # Pressed (Fn, ISO, Drive): GetEventCustomize's entry.
+        FNS=(0,23,41,42,43) if fn4 else (0,23,41,42)
+        for mode in (0,3,7):
+            for film in (False,True):
+                for fn in FNS:
+                  for st in ((2,0) if fn==43 else (2,)):
+                    cur,boxes=setup(mode,film=film,state=st);p.posters=0;p.events=[];fn6 and cpu.mem_write(0x55804398,b'\0');dir3 and cpu.mem_write(0x5580439a,b'\0');before=state()
+                    regs={0:0x1111,1:0x2222,2:fn,3:0x3333,4:0x44,5:0x55}
+                    p.run(0x5329bcc8,0x5329bccc,regs);count('fn pressed')
+                    adv=fn==42 and film and 1<=mode<=6
+                    assert p.posters==(1 if adv else 0),(mode,film,fn)
+                    assert p.events==(([('retake action',)] if fn5 else [(0xb7,0,0)]) if fn==43 and not fn7 and film and 1<=mode<=6 and st==2 else []),(mode,film,fn,st,p.events)
+                    want=dict(regs);want[2]=0 if fn in (42,43) else fn
+                    kept(want,True);assert state()==before
+        # Pressed (Movie/Wireless, Hold): the function in r6 at the switch.
+        for mode in (0,3):
+            for film in (False,True):
+                for fn in FNS:
+                  for st in ((2,0) if fn==43 else (2,)):
+                    cur,boxes=setup(mode,film=film,state=st);p.posters=0;p.events=[];fn6 and cpu.mem_write(0x55804398,b'\0');dir3 and cpu.mem_write(0x5580439a,b'\0')
+                    regs={0:0x1111,1:0x2222,2:0x3333,3:0x4444,4:0x44,5:0x55,6:fn}
+                    p.run(0x5329a0a0,0x5329a0a4,regs);count('fn wlan')
+                    adv=fn==42 and film and 1<=mode<=6
+                    assert p.posters==(1 if adv else 0),(mode,film,fn)
+                    assert p.events==(([('retake action',)] if fn5 else [(0xb7,0,0)]) if fn==43 and not fn7 and film and 1<=mode<=6 and st==2 else []),(mode,film,fn,st,p.events)
+                    want=dict(regs);want[6]=0 if fn in (42,43) else fn
+                    for k,v in want.items():assert cpu.reg_read(getattr(reg,'UC_ARM_REG_R%d'%k))==v,k
+                    cpsr=cpu.reg_read(reg.UC_ARM_REG_CPSR);C=(cpsr>>29)&1;Z=(cpsr>>30)&1
+                    assert (C==0 or Z==1)==(want[6]<=0x29)
+        p.stubs_on=False;p.fn_stubs=False
+    # 13. Form 'fn4': the screen's start, then Next shot, in film mode.
+    if fn4:
+        # The cases that stop at the start's second instruction first: Unicorn chains the blocks it has
+        # run, so a jump into a block already reached is not stopped at `until` afterwards.
+        START,NEXT=0x531cbde4,0x531ca804;p.qv_stubs=True
+        ARM=0x55804399
+        cases_qv=[(m,f,st,mo,po,a) for m in (0,1,3,6,7) for f in (False,True) for st in (0,1,2,3) for mo,po in ((True,True),(False,True),(True,False)) for a in ((False,True) if fn7 else (True,))]
+        cases_qv.sort(key=lambda c:c[1] and 1<=c[0]<=6 and c[2]==2 and c[3] and c[4] and c[5])
+        for mode,film,st,model,pointer,armed in cases_qv:
+                        setup(mode,film=film,state=st,model=model,pointer=pointer);before=state();p.qv=[]
+                        if fn7:cpu.mem_write(ARM,bytes([1 if armed else 0]))
+                        auto=film and 1<=mode<=6 and st==2 and model and pointer and armed
+                        regs={0:0x1111,1:0x2222,2:0x3333,3:0x4444,4:0x44,5:0x55}
+                        if auto:
+                            p.run(START,STOP,regs);count('review closes')
+                            assert p.qv[0][:5]==('start',0x1111,0x2222,0x3333,0x4444) and p.qv[0][5]==STACK-8
+                            assert p.qv[1]==('next',0x1111,STACK) and len(p.qv)==2,p.qv
+                            assert cpu.reg_read(reg.UC_ARM_REG_R0)==1 and cpu.reg_read(reg.UC_ARM_REG_SP)==STACK
+                            for k in (4,5):assert cpu.reg_read(getattr(reg,'UC_ARM_REG_R%d'%k))==regs[k]
+                        else:
+                            p.qv_stubs=False;p.run(START,START+4,regs);p.qv_stubs=True;count('review stays');kept(regs,True)
+                        if fn7:assert cpu.mem_read(ARM,1)[0]==0
+                        assert state()==before
+        p.qv_stubs=False
+        if fn7:
+            # The opening action raises the flag; each exposure lowers it.
+            for mode in (0,3):
+                setup(mode);cpu.mem_write(ARM,b'\0');regs={0:0x1111,1:0x2222,2:0x3333,3:0x4444}
+                p.run(0x53226738,0x5322673c,regs);kept(regs,True);assert cpu.mem_read(ARM,1)[0]==1;count('review armed')
+            for model in (True,False):
+                setup(3,model=model);cpu.mem_write(ARM,b'\1');regs={0:5,1:6,2:7,3:8}
+                p.run(e['exposureOrientation'],BEFORE_EXPOSE+4,regs);kept(regs,True);assert cpu.mem_read(ARM,1)[0]==0;count('arm cleared at exposure')
+    # 16. Form 'dir2': the start notes the screen; Next shot at its first event.
+    if dir2:
+        START,EVENT,ARM,PEND=0x531cbde4,0x531cbfc4,0x55804399,0x5580439c;THIS=0x6304a400
+        pend=lambda:struct.unpack('<I',bytes(cpu.mem_read(PEND,4)))[0]
+        for mode in (0,3):
+            setup(mode);cpu.mem_write(ARM,b'\0');regs={0:0x1111,1:0x2222,2:0x3333,3:0x4444}
+            p.run(0x53226738,0x5322673c,regs);kept(regs,True);assert cpu.mem_read(ARM,1)[0]==1;count('review armed')
+        for mode in (0,1,3,6,7):
+            for film in (False,True):
+                for st in (0,2):
+                    for model,pointer in ((True,True),(False,True),(True,False)):
+                        for armed in (False,True):
+                            setup(mode,film=film,state=st,model=model,pointer=pointer);before=state()
+                            cpu.mem_write(ARM,bytes([armed]));cpu.mem_write(PEND,struct.pack('<I',0xdead))
+                            regs={0:THIS,1:0x2222,2:0x3333,3:0x4444,4:0x44,5:0x55}
+                            p.run(START,START+4,regs);kept(regs,True);count('review start')
+                            noted=film and 1<=mode<=6 and st==2 and model and pointer and armed
+                            assert pend()==(THIS if noted else 0) and cpu.mem_read(ARM,1)[0]==0 and state()==before,(mode,film,st,armed,hex(pend()))
+        # Another screen or none waiting: the handler as it is (these first: Unicorn chains blocks).
+        for waiting in (0,THIS+0x100):
+            cpu.mem_write(PEND,struct.pack('<I',waiting));regs={0:THIS,1:0x6304a500,2:0x3333,3:0x4444}
+            p.run(EVENT,EVENT+4,regs);kept(regs,True);assert pend()==waiting;count('review event, native')
+        p.qv_stubs=True;p.qv=[]
+        cpu.mem_write(PEND,struct.pack('<I',THIS));regs={0:THIS,1:0x6304a500,2:0x3333,3:0x4444,4:0x44}
+        p.run(EVENT,STOP,regs);count('review event, Next shot')
+        assert p.qv==[('event',THIS,0x6304a500,STACK-8),('next',THIS,STACK)],p.qv
+        assert cpu.reg_read(reg.UC_ARM_REG_R0)==1 and cpu.reg_read(reg.UC_ARM_REG_SP)==STACK and pend()==0 and cpu.reg_read(reg.UC_ARM_REG_R4)==0x44
+        p.qv_stubs=False
+    # 17. Form 'dir3': one Complete per frame (flag at 0x5580439a, lowered by each exposure).
+    if dir3:
+        ONCE=0x5580439a;p.stubs_on=True;p.fn_stubs=True
+        for path in ('custom','wlan'):
+            setup(3,film=True,state=2);cpu.mem_write(ONCE,b'\0');p.posters=0
+            for i in range(4):
+                if path=='custom':p.run(0x5329bcc8,0x5329bccc,{0:0x1111,1:0x2222,2:42,3:0x3333})
+                else:p.run(0x5329a0a0,0x5329a0a4,{0:0x1111,1:0x2222,2:0x3333,3:0x4444,6:42})
+                count('advance presses')
+            assert p.posters==1 and cpu.mem_read(ONCE,1)[0]==1,(path,p.posters)
+            # Not in film mode: the flag is not raised.
+            setup(0,film=True,state=2);cpu.mem_write(ONCE,b'\0');p.posters=0
+            p.run(0x5329bcc8,0x5329bccc,{0:0x1111,1:0x2222,2:42,3:0x3333});assert p.posters==0 and cpu.mem_read(ONCE,1)[0]==0
+        p.stubs_on=False;p.fn_stubs=False
+        for model in (True,False):
+            setup(3,model=model);cpu.mem_write(ONCE,b'\1');regs={0:5,1:6,2:7,3:8}
+            p.run(e['exposureOrientation'],BEFORE_EXPOSE+4,regs);kept(regs,True);assert cpu.mem_read(ONCE,1)[0]==0;count('advance flag cleared at exposure')
+    # 18. Form 'dg1': the screen's event log (0x558043a0: codes, count, frozen) and its clock.
+    if dg1:
+        LOG,START,EVENT,STOPF=0x558043a0,0x531cbde4,0x531cbfc4,0x531cab24;THIS=0x6304a400;EV=0x6304a600
+        cpu.ctl_flush_tb()   # earlier sections ran into these blocks: Unicorn would chain past `until`
+        log=lambda:bytes(cpu.mem_read(LOG,8))
+        setup(0);cpu.mem_write(LOG,bytes(range(1,9)));regs={0:THIS,1:0x2222,2:0x3333,3:0x4444}
+        p.run(START,START+4,regs);kept(regs,True);assert log()==bytes(8),log().hex();count('log cleared at start')
+        cpu.mem_write(0x5580439c,bytes(4))
+        for i,code in enumerate((0xf1,0x193,0xd5,0x8b)):
+            cpu.mem_write(EV,struct.pack('<H',code));regs={0:THIS,1:EV,2:0x3333,3:0x4444}
+            p.run(EVENT,EVENT+4,regs);kept(regs,True);count('log event')
+        assert log()[:6]==struct.pack('<HHBB',0xf1,0x193,4,0),log().hex()
+        regs={0:THIS,1:0x2222,2:0x3333,3:0x4444};p.run(STOPF,STOPF+4,regs);kept(regs,True);assert log()[5]==1;count('log frozen at stop')
+        cpu.mem_write(EV,struct.pack('<H',0x66));p.run(EVENT,EVENT+4,{0:THIS,1:EV});assert log()[4]==4
+        def clock():
+            cpu.mem_write(TIME,bytes(16));p.call(e['filmProbeTime'],0x1234,TIME);count('log clock');return bytes(cpu.mem_read(TIME,16))
+        setup(3)
+        assert clock()==struct.pack('<H',2000+0x193%100)+bytes([5,1+0x193//100,0xf1//60,0xf1%60])+bytes(10)
+        cpu.mem_write(LOG,struct.pack('<HHBB',1439+60,3500,40,1));assert clock()==struct.pack('<H',2000)+bytes([12,31,23,59])+bytes(10)
+    # 19. Form 'dg2': a half press (UI event 0xe7) posted after the screen's start, in film mode.
+    if dg2:
+        START,ARM=0x531cbde4,0x55804399;THIS=0x6304a400
+        cpu.ctl_flush_tb()
+        for mode in (0,3):
+            setup(mode);cpu.mem_write(ARM,b'\0');regs={0:0x1111,1:0x2222,2:0x3333,3:0x4444}
+            p.run(0x53226738,0x5322673c,regs);kept(regs,True);assert cpu.mem_read(ARM,1)[0]==1;count('review armed')
+        cases_hp=[(m,f,st,mo,po,a) for m in (0,1,3,6,7) for f in (False,True) for st in (0,2) for mo,po in ((True,True),(False,True),(True,False)) for a in (False,True)]
+        cases_hp.sort(key=lambda c:c[1] and 1<=c[0]<=6 and c[2]==2 and c[3] and c[4] and c[5])
+        for mode,film,st,model,pointer,armed in cases_hp:
+            setup(mode,film=film,state=st,model=model,pointer=pointer);before=state();cpu.mem_write(ARM,bytes([armed]))
+            auto=film and 1<=mode<=6 and st==2 and model and pointer and armed
+            regs={0:THIS,1:0x2222,2:0x3333,3:0x4444,4:0x44,5:0x55}
+            if auto:
+                p.qv_stubs=True;p.fn_stubs=True;p.qv=[];p.events=[]
+                p.run(START,STOP,regs);count('half press posted')
+                assert p.qv[0][:5]==('start',THIS,0x2222,0x3333,0x4444) and p.qv[0][5]==STACK-8 and len(p.qv)==1,p.qv
+                assert p.events==[(0xb6 if dg3 else 0xe7,0,0)],p.events
+                assert cpu.reg_read(reg.UC_ARM_REG_SP)==STACK and cpu.reg_read(reg.UC_ARM_REG_R4)==0x44
+                p.qv_stubs=False;p.fn_stubs=False
+            else:
+                p.run(START,START+4,regs);kept(regs,True);count('review alone')
+            assert cpu.mem_read(ARM,1)[0]==0 and state()==before
+    # 20. Form 'dir4': the screen's own review timer (500 ms) after its start, in film mode.
+    if dir4:
+        START,ARM=0x531cbde4,0x55804399;THIS=0x6304a400
+        cpu.ctl_flush_tb()
+        for mode in (0,3):
+            setup(mode);cpu.mem_write(ARM,b'\0');regs={0:0x1111,1:0x2222,2:0x3333,3:0x4444}
+            p.run(0x53226738,0x5322673c,regs);kept(regs,True);assert cpu.mem_read(ARM,1)[0]==1;count('review armed')
+        cases_t=[(m,f,st,mo,po,a,run) for m in (0,1,3,6,7) for f in (False,True) for st in (0,2) for mo,po in ((True,True),(False,True),(True,False)) for a in (False,True) for run in (0,5)]
+        cases_t.sort(key=lambda c:c[1] and 1<=c[0]<=6 and c[2]==2 and c[3] and c[4] and c[5])
+        for mode,film,st,model,pointer,armed,running in cases_t:
+            setup(mode,film=film,state=st,model=model,pointer=pointer);before=state();cpu.mem_write(ARM,bytes([armed]))
+            cpu.mem_write(THIS+0x178,struct.pack('<I',running))
+            auto=film and 1<=mode<=6 and st==2 and model and pointer and armed
+            regs={0:THIS,1:0x2222,2:0x3333,3:0x4444,4:0x44,5:0x55}
+            if auto:
+                p.qv_stubs=True;p.timer_stubs=True;p.qv=[];p.timers=[]
+                p.run(START,STOP,regs);count('review timer' if not running else 'review timer already running')
+                assert p.qv[0][:5]==('start',THIS,0x2222,0x3333,0x4444) and len(p.qv)==1,p.qv
+                assert p.timers==([] if running else [('queue',),('start',500,THIS+0x158)]),p.timers
+                assert struct.unpack('<I',bytes(cpu.mem_read(THIS+0x178,4)))[0]==(running or 0x7777)
+                if dir5:assert struct.unpack('<I',bytes(cpu.mem_read(0x5580439c,4)))[0]==(0 if running else THIS)
+                assert cpu.reg_read(reg.UC_ARM_REG_SP)==STACK and cpu.reg_read(reg.UC_ARM_REG_R4)==0x44 and cpu.reg_read(reg.UC_ARM_REG_R5)==0x55
+                p.qv_stubs=False;p.timer_stubs=False
+            else:
+                p.run(START,START+4,regs);kept(regs,True);count('review alone')
+            assert cpu.mem_read(ARM,1)[0]==0 and state()==before
+            if dir5 and not auto:assert struct.unpack('<I',bytes(cpu.mem_read(0x5580439c,4)))[0]==0
+        if dir5:
+            # The timer's handler: our timer on the noted screen presses Next shot; else as it is.
+            TIMER=0x531ca86c;PEND=0x5580439c
+            for noted,tid,mine in ((0,0x7777,0x7777),(THIS+0x100,0x7777,0x7777),(THIS,0x7777,0x1234)):
+                cpu.mem_write(PEND,struct.pack('<I',noted));cpu.mem_write(THIS+0x178,struct.pack('<I',mine))
+                regs={0:THIS,1:tid,3:0x4444};p.run(TIMER,TIMER+4,regs);count('review timer, native')
+                for k,v in regs.items():assert cpu.reg_read(getattr(reg,'UC_ARM_REG_R%d'%k))==v
+                assert cpu.reg_read(reg.UC_ARM_REG_R2)==mine
+            p.qv_stubs=True;p.qv=[]
+            cpu.mem_write(PEND,struct.pack('<I',THIS));cpu.mem_write(THIS+0x178,struct.pack('<I',0x7777))
+            p.run(TIMER,STOP,{0:THIS,1:0x7777,2:0x2222});count('review timer, Next shot')
+            assert p.qv==[('next',THIS,STACK)],p.qv
+            assert struct.unpack('<I',bytes(cpu.mem_read(PEND,4)))[0]==0 and struct.unpack('<I',bytes(cpu.mem_read(THIS+0x178,4)))[0]==0
+            assert cpu.reg_read(reg.UC_ARM_REG_SP)==STACK
+            p.qv_stubs=False
+    # 21. Form 'dir6': a single picture's review layout (0) in film mode, after a shot.
+    if dir6:
+        LAYOUT,ARM=0x531cbe4c,0x55804399
+        cpu.ctl_flush_tb()
+        for mode in (0,3):
+            setup(mode);cpu.mem_write(ARM,b'\0');regs={0:0x1111,1:0x2222,2:0x3333,3:0x4444}
+            p.run(0x53226738,0x5322673c,regs);kept(regs,True);assert cpu.mem_read(ARM,1)[0]==1;count('review armed')
+        for mode in (0,1,3,6,7):
+            for film in (False,True):
+                for st in (0,2):
+                    for model,pointer in ((True,True),(False,True),(True,False)):
+                        for armed in (False,True):
+                            setup(mode,film=film,state=st,model=model,pointer=pointer);before=state();cpu.mem_write(ARM,bytes([armed]))
+                            plain=film and 1<=mode<=6 and st==2 and model and pointer and armed
+                            regs={0:5,1:0x2222,2:0x3333,3:0x4444,4:0x44,5:0x55,6:0x66}
+                            p.run(LAYOUT,LAYOUT+4,regs);count('layout plain' if plain else 'layout kept')
+                            want=dict(regs);want[1]=0 if plain else 5
+                            for k,v in want.items():assert cpu.reg_read(getattr(reg,'UC_ARM_REG_R%d'%k))==v,(k,mode,film,st,armed)
+                            assert cpu.reg_read(reg.UC_ARM_REG_SP)==STACK and cpu.reg_read(reg.UC_ARM_REG_LR)==STOP
+                            assert cpu.mem_read(ARM,1)[0]==0 and state()==before
+    # 22. Form 'dir7': no buttons (set 0) on the screen in film mode, after a shot.
+    if dir7:
+        BUT,ARM=0x531cbe2c,0x55804399
+        cpu.ctl_flush_tb()
+        for mode in (0,3):
+            setup(mode);cpu.mem_write(ARM,b'\0');regs={0:0x1111,1:0x2222,2:0x3333,3:0x4444}
+            p.run(0x53226738,0x5322673c,regs);kept(regs,True);assert cpu.mem_read(ARM,1)[0]==1;count('review armed')
+        for mode in (0,1,3,6,7):
+            for film in (False,True):
+                for st in (0,2):
+                    for model,pointer in ((True,True),(False,True),(True,False)):
+                        for armed in (False,True):
+                            for multi in (False,True):
+                                setup(mode,film=film,state=st,model=model,pointer=pointer);before=state();cpu.mem_write(ARM,bytes([armed]))
+                                none=film and 1<=mode<=6 and st==2 and model and pointer and armed
+                                regs={0:0x6304a400,1:0x2222,2:0x3333,3:0x4444,4:0x44,5:0x55,6:0x66}
+                                # GuardProbe.run clears the flags: here Z comes from `cmp r0,r5` (Z = no multi-exposure).
+                                for i in range(13):cpu.reg_write(getattr(reg,'UC_ARM_REG_R'+str(i)),regs.get(i,0x1230+i))
+                                cpu.reg_write(reg.UC_ARM_REG_SP,STACK);cpu.reg_write(reg.UC_ARM_REG_LR,STOP);cpu.reg_write(reg.UC_ARM_REG_CPSR,0x13 | (0 if multi else 1<<30))
+                                cpu.emu_start(BUT,BUT+8,count=200000);assert cpu.reg_read(reg.UC_ARM_REG_PC)==BUT+8
+                                count('buttons none' if none else 'buttons native')
+                                want=dict(regs);want[1]=0 if none else (3 if multi else 0)
+                                for k,v in want.items():assert cpu.reg_read(getattr(reg,'UC_ARM_REG_R%d'%k))==v,(k,mode,film,st,armed,multi)
+                                assert cpu.reg_read(reg.UC_ARM_REG_SP)==STACK
+                                assert cpu.mem_read(ARM,1)[0]==0 and state()==before
+    # 23. Form 'dir8': the screen's id kind (+0x799 of the model) read as 0 instead of 3 in film mode.
+    if dir8:
+        KIND=0x531ca6e8;M=0x6304a700
+        cpu.ctl_flush_tb()
+        for mode in (0,1,3,6,7):
+            for film in (False,True):
+                for st in (0,2):
+                    for model,pointer in ((True,True),(False,True),(True,False)):
+                        for kind in (0,3,4,5):
+                            setup(mode,film=film,state=st,model=model,pointer=pointer);before=state()
+                            cpu.mem_write(M+0x799,bytes([kind]))
+                            plain=kind==3 and film and 1<=mode<=6 and (st==2 or clo2) and model and pointer
+                            regs={0:M,1:0x2222,2:0x3333,4:0x44,5:0x55,6:0x66}
+                            p.run(KIND,KIND+4,regs);count('review id plain' if plain else 'review id native')
+                            want=dict(regs);want[3]=0 if plain else kind
+                            for k,v in want.items():assert cpu.reg_read(getattr(reg,'UC_ARM_REG_R%d'%k))==v,(k,mode,film,st,kind)
+                            assert cpu.reg_read(reg.UC_ARM_REG_SP)==STACK and cpu.reg_read(reg.UC_ARM_REG_LR)==STOP and state()==before
+    # 24. Form 'dir9': Instant Review Off (0) or Hold (-1) read as 500 ms in film mode.
+    if dir9:
+        TIME_AT=0x531caaa4
+        for mode in (0,1,3,6,7):
+            for film in (False,True):
+                for st in (0,2):
+                    for model,pointer in ((True,True),(False,True),(True,False)):
+                        for ms in (0,0xffffffff,500,1000,3000):
+                            setup(mode,film=film,state=st,model=model,pointer=pointer);before=state()
+                            forced=(ms==0 if dir10 else ms in (0,0xffffffff)) and film and 1<=mode<=6 and (st==2 or clo2) and model and pointer
+                            regs={0:ms,1:0x2222,2:0x3333,3:0x4444,4:0x44,6:0x66}
+                            p.run(TIME_AT,TIME_AT+4,regs);count('review time forced' if forced else 'review time native')
+                            r5=cpu.reg_read(reg.UC_ARM_REG_R5);want=(1 if dir13 else 10 if dir12 else 25 if dir11 else 100 if dir10 else 500) if forced else ms
+                            assert r5==want,(mode,film,st,ms,r5)
+                            assert ((cpu.reg_read(reg.UC_ARM_REG_CPSR)>>30)&1)==(want==0)
+                            for k in (1,2,3,4,6):assert cpu.reg_read(getattr(reg,'UC_ARM_REG_R%d'%k))==regs[k]
+                            assert cpu.reg_read(reg.UC_ARM_REG_SP)==STACK and state()==before
+    # 25. Form 'dir14': a frame ended after another mode was recalled (the mode dial) counts in its roll.
+    if late:
+        for cur_mode in (0,2,3,7):
+            for pend in (0,3,3|0x80,5):
+                for started in (False,True):
+                    for st in (0,2):
+                        ratio=0;frame=7
+                        cur,boxes=setup(cur_mode,state=st)
+                        for i in range(8):
+                            boxes[i][FLAGS]=(boxes[i][FLAGS]&~2)|(2 if started else 0);boxes[i][FRAME]=frame;boxes[i][RATIO]=ratio
+                            cpu.mem_write(BOXES+i*0x1000,bytes(boxes[i]))
+                        cur[FLAGS]=(cur[FLAGS]&~2)|(2 if started else 0);cur[FRAME]=frame;cur[RATIO]=ratio;cpu.mem_write(CUR,bytes(cur))
+                        cpu.mem_write(PEND_FRAME,bytes([pend]))
+                        p.writes=[];p.live=[];regs={0:0xa1,1:0xb2,2:0xc3,3:0xd4,4:0x44,5:0x55,6:0x66}
+                        p.run(MODEL_END,MODEL_END+4,regs);count('late end');kept(regs,True)
+                        c2,b2=state();want_c,want_b=bytearray(cur),[bytearray(b) for b in boxes]
+                        pm=pend&7
+                        lateadv=pend and not pend&0x80 and pm!=cur_mode and started and st==2
+                        normal=not lateadv and 1<=cur_mode<=6 and started and st==2
+                        if lateadv:
+                            want_b[pm][FRAME]=frame+1
+                            assert p.writes==[(STORE,pm+2,0xb26,BOXES+pm*0x1000)],p.writes
+                            assert cpu.mem_read(PEND_FRAME,1)[0]==pm|0x80;count('late advance')
+                        elif normal:
+                            for b in (want_c,want_b[cur_mode]):b[FRAME]=frame+1
+                            assert p.writes==[(STORE,1,0xb26,CUR),(STORE,cur_mode+2,0xb26,BOXES+cur_mode*0x1000)],p.writes
+                            assert cpu.mem_read(PEND_FRAME,1)[0]==pend
+                        else:assert p.writes==[] and cpu.mem_read(PEND_FRAME,1)[0]==pend
+                        assert c2==bytes(want_c) and b2==[bytes(b) for b in want_b],(cur_mode,pend,started,st)
+        # SetFilePath: the pending frame's picture goes to its roll's folder.
+        for cur_mode in (0,2,3):
+            for pend in (0,3,3|0x80):
+                for folder in (105,0):
+                    dirs([100,105,112],112);p.next=113
+                    cur,boxes=setup(cur_mode)
+                    cur[FLAGS]&=~2
+                    for i in range(1,7):boxes[i][FLAGS]&=~2;enc(boxes[i],0)
+                    boxes[3][FLAGS]|=2;enc(boxes[3],folder)
+                    if cur_mode==3:cur=bytearray(boxes[3]);cur[FLAGS]|=1
+                    cpu.mem_write(CUR,bytes(cur))
+                    for i,b in enumerate(boxes):cpu.mem_write(BOXES+i*0x1000,bytes(b))
+                    cpu.mem_write(PEND_FRAME,bytes([pend]))
+                    path,got,raw=run(0)
+                    to_roll=(pend&7)==3 and cur_mode!=3 or cur_mode==3
+                    want=(folder or 113) if to_roll else (pfree(cur,boxes,[100,105,112],112,113)[0] if name2 else 0)
+                    assert got==want,(cur_mode,pend,folder,got,want)
+                    if to_roll and not folder:
+                        b3=bytes(cpu.mem_read(BOXES+3*0x1000,SIZE));assert dec(bytearray(b3))==113
+                    count('late folder' if (pend&7)==3 and cur_mode!=3 else 'folder, no late')
+    # 26. Form 'end1': an ended roll (started, frame 0) restarts at the next exposure; the message text.
+    if end1:
+        hook=e['exposureOrientation']
+        for mode in (1,3):
+            cur,boxes=setup(mode)
+            for b in (cur,boxes[mode]):b[FLAGS]|=2;b[FRAME]=0;b[FOLDER]=77
+            cpu.mem_write(CUR,bytes(cur));cpu.mem_write(BOXES+mode*0x1000,bytes(boxes[mode]))
+            regs={0:5,1:6,2:7,3:8};p.run(hook,BEFORE_EXPOSE+4,regs);kept(regs,True);count('ended roll restarts')
+            c2,b2=state()
+            for b in (c2,b2[mode]):assert b[FRAME]==1 and b[FOLDER]==0 and b[FLAGS]&2 and not b[FLAGS]&0xc,b[FLAGS]
+        AT,SET=0x531ce174,0x531ce128
+        cpu.ctl_flush_tb()
+        for waiting in (0,1):
+            cpu.mem_write(MSG,bytes([waiting]));regs={0:0x1111,2:0x3333,3:0x4444,4:0x44,5:0x55}
+            p.run(AT,SET,regs);count('message text')
+            for k,v in regs.items():assert cpu.reg_read(getattr(reg,'UC_ARM_REG_R%d'%k))==v
+            r1=cpu.reg_read(reg.UC_ARM_REG_R1)
+            if waiting:assert r1!=0x2be and r1>=786 and cpu.mem_read(MSG,1)[0]==(1 if end2 else 0),hex(r1)
+            else:assert r1==0x2be
+    # 27. Form 'end2': the review's way back to the live view goes to the waiting message; the
+    # message screen's own way back clears it; each exposure clears it.
+    if end2:
+        SW=0x5316c9d8;QV,MS=0x53b41380,0x53b41ca8;OBJS=0x6304a800
+        p.end_stubs=False;cpu.ctl_flush_tb()
+        if clo1:setup(0)
+        for waiting in (0,1):
+            for vt in (QV,MS,0x53b40000):
+                for target in (0x08000000,0x0800000c):
+                    if hold and waiting and vt==MS and target==0x08000000:continue
+                    cpu.mem_write(MSG,bytes([waiting]));cpu.mem_write(OBJS,struct.pack('<I',vt))
+                    regs={0:OBJS,1:target,2:0x10000000,3:0x3333}
+                    p.run(SW,SW+4,regs);count('message switch')
+                    redirect=waiting and target==0x08000000 and vt==QV
+                    want=dict(regs);want[1]=0x08000007 if redirect else target
+                    for k,v in want.items():assert cpu.reg_read(getattr(reg,'UC_ARM_REG_R%d'%k))==v,(waiting,hex(vt),hex(target),k)
+                    assert cpu.reg_read(reg.UC_ARM_REG_IP)==cpu.reg_read(reg.UC_ARM_REG_SP)
+                    cleared=waiting and target==0x08000000 and vt==MS
+                    assert cpu.mem_read(MSG,1)[0]==(0 if cleared or not waiting else 1),(waiting,hex(vt),hex(target))
+        if hold:
+            # Only the message's own timer (return address 0x531cdd80) takes it back to the live view.
+            LOGB=0x558043a0
+            for lr in (0x531cdd80,STOP):
+                cpu.mem_write(MSG,b'\1');cpu.mem_write(OBJS,struct.pack('<I',MS));cpu.mem_write(LOGB,bytes(4))
+                regs={0:OBJS,1:0x08000000,2:0x10000000,3:0x3333}
+                for i in range(13):cpu.reg_write(getattr(reg,'UC_ARM_REG_R'+str(i)),regs.get(i,0x1230+i))
+                cpu.reg_write(reg.UC_ARM_REG_SP,STACK);cpu.reg_write(reg.UC_ARM_REG_LR,lr);cpu.reg_write(reg.UC_ARM_REG_CPSR,0x13)
+                stop=SW+4 if lr!=STOP else STOP
+                cpu.emu_start(SW,stop,count=200000);assert cpu.reg_read(reg.UC_ARM_REG_PC)==stop
+                if lr!=STOP:
+                    assert cpu.reg_read(reg.UC_ARM_REG_R1)==0x08000000 and cpu.mem_read(MSG,1)[0]==0;count('message closed by its timer')
+                else:
+                    assert cpu.reg_read(reg.UC_ARM_REG_R0)==0 and cpu.reg_read(reg.UC_ARM_REG_SP)==STACK and cpu.mem_read(MSG,1)[0]==1;count('message held')
+                assert bytes(cpu.mem_read(LOGB,3))==(bytes(3) if clo1 else bytes([0,2*32+0,1])),bytes(cpu.mem_read(LOGB,3)).hex()
+            # 30. Form 'msg1': our message 0.5 s of grace then 1.5 s; OK (return 0x531cddc0) closes it in stage 2.
+            if msg1:
+                STAGE=0x5580439d;OK_RET=0x531cddc0;ARM=0x531ce2d0;FIRE=0x531cdd58
+                for stage in (0,1,2):
+                    cpu.ctl_flush_tb();cpu.mem_write(MSG,b'\1');cpu.mem_write(STAGE,bytes([stage]));cpu.mem_write(OBJS,struct.pack('<I',MS))
+                    regs={0:OBJS,1:0x08000000,2:0x10000000,3:0x3333}
+                    for i in range(13):cpu.reg_write(getattr(reg,'UC_ARM_REG_R'+str(i)),regs.get(i,0x1230+i))
+                    cpu.reg_write(reg.UC_ARM_REG_SP,STACK);cpu.reg_write(reg.UC_ARM_REG_LR,OK_RET);cpu.reg_write(reg.UC_ARM_REG_CPSR,0x13)
+                    stop=SW+4 if stage==2 else OK_RET
+                    cpu.emu_start(SW,stop,count=200000);assert cpu.reg_read(reg.UC_ARM_REG_PC)==stop and cpu.reg_read(reg.UC_ARM_REG_SP)==STACK
+                    if stage==2:assert cpu.reg_read(reg.UC_ARM_REG_R1)==0x08000000 and cpu.mem_read(MSG,1)[0]==0;count('message closed by OK')
+                    else:assert cpu.reg_read(reg.UC_ARM_REG_R0)==0 and cpu.mem_read(MSG,1)[0]==1;count('OK held in grace')
+                for waiting in (0,1):
+                    cpu.ctl_flush_tb();cpu.mem_write(MSG,bytes([waiting]));cpu.mem_write(STAGE,b'\0')
+                    regs={0:0xb0b0,2:0x3333,3:0x4444};p.run(ARM,ARM+4,regs);count('message timer armed')
+                    assert cpu.reg_read(reg.UC_ARM_REG_R1)==(500 if waiting else 5000) and cpu.mem_read(STAGE,1)[0]==waiting
+                    for k in (0,2,3,4):assert cpu.reg_read(getattr(reg,'UC_ARM_REG_R%d'%k))==regs.get(k,0x1230+k)
+                p.timer_stubs=True
+                for stage,ident in ((1,0x42),(2,0x42),(1,0x43),(0,0x42)):
+                    cpu.ctl_flush_tb();cpu.mem_write(STAGE,bytes([stage]));cpu.mem_write(OBJS+0x168,struct.pack('<I',0x42));p.timers=[]
+                    rearm=stage==1 and ident==0x42
+                    p.run(FIRE,STOP if rearm else FIRE+4,{0:OBJS,1:ident});count('message timer fired')
+                    if rearm:
+                        assert p.timers==[('queue',),('start',1500,OBJS+0x158)] and cpu.mem_read(STAGE,1)[0]==2
+                        assert struct.unpack('<I',bytes(cpu.mem_read(OBJS+0x168,4)))[0]==0x7777
+                    else:
+                        assert p.timers==[] and cpu.mem_read(STAGE,1)[0]==stage and cpu.reg_read(reg.UC_ARM_REG_IP)==STACK
+                        assert cpu.reg_read(reg.UC_ARM_REG_R0)==OBJS and cpu.reg_read(reg.UC_ARM_REG_R1)==ident
+                p.timer_stubs=False;cpu.ctl_flush_tb()
+            if end3:
+                cpu.mem_write(LOGB,bytes(4));cpu.mem_write(MSG,b'\1')
+                for vt,tg in ((QV,0x08000000),(0x53b40000,0x0800000c),(QV,0x0800000c)):
+                    cpu.mem_write(OBJS,struct.pack('<I',vt));p.run(SW,SW+4,{0:OBJS,1:tg,2:0x10000000})
+                assert bytes(cpu.mem_read(LOGB,3))==bytes([3*32+12,1*32+12,3]),bytes(cpu.mem_read(LOGB,3)).hex()
+                setup(3);cpu.mem_write(LOGB,bytes([3*32+12,1*32+12,3]))
+                cpu.mem_write(TIME,bytes(16));p.call(e['filmProbeTime'],0x1234,TIME);count('message clock')
+                v1,v2=3*32+12,1*32+12
+                assert bytes(cpu.mem_read(TIME,16))==struct.pack('<H',2000+v2%100)+bytes([4,1+v2//100,v1//60,v1%60])+bytes(10)
+        p.end_stubs=True
+        setup(3);cpu.mem_write(MSG,b'\1');regs={0:5,1:6,2:7,3:8}
+        p.run(e['exposureOrientation'],BEFORE_EXPOSE+4,regs);kept(regs,True);assert cpu.mem_read(MSG,1)[0]==0;count('message cleared at exposure')
+    # 28. Form 'clo1': the roll's film and format noted at its start; a way back to the live view ends a
+    # going roll whose film or format changed, then shows the message.
+    if clo1:
+        LK,RT=0x9c2,0x9c3
+        hook=e['exposureOrientation']
+        cur,boxes=setup(3)
+        for b in (cur,boxes[3]):b[FLAGS]&=~2;b[0x1c2]=22;b[RATIO]=3
+        cpu.mem_write(CUR,bytes(cur));cpu.mem_write(BOXES+3*0x1000,bytes(boxes[3]))
+        p.run(hook,BEFORE_EXPOSE+4,{0:5,1:6,2:7,3:8});c2,b2=state()
+        assert c2[LK]==22 and c2[RT]==3 and b2[3][LK]==22 and b2[3][RT]==3;count('roll film noted')
+        CHECK=e['filmRollCheck']
+        for mode,started,frame,noted,look,ratio,want in ((3,True,5,(22,3),22,3,0),(3,True,5,(22,3),17,3,1),(3,True,5,(22,3),22,0,1),(3,True,0,(22,3),17,3,0),
+                (3,False,5,(22,3),17,3,0),(0,True,5,(22,3),17,3,0),(3,True,5,(0,0),17,4,0)):
+            cur,boxes=setup(mode)
+            for b in (cur,boxes[mode]):
+                b[FLAGS]=(b[FLAGS]&~2)|(2 if started else 0);b[FRAME]=frame;b[LK],b[RT]=noted
+            cur[0x1c2]=look;cur[RATIO]=ratio
+            cpu.mem_write(CUR,bytes(cur));cpu.mem_write(BOXES+mode*0x1000,bytes(boxes[mode]));p.writes=[]
+            p.call(CHECK,0);count('roll check')
+            assert cpu.reg_read(reg.UC_ARM_REG_R0)==want,(mode,started,frame,noted,look,ratio)
+            c2,b2=state()
+            if want:
+                assert c2[FRAME]==0 and b2[mode][FRAME]==0 and p.writes==[(STORE,1,0xb26,CUR),(STORE,mode+2,0xb26,BOXES+mode*0x1000)]
+            elif noted==(0,0) and started and frame and 1<=mode<=6:
+                assert c2[LK]==look and c2[RT]==ratio and b2[mode][LK]==look and b2[mode][RT]==ratio and p.writes==[]
+            else:assert (c2,b2)==(bytes(cur),[bytes(b) for b in boxes])
+        if clo3:
+            # The live view check needs the record in use to match the BOX's roll.
+            for field in (FRAME,LK):
+                cur,boxes=setup(3)
+                for b in (cur,boxes[3]):b[FLAGS]|=2;b[FRAME]=5;b[LK]=22;b[RT]=3
+                cur[0x1c2]=17;boxes[3][field]=9
+                cpu.mem_write(CUR,bytes(cur));cpu.mem_write(BOXES+3*0x1000,bytes(boxes[3]));p.writes=[]
+                p.call(CHECK,0);assert cpu.reg_read(reg.UC_ARM_REG_R0)==0 and p.writes==[];count('check, not the BOX roll')
+        SW=0x5316c9d8;OBJS=0x6304a800
+        p.end_stubs=False;cpu.ctl_flush_tb()
+        for changed in (False,True):
+            cur,boxes=setup(3)
+            for b in (cur,boxes[3]):b[FLAGS]|=2;b[FRAME]=5;b[LK]=22;b[RT]=3
+            cur[0x1c2]=17 if changed else 22;cur[RATIO]=3
+            cpu.mem_write(CUR,bytes(cur));cpu.mem_write(BOXES+3*0x1000,bytes(boxes[3]));cpu.mem_write(MSG,b'\0')
+            cpu.mem_write(OBJS,struct.pack('<I',0x53b40000));cpu.mem_write(OBJS+0x124,struct.pack('<I',0x0200004a));p.writes=[]
+            p.run(SW,SW+4,{0:OBJS,1:0x08000000,2:0x10000000,3:0x3333});count('closure switch')
+            assert cpu.reg_read(reg.UC_ARM_REG_R1)==(0x08000007 if changed else 0x08000000) and cpu.mem_read(MSG,1)[0]==(1 if changed else 0)
+            assert cpu.reg_read(reg.UC_ARM_REG_R0)==OBJS and cpu.reg_read(reg.UC_ARM_REG_R2)==0x10000000 and cpu.reg_read(reg.UC_ARM_REG_R3)==0x3333
+        if clo4:
+            # Not from a menu screen (e.g. the live view or the manager at a mode change): no check.
+            for ident in (0x08000000,0x0800000c,0):
+                cur,boxes=setup(3)
+                for b in (cur,boxes[3]):b[FLAGS]|=2;b[FRAME]=5;b[LK]=22;b[RT]=3
+                cur[0x1c2]=17;cur[RATIO]=3
+                cpu.mem_write(CUR,bytes(cur));cpu.mem_write(BOXES+3*0x1000,bytes(boxes[3]));cpu.mem_write(MSG,b'\0')
+                cpu.mem_write(OBJS+0x124,struct.pack('<I',ident));p.writes=[]
+                p.run(SW,SW+4,{0:OBJS,1:0x08000000,2:0x10000000,3:0x3333});count('closure switch, not a menu')
+                assert cpu.reg_read(reg.UC_ARM_REG_R1)==0x08000000 and cpu.mem_read(MSG,1)[0]==0 and p.writes==[]
+        p.end_stubs=True
+    # 31. Form 'rwd1': the Rewind Film line, its action, and Create New Folder's dialog in rewind mode.
+    if rwd1:
+        RW,RV=e['filmRollRewind'],e['filmRewindVisible'];MODEB=0x5580439e;RID,DLG=0x020001b1,0x02000128
+        for mode in range(8):
+            for film in (False,True):
+                for started in (False,True):
+                    for frame in (0,5):
+                        cur,boxes=setup(mode,film=film)
+                        for b in (cur,boxes[mode]):b[FLAGS]=(b[FLAGS]&~2)|(2 if started else 0);b[FRAME]=frame
+                        cpu.mem_write(CUR,bytes(cur));cpu.mem_write(BOXES+mode*0x1000,bytes(boxes[mode]));p.writes=[]
+                        p.call(RV,0x1234);count('rewind visible')
+                        u=1<=mode<=6
+                        assert cpu.reg_read(reg.UC_ARM_REG_R0)==(1 if u and film else 0),(mode,film)
+                        p.call(RW,0x1234);count('rewind')
+                        done=u and film and started and frame
+                        assert cpu.reg_read(reg.UC_ARM_REG_R0)==(1 if done else 0)
+                        want_c,want_b=bytearray(cur),[bytearray(b) for b in boxes]
+                        if done:
+                            want_c[FRAME]=0;want_b[mode][FRAME]=0
+                            assert p.writes==[(STORE,1,0xb26,CUR),(STORE,mode+2,0xb26,BOXES+mode*0x1000)],p.writes
+                        else:assert p.writes==[]
+                        assert state()==(bytes(want_c),[bytes(b) for b in want_b]),(mode,film,started,frame)
+        # The dialog's sites: rewind byte 1 → no checks, our texts, the rewind; 0 → the camera's own.
+        for m in (0,1):
+            cpu.mem_write(MODEB,bytes([m]));cpu.ctl_flush_tb()
+            regs={0:0x5555,1:0x66,2:0x77,3:0x88}
+            for i in range(13):cpu.reg_write(getattr(reg,'UC_ARM_REG_R'+str(i)),regs.get(i,0x1230+i))
+            cpu.reg_write(reg.UC_ARM_REG_SP,STACK);cpu.reg_write(reg.UC_ARM_REG_CPSR,0x13)
+            for name,native,want in (('filmRewindCard',0x53237460,1),('filmRewindStorage',0x531e64a8,0)):
+                cpu.ctl_flush_tb();cpu.reg_write(reg.UC_ARM_REG_R0,0x5555);cpu.reg_write(reg.UC_ARM_REG_LR,STOP)
+                stop=STOP if m else native
+                cpu.emu_start(e[name],stop,count=1000);assert cpu.reg_read(reg.UC_ARM_REG_PC)==stop and cpu.reg_read(reg.UC_ARM_REG_SP)==STACK
+                assert cpu.reg_read(reg.UC_ARM_REG_R0)==(want if m else 0x5555);count('rewind dialog check')
+            for name,site,native,text in (('filmRewindQuestion',0x531e5ee8,0x2ab,'q'),('filmRewindDone',0x531e5f40,0x2bb,'d')):
+                cpu.ctl_flush_tb();p.run(site,site+4,{0:0x5555,2:0x77,3:0x88,12:0xc0c0});count('rewind dialog text')
+                assert cpu.reg_read(reg.UC_ARM_REG_IP)==0xc0c0,(name,'ip')   # the end text's ip is the entry sp
+                r1=cpu.reg_read(reg.UC_ARM_REG_R1);assert (r1!=native and 0x313<r1<0x500) if m else r1==native,(name,hex(r1))
+                assert cpu.reg_read(reg.UC_ARM_REG_R0)==0x5555 and cpu.reg_read(reg.UC_ARM_REG_R2)==0x77
+            cpu.ctl_flush_tb();cpu.reg_write(reg.UC_ARM_REG_R0,0x5555);cpu.reg_write(reg.UC_ARM_REG_R1,1);cpu.reg_write(reg.UC_ARM_REG_LR,STOP)
+            stop=RW if m else 0x5358515c
+            cpu.emu_start(e['filmRewindAction'],stop,count=1000);assert cpu.reg_read(reg.UC_ARM_REG_PC)==stop and cpu.reg_read(reg.UC_ARM_REG_LR)==STOP
+            assert cpu.reg_read(reg.UC_ARM_REG_R0)==0x5555 and cpu.reg_read(reg.UC_ARM_REG_R1)==1;count('rewind dialog action')
+            # The patched sites call the stubs.
+            for site,name in ((0x531e6558,'filmRewindCard'),(0x531e6568,'filmRewindStorage'),(0x531e65c8,'filmRewindAction')):
+                w=struct.unpack('<I',bytes(cpu.mem_read(site,4)))[0];off=(w&0xffffff)<<2
+                if off&0x2000000:off-=0x4000000
+                assert w>>24==0xeb and site+8+off==e[name],hex(site)
+        # The factory: Rewind Film opens Create New Folder's dialog with the byte 1; the dialog's own id sets 0.
+        # T17-RWD3: the dialog's own id (asked at each key event) keeps the byte; the menu's ids clear it.
+        for ident,want_id,want_m,before in ((RID,DLG,1,0),(DLG,DLG,1,1),(DLG,DLG,0,0),(0x0200004a,0x0200004a,0,1),(0x0200004d,0x0200004d,0,1),
+                                            (0x02000049,0x02000049,1,1),(0x0200004e,0x0200004e,1,1),(0x020000e1,0x020000e1,1,1),(0x020001b0,0x0200007d,0,0)):
+            cpu.mem_write(MODEB,bytes([before]));cpu.ctl_flush_tb()
+            p.run(0x5316f3b8,0x5316f3bc,{0:0x4444,1:ident});count('rewind factory')
+            assert cpu.reg_read(reg.UC_ARM_REG_R1)==want_id and cpu.reg_read(reg.UC_ARM_REG_R0)==0x4444 and cpu.mem_read(MODEB,1)[0]==want_m,(hex(ident),hex(cpu.reg_read(reg.UC_ARM_REG_R1)))
+        cpu.mem_write(OBJ+0x200,struct.pack('<I',RID));p.call(e['dateKeys'],OBJ+0x200);assert cpu.reg_read(reg.UC_ARM_REG_R0)==DLG;count('rewind keys')
+        # Customize Settings: Save Settings, Film Roll Mode, Rewind Film, then the camera's 21 lines.
+        if tab1:
+            # T21-TAB1: the Film Mode tab (in place of Movie Settings): Film Roll Mode, Rewind Film; one page.
+            D=bytes(cpu.mem_read(e['filmTab'],0x384));ids=[struct.unpack_from('<I',D,0x1bc+4*i)[0] for i in range(38)]
+            assert ids[:2]==[0x020001b0,RID] and all(i==0x10000000 for i in ids[2:]) and D[0x8b]==2 and D[0x68]==1 and D[0x80]==0
+            assert struct.unpack_from('<I',D,0x8c+8)[0]==e['filmRewindLine'] and struct.unpack_from('<I',D,0x254+8)[0]==RV
+            assert struct.unpack_from('<I',D,0)[0]==e['filmMenuVisible'] and struct.unpack_from('<H',D,0x6a)[0]==struct.unpack_from('<H',D,8)[0]
+            assert struct.unpack('<I',bytes(cpu.mem_read(0x5407d3fc,4)))[0]==e['filmTab'] and struct.unpack('<I',bytes(cpu.mem_read(0x5407d404,4)))[0]==0x53b3649c
+        else:
+            D=bytes(cpu.mem_read(e['filmCustomMenu'],0x384));ids=[struct.unpack_from('<I',D,0x1bc+4*i)[0] for i in range(24)]
+            assert ids[:3]==[0x020000e1,0x020001b0,RID] and D[0x8b]==24 and list(D[0x80:0x83])==[0,6,15],(list(map(hex,ids[:3])),D[0x8b],list(D[0x80:0x83]))
+            assert struct.unpack_from('<I',D,0x8c+16)[0]==e['filmRewindLine'] and struct.unpack_from('<I',D,0x254+16)[0]==RV
+        p.ui=[];p.run(e['filmRewindLine'],STOP,{0:0x1234,1:ROW});count('rewind line')
+        assert p.ui[0]==('icon',ROW,0) and p.ui[1][0]=='title' and p.ui[1][2]==p.ui[1][3] and len(p.ui)==2,p.ui
+    # 32. Form 'hide1': the menu's lines built again at each opening (the camera's own tab builder), and
+    # each tab's place kept within its pages and lines.
+    if hide1:
+        MENU=0x63053000;REB=e['menuRebuild'];p.menu_stubs=True;cpu.ctl_flush_tb()
+        def tabs():
+            m=bytes(cpu.mem_read(MENU,0x13bc))
+            return [(m[0x384*t+0x290],list(m[0x384*t+0x2a8:0x384*t+0x2a8+m[0x384*t+0x290]]),m[0x384*t+0x2b3],
+                     [struct.unpack_from('<I',m,0x384*t+0x3e4+4*k)[0] for k in range(m[0x384*t+0x2b3])]) for t in range(5)]
+        # The menu table (0x55001eb8, five tabs) as the start-up copy leaves it.
+        cpu.mem_write(0x55001eb8,bytes(cpu.mem_read(0x5407d3f8,20)))
+        got={}
+        for mode,film in ((3,True),(0,True),(3,False)):
+            setup(mode,film=film);cpu.mem_write(MENU,bytes(0x13bc));cpu.ctl_flush_tb()
+            p.run(REB,0x53199eb0,{0:MENU});count('menu rebuilt')
+            assert cpu.reg_read(reg.UC_ARM_REG_R0)==MENU
+            got[(mode,film)]=tabs()
+        # Customize Settings is the menu table's 4th tab (0x55001ec4).
+        if tab1:
+            # T21-TAB1: tab 1 is the Film Mode tab; Customize Settings (tab 3) the camera's 22 lines.
+            u_on,p_on,u_off=got[(3,True)][1],got[(0,True)][1],got[(3,False)][1]
+            assert u_on[3]==[0x020001b0,0x020001b1] and u_on[1]==[0] and u_on[2]==2,u_on
+            assert u_off[3]==[0x020001b0] and u_off[2]==1,u_off
+            assert p_on[2]==0,p_on   # no line in P (the tab itself is hidden there)
+            for k in ((3,True),(0,True),(3,False)):assert got[k][3][2]==22 and got[k][3][1]==[0,4,13] and 0x020001b0 not in got[k][3][3]
+        else:
+            u_on,p_on,u_off=got[(3,True)][3],got[(0,True)][3],got[(3,False)][3]
+            assert u_on[3][:3]==[0x020000e1,0x020001b0,0x020001b1] and u_on[1]==[0,6,15] and u_on[2]==24,u_on[:3]
+            assert u_off[3][:2]==[0x020000e1,0x020001b0] and 0x020001b1 not in u_off[3] and u_off[1]==[0,5,14] and u_off[2]==23,u_off[:3]
+            assert 0x020001b0 not in p_on[3] and 0x020001b1 not in p_on[3] and p_on[1]==[0,4,13] and p_on[2]==22,p_on[:3]
+            assert p_on[3]==[i for i in u_on[3] if i not in (0x020001b0,0x020001b1)]
+        for t in range(5):
+            if t!=(1 if tab1 else 3):assert got[(3,True)][t]==got[(0,True)][t],t
+        # T20-VID3: Still/Movie (0x0200006e) and Movie Edit (0x04000033) hidden in every tab, else present.
+        allids=[i for t in range(5) for i in got[(3,True)][t][3]]
+        for hid in (0x0200006e,0x04000033):assert (hid in allids)==(not vid3),(hex(hid),vid3)
+        if vid3:count('lines hidden')
+        # T23b: the Date Imprint line (0x020001a0) hidden when the stage is there for the film mode only.
+        assert (0x020001a0 in allids)==(not manifest.get('dateHidden')),('date line',manifest.get('dateHidden'))
+        if manifest.get('dateHidden'):count('date line hidden')
+        setup(0,film=True)
+        # The places in P (C tab: pages from 0, 4, 13; 22 lines): within → kept; else the page's first line.
+        for page,pos,line,want in ((0,0x30,3,(0,0x30,3)),(0,0x50,5,(0,0,0)),(1,0x40,12,(1,0x40,12)),(1,0x40,13,(1,0,4)),
+                                   (2,0x20,21,(2,0x20,21)),(2,0x20,23,(2,0,13)),(2,0x20,3,(2,0,13)),(3,0x40,1,(0,0x40,1)),(5,0x40,9,(0,0,0))):
+            cpu.mem_write(MENU,bytes(0x13bc))
+            for t in range(5):
+                st=MENU+0x1b4+0xc*t;cpu.mem_write(st,bytes([page]));cpu.mem_write(st+4,struct.pack('<I',pos));cpu.mem_write(st+8,struct.pack('<H',line))
+            cpu.ctl_flush_tb();p.run(REB,0x53199eb0,{0:MENU});count('menu place')
+            st=MENU+0x1b4+0xc*3;m=bytes(cpu.mem_read(st,12))
+            assert (m[0],struct.unpack_from('<I',m,4)[0],struct.unpack_from('<H',m,8)[0])==want,(page,pos,line,m.hex())
+        w=struct.unpack('<I',bytes(cpu.mem_read(0x53199f3c,4)))[0];off=(w&0xffffff)<<2
+        if off&0x2000000:off-=0x4000000
+        assert w>>24==0xeb and 0x53199f3c+8+off==REB
+        p.menu_stubs=False;cpu.ctl_flush_tb()
+    # 33. Form 'card2': the folder log in the date (year 2000 + calls, month the path, day/hour the entry's state, minute the roll folder % 60).
+    if card2:
+        for logb,folder,want in ((bytes([3,7,0]),167,(2003,7,1,0,47)),(bytes([105,2,0x16]),300,(2005,2,2+5,1,0)),(bytes([0,0,0]),99,(2000,12,1,0,39))):
+            cur,boxes=setup(3);enc(cur,folder);cpu.mem_write(CUR,bytes(cur));cpu.mem_write(0x558043b8,logb)
+            cpu.mem_write(TIME,bytes(16));p.call(e['filmProbeTime'],0x1234,TIME);count('folder log clock')
+            t=bytes(cpu.mem_read(TIME,16))
+            assert (struct.unpack_from('<H',t,0)[0],t[2],t[3],t[4],t[5])==want and t[6:]==bytes(10),(t.hex(),want)
+    # 34. Form 'card3': at the advance, a going roll whose folder is on no storage is lost (frame 1 → 2, folder 0).
+    if card3:
+        G=0x55357678;OB=0x5535767c;A0,A1,X0,X1,T0,T1=0x63054000,0x63054100,0x63054200,0x63054300,0x63055000,0x63056000
+        def storages(guard,slots):
+            cpu.mem_write(G,struct.pack('<I',guard));cpu.mem_write(OB+0x14,struct.pack('<II',*(slots)))
+            for a_,x_,t_ in ((A0,X0,T0),(A1,X1,T1)):cpu.mem_write(a_+8,struct.pack('<I',x_));cpu.mem_write(x_+0x10,struct.pack('<I',t_))
+        for case,guard,slots,in0,in1,frame,folder,lost_ in (
+            ('absent both',1,(A0,A1),False,False,5,167,True),('on card',1,(A0,A1),True,False,5,167,False),('on other',1,(A0,A1),False,True,5,167,False),
+            ('one storage absent',1,(A0,0),False,False,5,167,True),('no storage',1,(0,0),False,False,5,167,False),('no guard',0,(A0,A1),False,False,5,167,False),
+            ('ended roll',1,(A0,A1),False,False,0,167,False),('no folder',1,(A0,A1),False,False,5,0,False),('folder 999 absent',1,(A0,A1),False,False,5,999,True)):
+            storages(guard,slots)
+            for t_,present in ((T0,in0),(T1,in1)):
+                tb=bytearray(0x1000)
+                if present and 100<=folder<=999:struct.pack_into('<I',tb,(folder-100)*4,0x63057000)
+                cpu.mem_write(t_,bytes(tb))
+            cur,boxes=setup(3)
+            for b in (cur,boxes[3]):b[FLAGS]|=2;b[FRAME]=frame;b[RATIO]=1;enc(b,folder)
+            cpu.mem_write(CUR,bytes(cur));cpu.mem_write(BOXES+3*0x1000,bytes(boxes[3]));p.writes=[];cpu.ctl_flush_tb()
+            regs={0:0xa1,1:0xb2,2:0xc3,3:0xd4,4:0x44,5:0x55,6:0x66}
+            p.run(MODEL_END,MODEL_END+4,regs);kept(regs,True);count('lost at the advance')
+            c2,b2=state()
+            for b in (c2,b2[3]):
+                if lost_:assert b[FRAME]==2 and dec(b)==0 and b[FLAGS]&2,(case,b[FRAME],dec(b))
+                else:assert b[FRAME]==(frame+1 if frame else 1) and dec(b)==folder,(case,b[FRAME],dec(b))
+        cpu.mem_write(G,bytes(0x20))
+    # 35. Form 'vid1': the Movie Settings tab's visibility returns 0; the other tabs' still the camera's (1).
+    tabs_=[0x53b36dec,0x53b37514,0x53b37188,0x53b3649c,0x53b36a54]
+    for t,desc in enumerate(tabs_):
+        f,adj_=struct.unpack('<II',bytes(cpu.mem_read(desc,8)));assert adj_==0
+        p.call(f,0x1234);count('tab visible')
+        assert cpu.reg_read(reg.UC_ARM_REG_R0)==(0 if vid1 and not tab1 and t==1 else 1),(t,hex(f))
+    # 36. Form 'vid2': a request for movie (1) reaches the setter's body as still (0); still stays still.
+    if vid2:
+        for v,want in ((0,0),(1,0),(2,0)):
+            cpu.ctl_flush_tb();regs={0:0x5555,1:v,2:0x77,3:0x88};p.run(0x5327b7cc,0x5327b7d0,regs);count('movie blocked')
+            assert cpu.reg_read(reg.UC_ARM_REG_R1)==want and cpu.reg_read(reg.UC_ARM_REG_R3)==0x5555 and cpu.reg_read(reg.UC_ARM_REG_R0)==0x5555 and cpu.reg_read(reg.UC_ARM_REG_R2)==0x77
+    # 37. Form 'vid3': the Fn functions' filter refuses Still/Movie (17); the others as the camera's.
+    if vid3:
+        p.menu_stubs=True;p.model_no=1;cpu.ctl_flush_tb()
+        for f in range(43):
+            p.call(0x531b9410,f);r=cpu.reg_read(reg.UC_ARM_REG_R0);count('fn filter')
+            if f==17 or (vid4 and f==16):assert r==0
+            elif f not in (0x16,0x28):assert r==1,f
+        p.menu_stubs=False;cpu.ctl_flush_tb()
+    # 38. Form 'vid4': the side button's texts (0x1c1..0x1c4) without the movie, in the camera's rows.
+    if vid4:
+        # The language directory as the code reads it (movw/movt at 0x533966e8 / 0x533966f0, moved by the build).
+        lo_,hi_=[struct.unpack('<I',bytes(cpu.mem_read(a_,4)))[0] for a_ in (0x533966e8,0x533966f0)]
+        ROOTS=(((hi_>>4)&0xf000|(hi_&0xfff))<<16)|((lo_>>4)&0xf000|(lo_&0xfff))
+        def ctext(i,row):
+            r_=struct.unpack('<I',bytes(cpu.mem_read(ROOTS+row*4,4)))[0];desc=struct.unpack('<I',bytes(cpu.mem_read(r_+i*4,4)))[0]
+            n=cpu.mem_read(desc,1)[0];pp=struct.unpack('<I',bytes(cpu.mem_read(desc+4,4)))[0]
+            return bytes(cpu.mem_read(pp,2*(n-1))).decode('utf-16-le')
+        want={1:('Wireless Button','Wireless Button','Hold Wireless Btn.','Hold Wireless Button'),2:('Touche sans fil','Touche liaison sans fil','Maint. tche sans fil','Maintenir touche liaison sans fil'),0:('無線ボタン','無線ボタン','無線ボタン長押し','無線ボタン長押し')}
+        for row,names in want.items():
+            assert tuple(ctext(i,row) for i in (0x1c1,0x1c2,0x1c3,0x1c4))==names,(row,[ctext(i,row) for i in (0x1c1,0x1c2,0x1c3,0x1c4)])
+        for row in range(21):
+            for i in (0x1c1,0x1c2,0x1c3,0x1c4):
+                t_=ctext(i,row);assert not any(w in t_.lower() for w in ('movie','vidéo','video','動画','影片','film-','κινημ','видео','동영상','ภาพยนตร์','filmato','vídeo','víd')),(row,t_)
+            count('side button texts')
+    # 39. Form 'name1': a new file's prefix in film mode is the film's code and '_' (NEG_), else the camera's.
+    if name1:
+        PF=0x535b6b28;PBUF=0x553497f8
+        F4=name2   # T22-NAME2: 4-letter codes
+        pcases=[(3,True,k,v.encode()) for k,v in FILM_CODES.items()]+[(3,True,66 if FILM_CODES else 200,b'FILM' if F4 else b'FLM_')]
+        for mode,film,look,want in pcases+[(3,True,22,b'NEGF' if F4 else b'NEG_'),(3,True,11,b'STND' if F4 else b'STD_'),(3,True,21,b'XPRO' if F4 else b'CRP_'),(1,True,200,b'FILM' if F4 else b'FLM_'),(0,True,22,None),(3,False,22,None),(7,True,22,None)]:
+            cur,boxes=setup(mode,film=film);cur[0x1c2]=look;cpu.mem_write(CUR,bytes(cur));cpu.mem_write(PBUF,b'R001\0\0\0\0');cpu.ctl_flush_tb()
+            regs={0:0x5555,1:3,2:0x77,3:0x88,4:0x44}
+            if want:
+                p.run(PF,STOP,regs);count('file prefix')
+                assert cpu.reg_read(reg.UC_ARM_REG_R0)==PBUF and bytes(cpu.mem_read(PBUF,5))==want+b'\0',(mode,look,bytes(cpu.mem_read(PBUF,5)))
+                assert cpu.reg_read(reg.UC_ARM_REG_R4)==0x44
+            else:
+                p.run(PF,PF+4,regs);kept(regs,True);assert bytes(cpu.mem_read(PBUF,4))==b'R001';count('file prefix native')
+    # 40. T24-AF1: Mode Memory's Focus unticked: the last focus field written, then the AF point (8 bytes at
+    # + 0x120) copied from the factory record (r3) to the record loaded (r4); back to 0x53240874.
+    if manifest.get('afReset'):
+        FAC,DST=0x63054000,0x63055000
+        fac=bytes(rng.randrange(256) for _ in range(0x600));dst=bytearray(rng.randrange(256) for _ in range(0x600))
+        cpu.mem_write(FAC,fac);cpu.mem_write(DST,bytes(dst));cpu.ctl_flush_tb()
+        regs={1:0x4fe,3:FAC,4:DST,5:0x55,6:0x66,7:0x77}
+        for i in range(13):cpu.reg_write(getattr(reg,'UC_ARM_REG_R'+str(i)),regs.get(i,0x1230+i))
+        cpu.reg_write(reg.UC_ARM_REG_SP,STACK);cpu.reg_write(reg.UC_ARM_REG_LR,0xbeefcafe);cpu.reg_write(reg.UC_ARM_REG_CPSR,0x13)
+        cpu.emu_start(0x53240870,0x53240874,count=100);assert cpu.reg_read(reg.UC_ARM_REG_PC)==0x53240874
+        out=bytes(cpu.mem_read(DST,0x600));want=bytearray(dst);want[0x4fe:0x500]=struct.pack('<H',0xcafe);want[0x120:0x128]=fac[0x120:0x128]
+        assert out==bytes(want),'af reset'
+        for k in (3,4,5,6,7):assert cpu.reg_read(getattr(reg,'UC_ARM_REG_R%d'%k))==regs[k]
+        assert cpu.reg_read(reg.UC_ARM_REG_SP)==STACK
+        count('AF point reset')
+    # 41. T24-AF2: the « AF Point » box of Mode Memory (after Focus), its setting at + 0x905 of the records.
+    if manifest.get('afPoint'):
+        AFS=0x558043bc;SET=0x905;ITEMS=0x53b4d550;T=e['afPointItems'];MU=bool(manifest.get('memoryU'));US=0x558043bd;USET=0x943
+        rd32=lambda a:struct.unpack('<I',bytes(cpu.mem_read(a,4)))[0]
+        N=26 if MU else 25
+        orig=bytes(data[ITEMS-0x53000000:ITEMS-0x53000000+24*0x28]);tab=bytes(cpu.mem_read(T,N*0x28))
+        if 'memoryHidden' in e:
+            o_=bytearray(orig);struct.pack_into('<II',o_,8*0x28+0x20,e['memoryHidden'],0);orig=bytes(o_)
+        assert tab[:3*0x28]==orig[:3*0x28] and tab[4*0x28:25*0x28]==orig[3*0x28:],'items copied'
+        ours=struct.unpack('<10I',tab[3*0x28:4*0x28])
+        assert ours[0]==24 and ours[2]==e['afPointDraw'] and ours[4]==e['afPointToggle'] and ours[6]==e['afPointWrite'] and ours[1]>=0x200 and ours[9]==0 and ours[8]==0,ours
+        assert rd32(0x53207350)==0xe3000000|(4<<12)|((T&0xf000)<<4)|(T&0xfff) and rd32(0x53207354)==0xe3400000|(4<<12)|((T>>12)&0xf0000)|((T>>16)&0xfff),'items address'
+        assert rd32(0x53207364)==(0xe2845e41 if MU else 0xe2845ffa),'items end'
+        lo_,hi_=[rd32(a_) for a_ in (0x533966e8,0x533966f0)]
+        ROOTS=(((hi_>>4)&0xf000|(hi_&0xfff))<<16)|((lo_>>4)&0xf000|(lo_&0xfff))
+        def atext(row):
+            desc=rd32(rd32(ROOTS+row*4)+ours[1]*4);n=cpu.mem_read(desc,1)[0]
+            return bytes(cpu.mem_read(rd32(desc+4),2*(n-1))).decode('utf-16-le')
+        assert (atext(0),atext(1),atext(2))==('測距点','AF Point','Point AF'),[atext(r_) for r_ in range(3)]
+        if MU:
+            uo=struct.unpack('<10I',tab[25*0x28:26*0x28])
+            assert uo[0]==25 and uo[2]==e['memoryUDraw'] and uo[4]==e['memoryUToggle'] and uo[6]==e['memoryUWrite'] and uo[8]==0 and uo[9]==0,uo
+            def utext(row):
+                desc=rd32(rd32(ROOTS+row*4)+uo[1]*4);n=cpu.mem_read(desc,1)[0]
+                return bytes(cpu.mem_read(rd32(desc+4),2*(n-1))).decode('utf-16-le')
+            assert (utext(0),utext(1),utext(2),utext(19))==('Uにも適用','Apply to U modes','Appliquer en U','在U中应用'),[utext(r_) for r_ in range(21)]
+            count('apply to U item')
+        if 'memoryHidden' in e:
+            sm=struct.unpack('<10I',tab[9*0x28:10*0x28])
+            assert sm[0]==8 and sm[1]==0x5f and sm[8]==e['memoryHidden'] and sm[9]==0,sm
+            p.run(e['memoryHidden'],STOP,{0:0x1234});assert cpu.reg_read(reg.UC_ARM_REG_R0)==0
+            count('still/movie hidden')
+        count('AF point items')
+        p.memory_stubs=True;LISTO=0x63059000
+        try:cpu.mem_map(LISTO,0x2000)
+        except Exception:pass
+        assert rd32(0x532074e8)==(0xeb000000|(((e['memoryListSetup']-0x532074e8-8)>>2)&0xffffff)),'list set-up call'
+        for n in (0,1,24,25,26,32,40):
+            cpu.mem_write(LISTO+0x164,struct.pack('<III',0xb0b0,LISTO+0x400,LISTO+0x400+n*0x28));cpu.ctl_flush_tb();p.ui=[]
+            regs={0:LISTO,4:0x4444,5:0x5555};p.run(e['memoryListSetup'],STOP,regs);count('list set-up')
+            m=min(n,32);assert p.ui==[('types',0xb0b0,b'\x2a'*m,0x3a)],(n,p.ui)
+            for k in (4,5):assert cpu.reg_read(getattr(reg,'UC_ARM_REG_R%d'%k))==regs[k]
+        try:cpu.mem_map(LISTO,0x2000)
+        except Exception:pass
+        for st in (0,1,5):
+            cpu.mem_write(AFS,bytes([st]));cpu.ctl_flush_tb();p.ui=[]
+            p.run(e['afPointDraw'],STOP,{0:0x1111,1:0x6305b000});count('AF point draw')
+            assert p.ui==[('tick',0x6305b000,0x10f if st else 0x10e)],p.ui
+        for st in (0,1):
+            for at_row in (0,3,7,None):
+                n=8;base=LISTO+0x400
+                for k in range(n):cpu.mem_write(base+k*0x28,bytes([k+30 if (at_row is None or k!=at_row) else 24])+bytes(0x27))
+                cpu.mem_write(LISTO+0x164,struct.pack('<III',0xa0a0,base,base+n*0x28))
+                cpu.mem_write(AFS,bytes([st]));cpu.ctl_flush_tb();p.ui=[]
+                regs={0:LISTO,4:0x4444,5:0x5555,6:0x6666};p.run(e['afPointToggle'],STOP,regs);count('AF point toggle')
+                assert cpu.mem_read(AFS,1)[0]==st^1
+                assert p.ui==[('row',0xa0a0,at_row or 0),('tick',0x6305a000,0x10f if st^1 else 0x10e)],(p.ui,at_row)
+                for k in (4,5,6):assert cpu.reg_read(getattr(reg,'UC_ARM_REG_R%d'%k))==regs[k]
+        for st in (0,1):
+            for pointer in (True,False):
+                cur,boxes=setup(3,pointer=pointer);cpu.mem_write(AFS,bytes([st]));cpu.ctl_flush_tb()
+                regs={4:0x4444,5:0x5555};p.run(e['afPointWrite'],STOP,regs);count('AF point write')
+                c2,b2=state();want_c=bytearray(cur);want_b=[bytearray(b) for b in boxes]
+                if pointer:want_c[SET]=st^1
+                for b in want_b[:7]:b[SET]=st^1
+                assert c2==bytes(want_c) and b2==[bytes(b) for b in want_b],(st,pointer)
+                for k in (4,5):assert cpu.reg_read(getattr(reg,'UC_ARM_REG_R%d'%k))==regs[k]
+        if MU:
+            for st in (0,1,5):
+                cpu.mem_write(US,bytes([st]));cpu.ctl_flush_tb();p.ui=[]
+                p.run(e['memoryUDraw'],STOP,{0:0x1111,1:0x6305b000});count('apply to U draw')
+                assert p.ui==[('tick',0x6305b000,0x10f if st else 0x10e)],p.ui
+            for st in (0,1):
+                for at_row in (2,25,None):
+                    n=27;base=LISTO+0x400
+                    for k in range(n):cpu.mem_write(base+k*0x28,bytes([k+30 if (at_row is None or k!=at_row) else 25])+bytes(0x27))
+                    cpu.mem_write(LISTO+0x164,struct.pack('<III',0xa0a0,base,base+n*0x28))
+                    cpu.mem_write(US,bytes([st]));cpu.mem_write(AFS,b'\x01');cpu.ctl_flush_tb();p.ui=[]
+                    regs={0:LISTO,4:0x4444,5:0x5555};p.run(e['memoryUToggle'],STOP,regs);count('apply to U toggle')
+                    assert cpu.mem_read(US,1)[0]==st^1 and cpu.mem_read(AFS,1)[0]==1
+                    assert p.ui==[('row',0xa0a0,at_row or 0),('tick',0x6305a000,0x10f if st^1 else 0x10e)],(p.ui,at_row)
+            for st in (0,1):
+                for pointer in (True,False):
+                    cur,boxes=setup(3,pointer=pointer);cpu.mem_write(US,bytes([st]));cpu.ctl_flush_tb()
+                    regs={4:0x4444,5:0x5555};p.run(e['memoryUWrite'],STOP,regs);count('apply to U write')
+                    c2,b2=state();want_c=bytearray(cur);want_b=[bytearray(b) for b in boxes]
+                    if pointer:want_c[USET]=st
+                    for b in want_b[:7]:b[USET]=st
+                    assert c2==bytes(want_c) and b2==[bytes(b) for b in want_b],(st,pointer)
+        assert rd32(0x532071f8)==(0xea000000|(((e['afPointRead']-0x532071f8-8)>>2)&0xffffff))
+        for v,want in ((0,1),(1,0),(2,1),(255,1),(None,1)):
+            for u in ((0,1,2,255) if MU else (0,)):
+                cur,boxes=setup(3,pointer=v is not None)
+                if v is not None:cur[SET]=v;cur[USET]=u;cpu.mem_write(CUR,bytes(cur))
+                cpu.mem_write(AFS,b'\x77\x77');cpu.ctl_flush_tb()
+                regs={0:0x7070,4:0x4444};p.run(e['afPointRead'],0x53206a30,regs);count('AF point read')
+                assert cpu.mem_read(AFS,1)[0]==want and cpu.reg_read(reg.UC_ARM_REG_R0)==0x7070 and cpu.reg_read(reg.UC_ARM_REG_R4)==0x4444,(v,cpu.mem_read(AFS,1)[0])
+                assert cpu.mem_read(US,1)[0]==((1 if (u==1 and v is not None) else 0) if MU else 0x77),(v,u,cpu.mem_read(US,1)[0])
+        p.memory_stubs=False;cpu.mem_write(AFS,b'\0');cpu.ctl_flush_tb()
+        # Power-on: the merge after Focus (0x53240874), r3 the factory record, r4 the record loaded.
+        FAC,DST,INUSE,FP=0x63054000,0x63055000,0x63056000,0x63057800
+        for v in (0,1,2):
+            fac=bytes(rng.randrange(256) for _ in range(0x600));dst=bytes(rng.randrange(256) for _ in range(0x600))
+            inuse=bytearray(rng.randrange(256) for _ in range(0xb28));inuse[SET]=v;inuse[0xaf4]=1
+            cpu.mem_write(FAC,fac);cpu.mem_write(DST,dst);cpu.mem_write(INUSE,bytes(inuse));cpu.mem_write(FP-0x30,struct.pack('<I',INUSE));cpu.ctl_flush_tb()
+            regs={3:FAC,4:DST,5:0x55,6:0x66,7:0x77,11:FP}
+            for i in range(13):cpu.reg_write(getattr(reg,'UC_ARM_REG_R'+str(i)),regs.get(i,0x1230+i))
+            cpu.reg_write(reg.UC_ARM_REG_SP,STACK);cpu.reg_write(reg.UC_ARM_REG_LR,0xbeefcafe);cpu.reg_write(reg.UC_ARM_REG_CPSR,0x13)
+            cpu.emu_start(0x53240874,0x5324089c,count=100);assert cpu.reg_read(reg.UC_ARM_REG_PC)==0x5324089c
+            want=bytearray(dst)
+            if v==1:want[0x120:0x128]=fac[0x120:0x128]
+            assert bytes(cpu.mem_read(DST,0x600))==bytes(want),('af point',v)
+            for k in (3,4,5,6,7,11):assert cpu.reg_read(getattr(reg,'UC_ARM_REG_R%d'%k))==regs[k]
+            assert cpu.reg_read(reg.UC_ARM_REG_SP)==STACK and cpu.reg_read(reg.UC_ARM_REG_LR)==0xbeefcafe
+            count('AF point power-on')
+        if MU:
+            assert rd32(0x5324b154)==(0xea000000|(((e['memoryUMerge']-0x5324b154-8)>>2)&0xffffff))
+            p.merge_stubs=True;cpu.ctl_flush_tb()
+            FILMB=bool(manifest.get('filmRoll'))
+            FR=0x63059c00  # the merge's frame: fp; [fp-0x1c..] = r4, r5, r6, r7, fp, sp, pc
+            for mode in range(9):
+                for v in (0,1,2):
+                    for same in (True,False):
+                        for film in (False,True):
+                            cur,boxes=setup(3);cur[USET]=v;cur[0x9b1]=(cur[0x9b1]&~1)|(1 if film else 0);cur[0x472]=0;cur[0x482]=2
+                            fl=bytes([rng.randrange(2),0,rng.randrange(3)]);cur[0xb04],cur[0xb0a],cur[0xb0e]=fl;cpu.mem_write(CUR,bytes(cur))
+                            rec=CUR if same else BOXES+0x1000
+                            cpu.mem_write(FR-0x1c,struct.pack('<7I',0xa4,0xa5,0xa6,0xa7,0xab,STACK,STOP))
+                            regs={4:rec,5:0x5555,6:MODEL,7:mode,0:0x1010,1:0x2020,2:0x3030,3:0x4040,11:FR}
+                            for i in range(13):cpu.reg_write(getattr(reg,'UC_ARM_REG_R'+str(i)),regs.get(i,0x1230+i))
+                            cpu.reg_write(reg.UC_ARM_REG_SP,STACK-0x100);cpu.reg_write(reg.UC_ARM_REG_LR,0xbeefcafe);cpu.reg_write(reg.UC_ARM_REG_CPSR,0x13)
+                            p.ui=[];cpu.emu_start(0x5324b154,STOP,count=80)
+                            u=1<=mode<=6 and same and v==1
+                            if mode==0 or not u:
+                                assert p.ui==[('merge',0x5324b168 if mode==0 else 0x5324b15c)],(mode,v,same,p.ui)
+                                for k,x in regs.items():assert cpu.reg_read(getattr(reg,'UC_ARM_REG_R%d'%k))==x,(k,mode)
+                                assert cpu.reg_read(reg.UC_ARM_REG_SP)==STACK-0x100 and cpu.reg_read(reg.UC_ARM_REG_LR)==0xbeefcafe
+                            else:
+                                # Mode Memory called (UserDataModel, the record), the film mode forced again, the merge's way out.
+                                assert p.ui==[('memory',MODEL,rec)],(mode,p.ui)
+                                assert cpu.reg_read(reg.UC_ARM_REG_PC)==STOP and cpu.reg_read(reg.UC_ARM_REG_SP)==STACK and cpu.reg_read(reg.UC_ARM_REG_R0)==0x7e57
+                                assert [cpu.reg_read(getattr(reg,'UC_ARM_REG_R%d'%k)) for k in (4,5,6,7,11)]==[0xa4,0xa5,0xa6,0xa7,0xab]
+                                c2=bytes(cpu.mem_read(CUR,SIZE));forced=film and FILMB
+                                assert (c2[0x472],c2[0x482])==((3,0) if forced else (0,2)),(film,c2[0x472],c2[0x482])
+                                # Image Control, Aspect Ratio and Drive memorized during the call in a film BOX, then as they were.
+                                assert p.kept_flags==(b'\1\1\1' if forced else fl) and bytes([c2[0xb04],c2[0xb0a],c2[0xb0e]])==fl,(film,p.kept_flags,fl)
+                            count('apply to U merge')
+            # The recall of a U mode: Mode Memory when Apply to U modes is 1 on the record in use, then the film mode's recall.
+            for mode in range(9):
+                for v in (0,1):
+                    for same in (True,False):
+                        cur,boxes=setup(3);cur[USET]=v;cur[0x9b1]|=1;cur[0x472]=0;cur[0x482]=2;cpu.mem_write(CUR,bytes(cur))
+                        fl=bytes([0,rng.randrange(2),0]);cur[0xb04],cur[0xb0a],cur[0xb0e]=fl;cpu.mem_write(CUR,bytes(cur))
+                        b=bytearray(boxes[1]);b[USET]=v;b[0x9b1]|=1;b[0x472]=0;b[0x482]=2;cpu.mem_write(BOXES+0x1000,bytes(b))
+                        rec=CUR if same else BOXES+0x1000
+                        p.ui=[];regs={0:rec,1:mode,4:0x4444,5:0x5555,6:0x6666};p.run(e['memoryURecall'],STOP,regs);count('apply to U recall')
+                        call=1<=mode<=6 and same and v==1
+                        assert p.ui==([('memory',MODEL,rec)] if call else []),(mode,v,same,p.ui)
+                        for k in (4,5,6):assert cpu.reg_read(getattr(reg,'UC_ARM_REG_R%d'%k))==regs[k]
+                        r2=bytes(cpu.mem_read(rec,SIZE));forced=FILMB and 1<=mode<=6
+                        assert (r2[0x472],r2[0x482])==((3,0) if forced else (0,2)),(mode,r2[0x472],r2[0x482])
+                        if call:assert p.kept_flags==(b'\1\1\1' if FILMB else fl) and bytes([r2[0xb04],r2[0xb0a],r2[0xb0e]])==fl,(p.kept_flags,fl)
+            p.merge_stubs=False;cpu.ctl_flush_tb()
+    # 29. Form 'clo2': the check at a U mode's recall ends a roll whose film changed and opens the message.
+    if clo2:
+        RECALL=e['filmRollRecall'];LK,RT=0x9c2,0x9c3
+        for mode,changed,started in ((3,True,True),(3,False,True),(3,True,False),(0,True,True)):
+            cur,boxes=setup(mode)
+            for b in (cur,boxes[mode]):b[FLAGS]=(b[FLAGS]&~2)|(2 if started else 0);b[FRAME]=4;b[LK]=22;b[RT]=3
+            cur[0x1c2]=17 if changed else 22;cur[RATIO]=3;cur[FLAGS]|=1
+            cpu.mem_write(CUR,bytes(cur));cpu.mem_write(BOXES+mode*0x1000,bytes(boxes[mode]));cpu.mem_write(MSG,b'\0')
+            p.writes=[];p.opens=[];p.live=[]
+            p.call(RECALL,CUR,mode);count('recall check')
+            closed=changed and started and 1<=mode<=6
+            c2,b2=state()
+            assert (c2[FRAME]==0)==closed and cpu.mem_read(MSG,1)[0]==(1 if closed else 0),(mode,changed,started)
+            assert p.opens==([(0xa9a9,0x08000007,0xc4c4)] if closed else []),p.opens
+            if closed:assert (STORE,1,0xb26,CUR) in p.writes
+    # 15. Form 'fn6': Retake cancels the whole frame (flag at 0x55804398).
+    if fn6:
+        FLAG=0x55804398;OBJR=0x63057000
+        try:cpu.mem_map(OBJR,0x1000)
+        except Exception:pass
+        flag=lambda:cpu.mem_read(FLAG,1)[0]
+        for up,phase,want in ((1,2,1),(1,1,1),(0,2,2),(0,1,1)):
+            cpu.mem_write(FLAG,bytes([up]));cpu.mem_write(OBJR+4,struct.pack('<I',phase))
+            regs={0:OBJR,1:0x2222,2:0x3333,3:0x4444};p.run(0x5346a8d8,0x5346a8dc,regs);kept(regs,True);count('cancel machine')
+            assert struct.unpack('<I',bytes(cpu.mem_read(OBJR+4,4)))[0]==want and flag()==0
+        p.stubs_on=True;p.fn_stubs=True
+        setup(3,film=True,state=2);cpu.mem_write(FLAG,b'\0')
+        for i in range(4):
+            p.events=[];p.run(0x5329bcc8,0x5329bccc,{0:0x1111,1:0x2222,2:43,3:0x3333});count('cancel presses')
+            assert p.events==([('retake action',)] if i==0 else []) and flag()==1,(i,p.events)
+        p.stubs_on=False;p.fn_stubs=False
+        for model in (True,False):
+            setup(3,model=model);cpu.mem_write(FLAG,b'\1');regs={0:5,1:6,2:7,3:8}
+            p.run(e['exposureOrientation'],BEFORE_EXPOSE+4,regs);kept(regs,True);assert flag()==0;count('cancel cleared at exposure')
+    # 14. Form 'rt1': the Retake probe (bytes at 0x55804390) and its clock.
+    if rt1:
+        K=0x55804390;OBJR=0x63057000
+        try:cpu.mem_map(OBJR,0x1000)
+        except Exception:pass
+        k=lambda:bytes(cpu.mem_read(K,7))
+        cpu.mem_write(K,bytes(17))
+        regs={0:0x1111,1:0x2222,2:0x3333,3:0x4444}
+        p.run(0x5323a1a4,0x5323a1a8,regs);kept(regs,True);assert k()==bytes([1,0,0,0,0,0,0]);count('probe model retake')
+        for v,z in ((2,1),(5,0),(0,0)):
+            regs={0:v,1:0x2222,2:0x3333,3:0x4444};p.run(0x5323a1d0,0x5323a1d4,regs);count('probe state test')
+            for r_,x in regs.items():assert cpu.reg_read(getattr(reg,'UC_ARM_REG_R%d'%r_))==x
+            assert (cpu.reg_read(reg.UC_ARM_REG_CPSR)>>30)&1==z and k()[1]==v+1
+        for phase in (1,2,0):
+            cpu.mem_write(OBJR+4,struct.pack('<I',phase));regs={0:OBJR,1:0x2222,2:0x3333,3:0x4444}
+            p.run(0x5346a8d8,0x5346a8dc,regs);kept(regs,True);count('probe machine retake');assert k()[3]==phase+1
+        assert k()[2]==3
+        regs={0:OBJR,1:0x2222,2:0x3333,3:0x4444};p.run(0x5346a910,0x5346a914,regs);kept(regs,True);assert k()[4]==1;count('probe machine end')
+        p.stubs_on=True;p.fn_stubs=True
+        for mode,film,st,called in ((3,True,2,1),(3,True,0,0),(3,False,2,0),(0,True,2,0)):
+            setup(mode,film=film,state=st);before=bytes(cpu.mem_read(K,7))
+            p.run(0x5329bcc8,0x5329bccc,{0:0x1111,1:0x2222,2:43,3:0x3333});count('probe presses')
+            after=k();assert after[5]==before[5]+1 and after[6]==before[6]+called,(mode,film,st,before.hex(),after.hex())
+        p.stubs_on=False;p.fn_stubs=False
+        def clock():
+            cpu.mem_write(TIME,bytes(16));p.call(e['filmProbeTime'],0x1234,TIME);count('probe clock');return bytes(cpu.mem_read(TIME,16))
+        setup(3)
+        cpu.mem_write(K,bytes([1,3,1,2,0,1,1]));assert clock()==struct.pack('<H',2001)+bytes([4,2,2,11])+bytes(10)
+        cpu.mem_write(K,bytes([0,0,0,0,0,0,0]));assert clock()==struct.pack('<H',2000)+bytes([1,1,0,0])+bytes(10)
+        cpu.mem_write(K,bytes([123,200,40,30,0,12,7]));assert clock()==struct.pack('<H',2023)+bytes([12,31,23,59])+bytes(10)
+        cpu.mem_write(MODEL+4,bytes(4));t=clock();assert t!=struct.pack('<H',2023)+bytes([12,31,23,59])+bytes(10)
+    # 11. Form 'fn2': no Next / Retake / Complete screen in film mode, and the two-key clock.
+    # 12. Form 'fn3': the live view's id (0x08000000) instead of the screen's (0x0800000c) in film mode,
+    # the key probe cleared at each exposure and deaf to keys 6 and 57.
+    if fn2 or fn3:
+        OPEN=0x53226738;REVIEW_ID=0x53226760;K=0x55804390;KEY_EVENT,POST_EVENT=0x53221a1c,0x532288b0
+        for mode in (0,1,3,6,7) if fn3 else ():
+            for film in (False,True):
+                for st in (0,1,2,3):
+                    for model,pointer in ((True,True),(False,True),(True,False)):
+                        setup(mode,film=film,state=st,model=model,pointer=pointer);before=state()
+                        live=film and 1<=mode<=6 and st==2 and model and pointer
+                        regs={0:0x1111,1:0x2222,2:0x3333,3:0x4444,4:0x44,5:0x55}
+                        p.run(REVIEW_ID,REVIEW_ID+4,regs);count('review to live' if live else 'review screen')
+                        want=dict(regs);want[1]=0 if live else 0xc;kept(want)
+                        assert cpu.reg_read(reg.UC_ARM_REG_SP)==STACK and state()==before
+        for mode in (0,1,3,6,7) if fn2 else ():
+            for film in (False,True):
+                for st in (0,1,2,3):
+                    for model,pointer in ((True,True),(False,True),(True,False)):
+                        setup(mode,film=film,state=st,model=model,pointer=pointer);before=state()
+                        skip=film and 1<=mode<=6 and st==2 and model and pointer
+                        regs={0:0x1111,1:0x2222,2:0x3333,3:0x4444,4:0x44,5:0x55}
+                        if skip:
+                            p.run(OPEN,STOP,regs);count('review skipped')
+                            want=dict(regs);want[0]=1;kept(want)
+                            assert cpu.reg_read(reg.UC_ARM_REG_SP)==STACK
+                        else:
+                            p.run(OPEN,OPEN+4,regs);count('review opens');kept(regs,True)
+                        assert state()==before
+        # The model's end keeps the key table (cleared only at start-up).
+        cur,boxes=setup(3)
+        cpu.mem_write(K,bytes([35,4,0,0, 57,9,0,0])+bytes(9));p.writes=[];p.run(MODEL_END,MODEL_END+4,{0:1,1:2,2:3,3:4})
+        assert bytes(cpu.mem_read(K,8))==bytes([35,4,0,0, 57,9,0,0])
+        def key(k):
+            regs={0:0x1111,1:k,2:0x22,3:0x33};p.run(KEY_EVENT,KEY_EVENT+4,regs);count('key');kept(regs,True)
+        def clock():
+            cpu.mem_write(TIME,bytes(16));p.call(e['filmProbeTime'],0x1234,TIME);count('key clock');return bytes(cpu.mem_read(TIME,16))
+        def date(k1,c1,k2,c2):return struct.pack('<H',2000+k1%100)+bytes([1+min(c1,11),1+min(c2,30),k2//60,k2%60])+bytes(10)
+        if fn3:
+            # Each exposure clears the table (the exposure hook runs first); keys 6 and 57 are not counted.
+            for started in (False,True):
+                cur,boxes=setup(3)
+                for b in [cur]:b[FLAGS]=(b[FLAGS]&~2)|(2 if started else 0)
+                cpu.mem_write(CUR,bytes(cur));cpu.mem_write(K,bytes(range(1,18)))
+                regs={0:0x1111,1:0x2222,2:0x3333,3:0x4444}
+                p.run(e['exposureOrientation'],BEFORE_EXPOSE+4,regs);count('key clear at exposure');kept(regs,True)
+                assert bytes(cpu.mem_read(K,17))==bytes(17)
+            cpu.mem_write(K,bytes(17))
+            for k in (6,57,6):key(k)
+            assert bytes(cpu.mem_read(K,17))==bytes(17)
+        cpu.mem_write(K,bytes(17));assert clock()==date(0,0,0,0)
+        N=58 if fn3 else 57
+        key(N);key(N);key(N);key(35);t=clock();assert t==date(N,3,35,1),t.hex()
+        for _ in range(4):key(35)
+        assert clock()==date(35,5,N,3)
+        key(50);assert clock()==date(35,5,N,3)
+        cpu.mem_write(K,bytes([9,3,0,0, 10,3,0,0, 11,2,0,0, 130,40,0,0])+bytes(1));assert clock()==date(130,40,9,3)
+        cpu.mem_write(K,bytes([9,3,0,0, 10,7,0,0, 11,2,0,0])+bytes(5));assert clock()==date(10,7,9,3)
+        cpu.mem_write(K,bytes([200,1,0,0])+bytes(13));assert clock()==date(200,1,0,0)
+    return dict(schema=1,revision='T22-NAME2' if name2 else 'T22-NAME1' if name1 else 'T21-TAB1' if tab1 else 'T20-VID4' if vid4 else 'T20-VID3' if vid3 else 'T20-VID2' if vid2 else 'T20-VID1' if vid1 else 'T19-CARD3' if card3 else 'T19-CARD2' if card2 else 'T19-CARD1' if card1 else 'T18-HIDE1' if hide1 else 'T17-RWD3' if rwd1 else 'T17-MSG1' if msg1 else 'T16-CLO4' if clo4 else 'T16-CLO3' if clo3 else 'T16-CLO2' if clo2 else 'T16-CLO1' if clo1 else 'T15-END3' if end3 else 'T15-END2' if end2 else 'T15-END1' if end1 else 'T14-DIR14' if dir14 else 'T14-DIR13' if dir13 else 'T14-DIR12' if dir12 else 'T14-DIR11' if dir11 else 'T14-DIR10' if dir10 else 'T14-DIR9' if dir9 else 'T14-DIR8' if dir8 else 'T14-DIR7' if dir7 else 'T14-DIR6' if dir6 else 'T14-DIR5' if dir5 else 'T14-DIR4' if dir4 else 'T14-DG3' if dg3 else 'T14-DG2' if dg2 else 'T14-DG1' if dg1 else 'T14-DIR3' if dir3 else 'T14-DIR2' if dir2 else 'T14-DIR1' if dir1 else 'T13-FN7' if fn7 else 'T13-FN6' if fn6 else 'T13-RT1' if rt1 else 'T13-FN5' if fn5 else 'T13-FN4' if fn4 else 'T13-FN3' if fn3 else 'T13-FN2' if fn2 else 'T13-FN1' if fn_form else 'T12-KEYS2' if keys_form else 'T12-MENU2' if menu_form else 'T11-ROLL2D' if diag else 'T11-ROLL3' if folders else 'T11-ROLL1',rtos_sha256=hashlib.sha256(data).hexdigest(),cases=cases,seed=seed,hardware_tested=False,
+        scope='Hooks run from their patched sites (firmware storage and the native BOX save body substituted); the recall runs natively.')
+
+if __name__=='__main__':
+    a=argparse.ArgumentParser(description=__doc__)
+    for s in ('rtos','manifest','report'):a.add_argument('--'+s,type=Path,required=True)
+    a=a.parse_args();result=verify(a.rtos.read_bytes(),json.loads(a.manifest.read_text()))
+    with a.report.open('x') as f:json.dump(result,f,indent=2);f.write('\n')
+    print(json.dumps(result))

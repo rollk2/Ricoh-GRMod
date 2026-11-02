@@ -174,16 +174,16 @@ func TestDataDirFor(t *testing.T) {
 		home string
 		want string
 	}{
-		{"windows", map[string]string{"LOCALAPPDATA": `C:\Users\me\AppData\Local`}, "", `C:\Users\me\AppData\Local\GRMod`},
-		{"windows", map[string]string{"LOCALAPPDATA": `C:\Users\me\AppData\Local\`}, "", `C:\Users\me\AppData\Local\GRMod`},
-		{"windows", map[string]string{"USERPROFILE": `C:\Users\me`}, "", `C:\Users\me\AppData\Local\GRMod`},
+		{"windows", map[string]string{"LOCALAPPDATA": `C:\Users\me\AppData\Local`}, "", `C:\Users\me\AppData\Local\GRModFilm`},
+		{"windows", map[string]string{"LOCALAPPDATA": `C:\Users\me\AppData\Local\`}, "", `C:\Users\me\AppData\Local\GRModFilm`},
+		{"windows", map[string]string{"USERPROFILE": `C:\Users\me`}, "", `C:\Users\me\AppData\Local\GRModFilm`},
 		{"windows", map[string]string{}, `C:\Users\me`, ""},
-		{"linux", map[string]string{"XDG_DATA_HOME": "/data/xdg"}, "/home/me", "/data/xdg/grmod"},
-		{"linux", map[string]string{"XDG_DATA_HOME": "/data/xdg/"}, "/home/me", "/data/xdg/grmod"},
-		{"linux", map[string]string{"XDG_DATA_HOME": "relative"}, "/home/me", "/home/me/.local/share/grmod"}, // must be absolute per the XDG spec
-		{"linux", map[string]string{}, "/home/me", "/home/me/.local/share/grmod"},
-		{"darwin", map[string]string{}, "/Users/me/", "/Users/me/Library/Application Support/GRMod"},
-		{"darwin", map[string]string{"XDG_DATA_HOME": "/data/xdg"}, "/Users/me", "/Users/me/Library/Application Support/GRMod"},
+		{"linux", map[string]string{"XDG_DATA_HOME": "/data/xdg"}, "/home/me", "/data/xdg/grmod-film"},
+		{"linux", map[string]string{"XDG_DATA_HOME": "/data/xdg/"}, "/home/me", "/data/xdg/grmod-film"},
+		{"linux", map[string]string{"XDG_DATA_HOME": "relative"}, "/home/me", "/home/me/.local/share/grmod-film"}, // must be absolute per the XDG spec
+		{"linux", map[string]string{}, "/home/me", "/home/me/.local/share/grmod-film"},
+		{"darwin", map[string]string{}, "/Users/me/", "/Users/me/Library/Application Support/GRModFilm"},
+		{"darwin", map[string]string{"XDG_DATA_HOME": "/data/xdg"}, "/Users/me", "/Users/me/Library/Application Support/GRModFilm"},
 		{"darwin", map[string]string{}, "", ""},
 		{"linux", map[string]string{}, "", ""},
 	}

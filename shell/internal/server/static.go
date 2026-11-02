@@ -55,7 +55,7 @@ func mimeFor(name string) string {
 	return "application/octet-stream"
 }
 
-const missingUI = `<!doctype html><meta charset="utf-8"><title>GR Mod</title>
+const missingUI = `<!doctype html><meta charset="utf-8"><title>GR Mod Film</title>
 <p>The user interface files are missing (no index.html).</p>
 `
 

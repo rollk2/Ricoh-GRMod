@@ -36,6 +36,8 @@ export const Ico = {
   download: <svg viewBox="0 0 20 20" {...P}><path d="M10 3.2v9.6M6 9.2l4 3.8 4-3.8M4 16.2h12" /></svg>,
   info: <svg viewBox="0 0 20 20" {...P}><circle cx="10" cy="10" r="7.2" /><path d="M10 9.2v4.4" /><circle cx="10" cy="6.4" r="0.6" fill="currentColor" /></svg>,
   soft: <svg viewBox="0 0 20 20" {...P}><circle cx="10" cy="10" r="3.3" /><circle cx="10" cy="10" r="7.2" strokeDasharray="1.4 2.35" /></svg>,
+  film: <svg viewBox="0 0 20 20" {...P}><rect x="2.4" y="5" width="15.2" height="10" rx="1" /><path d="M2.4 7.4h15.2M2.4 12.6h15.2M5 5v2.4M8 5v2.4M11 5v2.4M14 5v2.4M5 12.6V15M8 12.6V15M11 12.6V15M14 12.6V15" /></svg>,
+  noMovie: <svg viewBox="0 0 20 20" {...P}><rect x="2.4" y="5.6" width="10.6" height="8.8" rx="1.6" /><path d="M13 9l4.6-2.6v7.2L13 11M3 3l14 14" /></svg>,
   date: <svg viewBox="0 0 20 20" {...P}><rect x="2.8" y="4.4" width="14.4" height="12" rx="2" /><path d="M2.8 8.2h14.4M6.6 2.8v3M13.4 2.8v3M6.4 11.4h1.6M9.2 11.4h1.6M12 11.4h1.6M6.4 13.8h1.6M9.2 13.8h1.6" /></svg>,
   flash: <svg viewBox="0 0 20 20" {...P}><path d="M11.8 2.6L5.4 11h4.2l-1.8 6.4 6.8-8.8h-4.4l1.6-6z" /></svg>,
   mono: <svg viewBox="0 0 20 20" {...P}><circle cx="10" cy="10" r="7.2" /><path d="M10 2.8a7.2 7.2 0 0 1 0 14.4z" fill="currentColor" stroke="none" /></svg>,

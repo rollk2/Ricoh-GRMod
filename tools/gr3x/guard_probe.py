@@ -6,7 +6,9 @@ movie look that is not one of the camera's own (11..22) or a film of the build b
 a ratio above the build's largest identity becomes 3:2, and no other byte changes. The mode
 recall runs natively from the copy of the stored record to just before the record goes to the live
 values; the settings load and save hooks run natively with the firmware's load and save
-substituted (the save must see guarded records). This does not establish the camera's menus.
+substituted (the save must see guarded records). In a film roll build (film-roll.ts) a recall of
+modes 1..6 also leaves Save Interim Images (+0x482) at 0 and the drive mode (+0x472) at 3 (with the
+menu line, only for a record whose Film Roll Mode, bit 0 of 0x9b1, is on). This does not establish the camera's menus.
 """
 import argparse,hashlib,json,random,struct
 from pathlib import Path
@@ -47,6 +49,8 @@ class GuardProbe(AdjProbe):
         # firmware's own body is the scaffold's continuation.
         e=manifest.get('entries',{})
         self.load_native=e.get('settingsLoadNative',LOAD_DATA);self.save_native=e.get('settingsSaveNative',SAVE_DATA)
+        self.film_close=manifest.get('filmRoll') in ('clo2','clo3','clo4','msg1','rwd1','hide1','card1','card2','card3','vid1','vid2','vid3','vid4','tab1','name1','name2','film','card1','card2','card3','vid1','vid2','vid3','vid4','tab1','name1','name2','film','card2');self.closures=[];self.film_opens=0
+        self.live_names=manifest.get('filmRoll') in ('dir1','dir2','dir3','dg1','dg2','dg3','dir4','dir5','dir6','dir7','dir8','dir9','dir10','dir11','dir12','dir13','dir14','end1','end2','end3','clo1','clo2','clo3','clo4','msg1','rwd1','hide1','card1','card2','card3','vid1','vid2','vid3','vid4','tab1','name1','name2','film','card1','card2','card3','vid1','vid2','vid3','vid4','tab1','name1','name2','film','card2');self.live=[]
         # The films' table pointer (0x55804374, 0 here: slots3.c stays out of the way at a recall).
         try:self.uc.mem_map(0x55800000,0x100000)
         except Exception:pass
@@ -54,6 +58,15 @@ class GuardProbe(AdjProbe):
         r=lambda n:cpu.reg_read(getattr(reg,'UC_ARM_REG_R'+str(n)))
         if at==self.load_native:
             assert r(0)==UD;self.loads+=1;cpu.reg_write(reg.UC_ARM_REG_R0,0x77);cpu.reg_write(reg.UC_ARM_REG_PC,cpu.reg_read(reg.UC_ARM_REG_LR))
+        elif self.film_close and at in (0x53828014,0x53826c54,0x5320aefc,0x53228a90,0x53228c4c,0x5316c9d8):
+            # T16-CLO2: a roll ended at a recall saves both records and opens the message (recorded).
+            if at==0x53826c54:self.closures.append(r(1))
+            if at==0x5316c9d8:self.film_opens+=1
+            cpu.reg_write(reg.UC_ARM_REG_R0,0x558ff000 if at==0x53828014 else 1);cpu.reg_write(reg.UC_ARM_REG_PC,cpu.reg_read(reg.UC_ARM_REG_LR))
+        elif self.live_names and at in (0x5354d138,0x5354d104):
+            # T14-DIR1: the roll folder's name given back to the live values at a recall (recorded).
+            self.live.append(('name',bytes(cpu.mem_read(r(1),6))) if at==0x5354d138 else ('type',r(1)&0xff))
+            cpu.reg_write(reg.UC_ARM_REG_R0,1);cpu.reg_write(reg.UC_ARM_REG_PC,cpu.reg_read(reg.UC_ARM_REG_LR))
         elif at==self.save_native:
             assert r(0)==UD;self.saves.append([bytes(cpu.mem_read(RECS+i*0x1000,SIZE)) for i in range(8)])
             cpu.reg_write(reg.UC_ARM_REG_R0,0x5a);cpu.reg_write(reg.UC_ARM_REG_PC,cpu.reg_read(reg.UC_ARM_REG_LR))
@@ -134,7 +147,10 @@ def verify(data,manifest,seed=1107,rounds=400):
         recs,ud=p.records(rng);mode=rng.randrange(7)
         p.run(RECALL_FROM,RECALL_TO,{5:UD,6:mode});calls+=1
         src=recs[1+mode]
-        assert bytes(cpu.mem_read(RECS,0xb26))==want(src,films,max_ratio)[:0xb26]
+        expect=bytearray(want(src,films,max_ratio)[:0xb26])
+        # Film mode (film-roll.ts): recalling U1..U3 sets Save Interim Images (+0x482) to Off.
+        if manifest.get('filmRoll') and 1<=mode<=6 and (manifest['filmRoll'] not in ('menu','keys','fn','fn2','fn3','fn4','fn5','rt1','fn6','fn7','dir1','dir2','dir3','dg1','dg2','dg3','dir4','dir5','dir6','dir7','dir8','dir9','dir10','dir11','dir12','dir13','dir14','end1','end2','end3','clo1','clo2','clo3','clo4','msg1','rwd1','hide1','card1','card2','card3','vid1','vid2','vid3','vid4','tab1','name1','name2','film','card1','card2','card3','vid1','vid2','vid3','vid4','tab1','name1','name2','film','card2') or src[0x9b1]&1):expect[0x482]=0;expect[0x472]=3
+        assert bytes(cpu.mem_read(RECS,0xb26))==bytes(expect)
         assert bytes(cpu.mem_read(RECS+(1+mode)*0x1000,SIZE))==src
     # 3. Load and save (without films; with films slots_probe runs them with the films' table).
     load_save=False

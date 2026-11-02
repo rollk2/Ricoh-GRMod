@@ -17,7 +17,9 @@ export interface RatioItem { id: string; ratio: string; name: string; preview?: 
 export interface PresetState { fileName: string; kind: 'xmp' | 'cube'; text: string; busy: boolean; result?: PresetResult; error?: string }
 export interface IconState { mode: 'keep' | 'text' | 'image'; text: string; style: 'film' | 'plain'; image?: string; pixels?: Uint8Array }
 /** `halation`: Cinema Yellow / Green with a preset (0.8.2); their Toning becomes the Halation slider. */
-export interface SlotState { preset?: PresetState; names: Partial<Record<LangCode, string>>; icon: IconState; halation?: HalationState }
+export interface SlotState { preset?: PresetState; names: Partial<Record<LangCode, string>>; icon: IconState; halation?: HalationState;
+  /** GR III / IIIx film mode: the film's 4-character code (files PORT6857.JPG, roll folders 112POR36). */
+  code?: string }
 /**
  * An added Image Control slot (style 34, 35, ... in the camera): `key` is `x-` and a random id;
  * `name` as typed (empty: the default name of its place), one name for every language.
@@ -63,6 +65,8 @@ export interface State {
   wall: WallItem[];
   ratios: RatioItem[]; activeRatio?: string; ratioBackdrop: RatioBackdrop;
   soft: boolean; dateStamp: boolean; monoUnlock: boolean;
+  /** GR III / IIIx: the film mode, and the movie taken out. */
+  filmMode: boolean; noMovie: boolean;
   /** GR IV: Direct Flash, a fifth Flash Mode (GR III / IIIx have the GF-2 mode of their own). */
   directFlash: boolean;
   /** GR III / IIIx: how many films the build has (1..info.features.maxFilms). */
@@ -98,7 +102,7 @@ const emptySlot = (): SlotState => ({ names: {}, icon: { mode: 'keep', text: '',
 const emptySlots = (): Record<SlotId, SlotState> => Object.fromEntries(SLOT_IDS.map(id => [id, emptySlot()])) as Record<SlotId, SlotState>;
 let state: State = {
   ready: false, page: 'ic', fwBusy: false, model: 'HDF', lang: 'zh-CN',
-  slots: emptySlots(), extras: [], lookOrder: [], lookHidden: [], lookOrder3: [], lookHidden3: [], wall: [], ratios: [], ratioBackdrop: 'photo', soft: false, dateStamp: false, monoUnlock: false, directFlash: false, filmCount: 0, previewMode: 'photo', photoRev: 0, activeSlot: 'CY', volumes: [], bridgeOpen: false,
+  slots: emptySlots(), extras: [], lookOrder: [], lookHidden: [], lookOrder3: [], lookHidden3: [], wall: [], ratios: [], ratioBackdrop: 'photo', soft: false, dateStamp: false, monoUnlock: false, filmMode: false, noMovie: false, directFlash: false, filmCount: 0, previewMode: 'photo', photoRev: 0, activeSlot: 'CY', volumes: [], bridgeOpen: false,
   copySource: 'card', parked: [], backups: [], copySel: [], copyInfo: {}, builds: [], showAll: false, toasts: [], onlineOpen: false, toursSeen: [],
 };
 const listeners = new Set<() => void>();
@@ -204,12 +208,14 @@ function familyData(s: State): FamilyDoc {
       names: s.slots[id].names,
       icon: { mode: s.slots[id].icon.mode, text: s.slots[id].icon.text, style: s.slots[id].icon.style, image: s.slots[id].icon.image },
       ...(s.slots[id].halation ? { halation: s.slots[id].halation } : {}),
+      ...(s.slots[id].code ? { code: s.slots[id].code } : {}),
     }])),
     extras: s.extras.map((x) => ({ key: x.key, name: x.name, preset: x.preset ? { fileName: x.preset.fileName, kind: x.preset.kind } : null, icon: { mode: x.icon.mode, text: x.icon.text, style: x.icon.style, image: x.icon.image }, ...(x.halation ? { halation: x.halation } : {}) })),
     lookOrder: s.lookOrder, lookHidden: s.lookHidden, lookOrder3: s.lookOrder3, lookHidden3: s.lookHidden3,
     wall: s.wall.map((w) => ({ id: w.id, name: w.name, kind: 'image', width: w.width, height: w.height, crop: w.crop, ...(w.menuName !== undefined ? { menuName: w.menuName } : {}), ...(w.menuId ? { menuId: w.menuId } : {}) })),
     ratios: s.ratios.map((r) => ({ id: r.id, ratio: r.ratio, name: r.name })),
     soft: s.soft, dateStamp: s.dateStamp, monoUnlock: s.monoUnlock, directFlash: s.directFlash, filmCount: s.filmCount,
+    filmMode: s.filmMode, noMovie: s.noMovie,
   };
 }
 
@@ -224,6 +230,7 @@ function parseFamily(doc: FamilyDoc | null): Partial<State> {
     // GR III projects up to 0.8.0-gr3exp.9 kept the film's level as a number (1 Weak, 2 Strong).
     const h = validHalation(d.halation === 1 || d.halation === 2 ? { on: true, preview: d.halation === 2 ? 3 : 1 } : d.halation);
     if (h) slots[id].halation = h;
+    if (typeof d.code === 'string' && FILM_CODE.test(d.code)) slots[id].code = d.code;
   }
   const extras: ExtraSlot[] = (Array.isArray(doc?.extras) ? doc!.extras : []).slice(0, MAX_EXTRA_SLOTS)
     .filter((x: ExtraSlot) => x && typeof x.key === 'string' && /^x-[a-z0-9]{1,12}$/.test(x.key))
@@ -238,6 +245,7 @@ function parseFamily(doc: FamilyDoc | null): Partial<State> {
     lookOrder3: gr3SavedKeys(doc?.lookOrder3), lookHidden3: gr3SavedKeys(doc?.lookHidden3).filter((k) => k !== 'g11'),
     soft: doc?.soft === true || (!!doc?.softFocus && typeof doc.softFocus === 'object' && Object.keys(doc.softFocus).length > 0),
     dateStamp: doc?.dateStamp === true, monoUnlock: doc?.monoUnlock === true, directFlash: doc?.directFlash === true,
+    filmMode: doc?.filmMode === true, noMovie: doc?.noMovie === true,
     filmCount: Number.isInteger(doc?.filmCount) && doc!.filmCount >= 0 && doc!.filmCount <= GR3X_FILM_IDS.length ? doc!.filmCount : doc && doc.filmCount === undefined && doc.slots ? 9 : 0,
   };
 }
@@ -954,8 +962,35 @@ export function setDirectFlash(directFlash: boolean): void {
   set({ directFlash }); scheduleSave();
 }
 export function directFlashOn(s: State = state): boolean { return !!s.directFlash && !!s.info?.features.directFlash; }
+
+// ------------------------------------------------------------------ film mode, movie removal (GR III / IIIx)
+/** A film's code: 4 characters A-Z or 0-9 (DCF file names). */
+export const FILM_CODE = /^[A-Z0-9]{4}$/;
+/** The film mode and the movie removal need a full GR III / IIIx file (round 10, date imprint stage). */
+export const filmModeChoosable = (s: State = state): boolean => s.info?.family === 'gr3x' && !!s.info.features.dateStamp && filmCountChoosable(s);
+export function filmModeOn(s: State = state): boolean { return !!s.filmMode && filmModeChoosable(s); }
+export function noMovieOn(s: State = state): boolean { return !!s.noMovie && filmModeChoosable(s); }
+export function setFilmMode(filmMode: boolean): void {
+  if (filmMode && !filmModeChoosable()) return;
+  set({ filmMode }); scheduleSave();
+}
+export function setNoMovie(noMovie: boolean): void {
+  if (noMovie && !filmModeChoosable()) return;
+  set({ noMovie }); scheduleSave();
+}
+/** A film's code as typed: upper case, A-Z and 0-9 only, at most 4 characters ('' for none). */
+export function setFilmCode(id: SlotId, code: string): void {
+  const c = code.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4);
+  setSlot(id, { code: c || undefined }); scheduleSave();
+}
+/** The film mode's codes of the films built (complete codes only). */
+export function filmCodes(s: State = state): Partial<Record<SlotId, string>> {
+  return Object.fromEntries(shownSlots(s).map((x) => [x.id, s.slots[x.id]?.code]).filter(([, c]) => typeof c === 'string' && FILM_CODE.test(c as string)));
+}
+/** A film code being typed and not yet 4 characters long. */
+export function filmCodeProblem(id: SlotId, s: State = state): boolean { const c = s.slots[id]?.code; return !!c && !FILM_CODE.test(c); }
 /** Any addition that is not a slot or a ratio. */
-export function extrasOn(s: State = state): boolean { return softOn(s) || !!s.dateStamp || monoUnlockOn(s) || hasLookLayout(s) || directFlashOn(s); }
+export function extrasOn(s: State = state): boolean { return softOn(s) || !!s.dateStamp || monoUnlockOn(s) || hasLookLayout(s) || directFlashOn(s) || filmModeOn(s) || noMovieOn(s); }
 const MINUS = '\u2212';
 const strengthLabel = (st: SoftFocusStrength | 'custom'): string => t(st === 'weak' ? 'softWeak' : st === 'medium' ? 'softMedium' : st === 'strong' ? 'softStrong' : 'softCustom');
 /** "−2 weak / −3 medium" (−1 first), for confirmations and the copies page. */
@@ -1195,6 +1230,8 @@ export async function outputFirmware(dest: Dest, stock = false): Promise<void> {
   const dateStamp = !stock && !!state.dateStamp && !!state.info.features.dateStamp;
   const monoUnlock = !stock && monoUnlockOn();
   const directFlash = !stock && directFlashOn();
+  const filmMode = !stock && filmModeOn(), noMovie = !stock && noMovieOn();
+  if (filmMode && shownSlots().some((x) => filmCodeProblem(x.id))) { toast(t('filmCodeIncomplete'), 'error'); return; }
   if (!stock && (hasNameErrors() || hasRatioErrors())) return;
   if (!stock && hasExtraErrors()) { toast(t('extraIncomplete'), 'error'); return; }
   const extras = stock ? [] : extraSpecs();
@@ -1205,7 +1242,7 @@ export async function outputFirmware(dest: Dest, stock = false): Promise<void> {
   const pictures = noPictures ? [] : menuPictures();
   const films = filmCountChoosable() ? state.filmCount : 0;
   const lookLayout = stock ? undefined : lookLayoutSpec();
-  if (!stock && changes.length === 0 && ratios.length === 0 && !soft && !dateStamp && !monoUnlock && !directFlash && extras.length === 0 && pictures.length === 0 && films === 0 && !lookLayout) { toast(t('nothingToDo'), 'info'); return; }
+  if (!stock && changes.length === 0 && ratios.length === 0 && !soft && !dateStamp && !monoUnlock && !directFlash && extras.length === 0 && pictures.length === 0 && films === 0 && !lookLayout && !filmMode && !noMovie) { toast(t('nothingToDo'), 'info'); return; }
   if (stock && !(await askOfficial([t('copyOfficial')]))) return;
   if (dest.kind === 'card' && !stock) {
     const lines = changes.map((c) => `${state.info?.family === 'gr3x' ? (state.slots[c.id].names[state.lang] || state.info.slots.find(s => s.id === c.id)?.defaultName || c.id) : t(('slot' + c.id) as Key)}  ·  ${c.labels.join(' / ')}`);
@@ -1216,6 +1253,8 @@ export async function outputFirmware(dest: Dest, stock = false): Promise<void> {
     if (dateStamp) lines.push(t('dateLine'));
     if (monoUnlock) lines.push(t(state.info?.family === 'gr3x' ? 'gr3xReplicaLine' : 'monoLine'));
     if (directFlash) lines.push(t('flashLine'));
+    if (filmMode) lines.push(t('filmModeLine', { l: Object.values(filmCodes()).join(' / ') || '—' }));
+    if (noMovie) lines.push(t('noMovieLine'));
     if (extras.length) lines.push(t('extraLine', { n: extras.length, l: extras.map((x) => (x.halation ? `${x.name} (${t('halation')})` : x.name)).join(' / ') }));
     if (lookLayout) lines.push(t('lookOrderLine', { n: lookLayout.hidden.length }));
     if (pictures.length) lines.push(t('wallMenuLine', { n: pictures.length, l: pictures.map((p) => p.name).join(' / ') }));
@@ -1231,7 +1270,10 @@ export async function outputFirmware(dest: Dest, stock = false): Promise<void> {
       const clarity = soft && sourceInfo.features.softFocus === 'clarity' ? [...GR3X_SOFT_FOCUS] : [];
       const built = await engine.build(changes.map((c) => c.request), ratios, clarity,
         { adjSoftFocus: soft && sourceInfo.features.softFocus === 'adj', dateStamp, monoUnlock, ...(directFlash ? { directFlash } : {}), ...(extras.length ? { extraSlots: extras } : {}), ...(pictures.length ? { shutdownPictures: pictures } : {}),
-          ...(films ? { filmCount: films } : {}), ...(lookLayout ? { lookLayout } : {}) });
+          ...(films ? { filmCount: films } : {}), ...(lookLayout ? { lookLayout } : {}),
+          ...(filmMode ? { filmMode: { codes: filmCodes() } } : {}), ...(noMovie ? { noMovie } : {}),
+          // Every full GR III / IIIx build: the « AF Point » box in Mode Memory (ticked by default: no change until unticked).
+          ...(filmModeChoosable() ? { afPoint: true, memoryU: true } : {}) });
       if (!Object.values(built.checks).every((v) => v === true)) throw new EngineError('selfcheck-failed', 'self-check');
       file = built.file;
       void recordBuild(file, changes);

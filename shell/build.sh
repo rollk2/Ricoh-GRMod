@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Builds the GR Mod shell.
+# Builds the GR Mod Film shell.
 #
 #   ./build.sh dev       -> dist/grmod-dev   (Linux, headless, for development and tests)
-#   ./build.sh linux     -> dist/grmod       (Linux x64 desktop: a Chromium app window)
-#   ./build.sh windows   -> dist/GRMod.exe   (Windows x64, single file, no console)
-#   ./build.sh mac       -> dist/GR Mod.app and dist/GRMod-mac.zip
+#   ./build.sh linux     -> dist/grmod-film  (Linux x64 desktop: a Chromium app window)
+#   ./build.sh windows   -> dist/GRModFilm.exe   (Windows x64, single file, no console)
+#   ./build.sh mac       -> dist/GR Mod Film.app and dist/GRModFilm-mac.zip
 #                           (macOS 11 or later, Intel and Apple silicon in one)
 #   ./build.sh all       -> all three
 #
@@ -89,10 +89,10 @@ build_dev() {
 build_linux() {
   CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -tags desktop \
     -ldflags "-s -w -X main.version=${version}" \
-    -o dist/grmod .
-  echo "built:   dist/grmod ($(wc -c < dist/grmod | tr -d ' ') bytes, version ${version})"
+    -o dist/grmod-film .
+  echo "built:   dist/grmod-film ($(wc -c < dist/grmod-film | tr -d ' ') bytes, version ${version})"
   if command -v sha256sum >/dev/null 2>&1; then
-    echo "sha256:  $(sha256sum dist/grmod | cut -d' ' -f1)"
+    echo "sha256:  $(sha256sum dist/grmod-film | cut -d' ' -f1)"
   fi
 }
 
@@ -124,10 +124,10 @@ build_windows() {
   make_resources
   GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath \
     -ldflags "-H windowsgui -s -w -X main.version=${version}" \
-    -o dist/GRMod.exe .
-  echo "built:   dist/GRMod.exe ($(wc -c < dist/GRMod.exe | tr -d ' ') bytes, version ${version})"
+    -o dist/GRModFilm.exe .
+  echo "built:   dist/GRModFilm.exe ($(wc -c < dist/GRModFilm.exe | tr -d ' ') bytes, version ${version})"
   if command -v sha256sum >/dev/null 2>&1; then
-    echo "sha256:  $(sha256sum dist/GRMod.exe | cut -d' ' -f1)"
+    echo "sha256:  $(sha256sum dist/GRModFilm.exe | cut -d' ' -f1)"
   fi
 }
 
@@ -141,17 +141,17 @@ write_info_plist() {
 	<key>CFBundleDevelopmentRegion</key>
 	<string>zh_CN</string>
 	<key>CFBundleDisplayName</key>
-	<string>GR Mod</string>
+	<string>GR Mod Film</string>
 	<key>CFBundleExecutable</key>
-	<string>GRMod</string>
+	<string>GRModFilm</string>
 	<key>CFBundleIconFile</key>
-	<string>GRMod</string>
+	<string>GRModFilm</string>
 	<key>CFBundleIdentifier</key>
-	<string>io.github.maxwooow.grmod</string>
+	<string>io.github.rollk2.grmodfilm</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>GR Mod</string>
+	<string>GR Mod Film</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -174,25 +174,25 @@ write_info_plist() {
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSHumanReadableCopyright</key>
-	<string>GR Mod · GPL-2.0-only</string>
+	<string>GR Mod Film · GPL-2.0-only (based on GR Mod)</string>
 	<key>NSRemovableVolumesUsageDescription</key>
-	<string>GR Mod 需要读写存储卡，才能写入固件和关机画面。GR Mod reads and writes the memory card to install firmware and power-off images.</string>
+	<string>GR Mod Film 需要读写存储卡，才能写入固件和关机画面。GR Mod Film reads and writes the memory card to install firmware and power-off images.</string>
 	<key>NSDesktopFolderUsageDescription</key>
-	<string>GR Mod 会把文件导出到你选择的文件夹。GR Mod exports files to the folder you choose.</string>
+	<string>GR Mod Film 会把文件导出到你选择的文件夹。GR Mod Film exports files to the folder you choose.</string>
 	<key>NSDocumentsFolderUsageDescription</key>
-	<string>GR Mod 会把文件导出到你选择的文件夹。GR Mod exports files to the folder you choose.</string>
+	<string>GR Mod Film 会把文件导出到你选择的文件夹。GR Mod Film exports files to the folder you choose.</string>
 	<key>NSDownloadsFolderUsageDescription</key>
-	<string>GR Mod 会把文件导出到你选择的文件夹。GR Mod exports files to the folder you choose.</string>
+	<string>GR Mod Film 会把文件导出到你选择的文件夹。GR Mod Film exports files to the folder you choose.</string>
 	<key>NSAppleEventsUsageDescription</key>
-	<string>GR Mod 用系统对话框让你选择导出文件夹。GR Mod uses the system dialog to let you choose an export folder.</string>
+	<string>GR Mod Film 用系统对话框让你选择导出文件夹。GR Mod Film uses the system dialog to let you choose an export folder.</string>
 </dict>
 </plist>
 PLIST
 }
 
 build_mac() {
-  local app="dist/GR Mod.app" tmp="dist/.mac"
-  rm -rf "$tmp" "$app" dist/GRMod-mac.zip
+  local app="dist/GR Mod Film.app" tmp="dist/.mac"
+  rm -rf "$tmp" "$app" dist/GRModFilm-mac.zip
   mkdir -p "$tmp" "$app/Contents/MacOS" "$app/Contents/Resources"
   # Apple silicon: the current toolchain (macOS 11 is the first system for those Macs anyway).
   GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -trimpath \
@@ -209,10 +209,10 @@ build_mac() {
     -ldflags "-s -w -X main.version=${version}" \
     -o "$tmp/GRMod-amd64" .
   # One executable for Intel and Apple silicon.
-  go tool makefat "$app/Contents/MacOS/GRMod" "$tmp/GRMod-amd64" "$tmp/GRMod-arm64"
-  chmod 755 "$app/Contents/MacOS/GRMod"
+  go tool makefat "$app/Contents/MacOS/GRModFilm" "$tmp/GRMod-amd64" "$tmp/GRMod-arm64"
+  chmod 755 "$app/Contents/MacOS/GRModFilm"
   rm -rf "$tmp"
-  go run ./tools/genicon -out "" -icns "$app/Contents/Resources/GRMod.icns" >/dev/null
+  go run ./tools/genicon -out "" -icns "$app/Contents/Resources/GRModFilm.icns" >/dev/null
   write_info_plist "$app/Contents/Info.plist"
   printf 'APPL????' > "$app/Contents/PkgInfo"
 
@@ -228,16 +228,16 @@ build_mac() {
     echo "signed:  WARNING: rcodesign not found, the bundle is NOT signed;" >&2
     echo "         Apple silicon Macs refuse unsigned bundles as \"damaged\"" >&2
   fi
-  go run ./tools/zipapp -out dist/GRMod-mac.zip "$app" >/dev/null
-  echo "built:   dist/GR Mod.app, dist/GRMod-mac.zip ($(wc -c < dist/GRMod-mac.zip | tr -d ' ') bytes, version ${version})"
+  go run ./tools/zipapp -out dist/GRModFilm-mac.zip "$app" >/dev/null
+  echo "built:   dist/GR Mod Film.app, dist/GRModFilm-mac.zip ($(wc -c < dist/GRModFilm-mac.zip | tr -d ' ') bytes, version ${version})"
   if command -v sha256sum >/dev/null 2>&1; then
-    echo "sha256:  $(sha256sum dist/GRMod-mac.zip | cut -d' ' -f1)"
+    echo "sha256:  $(sha256sum dist/GRModFilm-mac.zip | cut -d' ' -f1)"
   fi
   # Disk image: needs mkfs.hfsplus (hfsprogs), hfsplus and dmg (mozilla/libdmg-hfsplus) and the
   # Python packages ds_store and mac_alias; see tools/mkdmg/mkdmg.py. Skipped when they are missing.
-  local dmg="dist/GRMod-${version}-mac.dmg"
+  local dmg="dist/GRModFilm-${version}-mac.dmg"
   if { [ -n "${HFSPLUS:-}" ] || command -v hfsplus >/dev/null 2>&1; } && { [ -n "${DMG:-}" ] || command -v dmg >/dev/null 2>&1; }; then
-    python3 tools/mkdmg/mkdmg.py "$app" "$dmg" --volname "GR Mod ${version}" >/dev/null
+    python3 tools/mkdmg/mkdmg.py "$app" "$dmg" --volname "GR Mod Film ${version}" >/dev/null
     echo "built:   $dmg ($(wc -c < "$dmg" | tr -d ' ') bytes)"
     if command -v sha256sum >/dev/null 2>&1; then echo "sha256:  $(sha256sum "$dmg" | cut -d' ' -f1)"; fi
   else

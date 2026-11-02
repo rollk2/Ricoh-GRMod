@@ -1,0 +1,522 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Film mode phase 3.1: the roll's state and frame counter (film-roll.ts). What its code does when it
+// runs is checked in an emulator (tools/gr3x/film_roll_check.py, and guard_probe.py for the recall).
+import { beforeAll, describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { buildGr3xAdjResearch } from '../src/fw/gr3x/adj';
+import { Engine } from '../src/app/engine';
+import { planGr3xMenu } from '../src/fw/gr3x/geometry';
+import { buildGr3xTestFirmware } from '../src/fw/gr3x/research-package';
+import { filmAdvanceIcon, filmTabIcons, fnTile } from '../src/fw/gr3x/film-mode-icons';
+import { GR3X_BOX_SAVE, GR3X_ROLL_COUNTER, GR3X_ROLL_MODEL_END, GR3X_FILM_REWIND_NAMES, GR3X_FILM_REWIND_QUESTIONS, GR3X_SIDE_BUTTON_NAMES, GR3X_AF_POINT_NAMES, GR3X_MEMORY_U_NAMES } from '../src/fw/gr3x/film-roll';
+import { GR3X_RECALL_COPY } from '../src/fw/gr3x/guard';
+import { GR3X_FOLDER_MARK, GR3X_SET_FILE_PATH } from '../src/fw/gr3x/film-probe';
+import { GR3X_CUSTOM_ENTRY_IMAGE, GR3X_CUSTOM_MENU, GR3X_FILM_MENU_ID } from '../src/fw/gr3x/datestamp';
+
+const input = process.env.GRMOD_GR3_FIRMWARE;
+const menu = planGr3xMenu([{ ratio: '65:24', name: 'XPan' }]);
+const r10 = { dateImprint: true, dateMenu: 'submenu', round7: true, round8: true, round9: true, round10: true } as const;
+
+describe.skipIf(!input)('GR III film roll (film mode phase 3.1)', () => {
+  let raw: Uint8Array;
+  beforeAll(() => { raw = new Uint8Array(readFileSync(input!)); });
+  it('patches the model\'s end, the screen counter and the BOX save, and rides on the guard\'s recall', async () => {
+    const plain = await buildGr3xAdjResearch(raw, menu, r10);
+    const roll = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: true });
+    const e = roll.entries as Record<string, number>;
+    expect(roll).toMatchObject({ filmRoll: true });
+    expect(plain).not.toHaveProperty('filmRoll');
+    for (const [at, expected] of [[GR3X_ROLL_MODEL_END, '0dc0a0e1'], [GR3X_ROLL_COUNTER, '0020a0e1'], [GR3X_BOX_SAVE, '070051e3']] as const) {
+      expect(plain.sites.some(s => s.address === at)).toBe(false);
+      expect(roll.sites.find(s => s.address === at)!).toMatchObject({ expected, reason: expect.stringMatching(/^film roll/) });
+    }
+    expect(roll.sites.length).toBe(plain.sites.length + 3);
+    for (const k of ['filmRollEnd', 'filmRollCounter', 'filmRollBoxSave', 'filmRollRecall']) expect(e[k]).toBeGreaterThan(0x53000000);
+    expect(roll.sites.find(s => s.address === GR3X_RECALL_COPY)!.reason).toMatch(/guard/);
+    expect(roll.append.bytes).not.toBe(plain.append.bytes);
+  }, 240000);
+  it('needs round 10 with the date imprint and no film probe, and is named as a test build', async () => {
+    await expect(buildGr3xAdjResearch(raw, menu, { ...r10, dateImprint: false, filmRoll: true })).rejects.toMatchObject({ code: 'unexpected-layout' });
+    await expect(buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: true, filmProbe: true })).rejects.toMatchObject({ code: 'unexpected-layout' });
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: true });
+    expect(built.report.revision).toBe('T11-ROLL1');
+    expect(built.report.filename).toBe('fwdc239b.bin');
+  }, 240000);
+  it('also gives SetFilePath the roll\'s folder and moves the folder mark (second form)', async () => {
+    const roll = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: true });
+    const folders = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'folders' });
+    expect(folders).toMatchObject({ filmRoll: 'folders' });
+    expect(roll.sites.some(s => s.address === GR3X_SET_FILE_PATH)).toBe(false);
+    expect(folders.sites.find(s => s.address === GR3X_SET_FILE_PATH)!).toMatchObject({ expected: '0dc0a0e1', reason: expect.stringMatching(/^film roll/) });
+    expect(folders.sites.find(s => s.address === GR3X_FOLDER_MARK)!).toMatchObject({ expected: '0720a0e1', replacement: 'b021d6e1' });
+    expect(folders.sites.length).toBe(roll.sites.length + 2);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'folders' });
+    expect(built.report.revision).toBe('T11-ROLL3');
+  }, 240000);
+  it('the diagnostic form adds only its clock to the second form', async () => {
+    const folders = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'folders' });
+    const diag = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'folders-diag' });
+    expect(diag.sites.map(s => s.address).sort()).toEqual(folders.sites.map(s => s.address).sort());
+    expect(folders.entries).not.toHaveProperty('filmProbeTime');
+    expect((diag.entries as Record<string, number>).filmProbeTime).toBeGreaterThan(0x53000000);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'folders-diag' });
+    expect(built.report.revision).toBe('T11-ROLL2D');
+  }, 240000);
+  it('puts Film Roll Mode under Save Settings in Customize Settings (phase 4)', async () => {
+    const folders = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'folders' });
+    const film = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'menu' });
+    const e = film.entries as Record<string, number>;
+    expect(film).toMatchObject({ filmRoll: 'menu' });
+    const site = film.sites.find(s => s.address === GR3X_CUSTOM_ENTRY_IMAGE)!;
+    expect(site).toMatchObject({ expected: '9c64b353', reason: expect.stringMatching(/^film roll/) });
+    expect(folders.sites.some(s => s.address === GR3X_CUSTOM_ENTRY_IMAGE)).toBe(false);
+    const copy = new DataView(Uint8Array.from(Buffer.from(site.replacement, 'hex')).buffer).getUint32(0, true);
+    const bytes = Uint8Array.from(Buffer.from(film.append.bytes, 'hex'));
+    const d = new DataView(bytes.buffer, copy - film.append.address, 0x384);
+    expect(d.getUint8(0x8b)).toBe(23);
+    expect([d.getUint8(0x80), d.getUint8(0x81), d.getUint8(0x82)]).toEqual([0, 5, 14]);
+    expect(d.getUint32(0x1bc, true)).toBe(0x020000e1);
+    expect(d.getUint32(0x1bc + 4, true)).toBe(GR3X_FILM_MENU_ID);
+    expect(d.getUint32(0x8c + 8, true)).toBe(e.filmLine);
+    expect(d.getUint32(0x254 + 8, true)).toBe(e.filmMenuVisible);
+    expect(d.getUint32(0x1bc + 22 * 4, true)).not.toBe(0x10000000);
+    expect(d.getUint32(0x1bc + 23 * 4, true)).toBe(0x10000000);
+    for (const k of ['filmMenuSet', 'filmMenuIsCurrent', 'filmDraw', 'filmCount']) expect(e[k]).toBeGreaterThan(0x53000000);
+    expect(GR3X_CUSTOM_MENU).toBe(0x53b3649c);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'menu' });
+    expect(built.report.revision).toBe('T12-MENU2');
+  }, 240000);
+  it('the key probe adds two hooks and its clock to the menu form', async () => {
+    const film = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'menu' });
+    const keys = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'keys' });
+    for (const at of [0x53221a1c, 0x532288b0]) {
+      expect(film.sites.some(s => s.address === at)).toBe(false);
+      expect(keys.sites.find(s => s.address === at)!).toMatchObject({ expected: '0dc0a0e1', reason: expect.stringMatching(/^film roll key probe/) });
+    }
+    expect(keys.sites.length).toBe(film.sites.length + 2);
+    expect((keys.entries as Record<string, number>).filmProbeTime).toBeGreaterThan(0x53000000);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'keys' });
+    expect(built.report.revision).toBe('T12-KEYS2');
+  }, 240000);
+  it('adds Film Advance to Fn Button Settings (phase 6)', async () => {
+    const film = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'menu' });
+    const fn = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'fn' });
+    for (const [at, expected] of [[0x53292ed0, '000051e3'], [0x53293e6c, '000051e3'], [0x5329bcc8, '0dc0a0e1'], [0x5329a0a0, '290056e3'], [0x531be698, '246084e2']] as const) {
+      expect(film.sites.some(s => s.address === at)).toBe(false);
+      expect(fn.sites.find(s => s.address === at)!).toMatchObject({ expected, reason: expect.stringMatching(/^film advance/) });
+    }
+    expect(fn.sites.find(s => s.address === 0x531be698)!.replacement).toBe('256084e2');
+    expect(fn.sites.length).toBe(film.sites.length + 7);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'fn' });
+    expect(built.report.revision).toBe('T13-FN1');
+  }, 240000);
+  it('drops the Next / Retake / Complete screen in film mode, with the two-key probe (T13-FN2)', async () => {
+    const fn = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'fn' });
+    const fn2 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'fn2' });
+    for (const at of [0x53226738, 0x53221a1c, 0x532288b0]) {
+      expect(fn.sites.some(s => s.address === at)).toBe(false);
+      expect(fn2.sites.find(s => s.address === at)!).toMatchObject({ expected: '0dc0a0e1', reason: expect.stringMatching(/^film roll/) });
+    }
+    expect(fn2.sites.length).toBe(fn.sites.length + 3);
+    expect((fn2.entries as Record<string, number>).filmNoReview).toBeGreaterThan(0x53000000);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'fn2' });
+    expect(built.report.revision).toBe('T13-FN2');
+  }, 240000);
+  it('asks for the live view instead of that screen, and clears the key probe at each exposure (T13-FN3)', async () => {
+    const fn = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'fn' });
+    const fn3 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'fn3' });
+    expect(fn3.sites.find(s => s.address === 0x53226760)!).toMatchObject({ expected: '0c10a0e3', reason: expect.stringMatching(/^film roll: the live view/) });
+    expect(fn3.sites.some(s => s.address === 0x53226738)).toBe(false);
+    for (const at of [0x53221a1c, 0x532288b0]) expect(fn3.sites.find(s => s.address === at)!.reason).toMatch(/^film roll key probe/);
+    expect(fn3.sites.length).toBe(fn.sites.length + 3);
+    expect((fn3.entries as Record<string, number>).filmReviewToLive).toBeGreaterThan(0x53000000);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'fn3' });
+    expect(built.report.revision).toBe('T13-FN3');
+  }, 240000);
+  it('closes that screen by itself and adds Retake to Fn Button Settings (T13-FN4)', async () => {
+    const fn = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'fn' });
+    const fn4 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'fn4' });
+    expect(fn4.sites.find(s => s.address === 0x531cbde4)!).toMatchObject({ expected: '0dc0a0e1', reason: expect.stringMatching(/^film roll: Next \/ Retake \/ Complete closes/) });
+    for (const at of [0x53226738, 0x53226760, 0x53221a1c, 0x532288b0]) expect(fn4.sites.some(s => s.address === at)).toBe(false);
+    expect(fn4.sites.find(s => s.address === 0x531be698)!.replacement).toBe('266084e2');
+    expect(fn4.sites.length).toBe(fn.sites.length + 1);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'fn4' });
+    expect(built.report.revision).toBe('T13-FN4');
+  }, 240000);
+  it('Retake calls the shooting model\'s Retake action instead of posting the event (T13-FN5)', async () => {
+    const fn4 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'fn4' });
+    const fn5 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'fn5' });
+    expect(fn5.sites.map(s => s.address)).toEqual(fn4.sites.map(s => s.address));
+    expect(fn5.append.bytes).not.toBe(fn4.append.bytes);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'fn5' });
+    expect(built.report.revision).toBe('T13-FN5');
+  }, 240000);
+  it('adds the Retake probe to the T13-FN5 form (T13-RT1)', async () => {
+    const fn5 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'fn5' });
+    const rt1 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'rt1' });
+    for (const [at, expected] of [[0x5323a1a4, '0dc0a0e1'], [0x5323a1d0, '020050e3'], [0x5346a8d8, '0dc0a0e1'], [0x5346a910, '0dc0a0e1']] as const) {
+      expect(fn5.sites.some(s => s.address === at)).toBe(false);
+      expect(rt1.sites.find(s => s.address === at)!).toMatchObject({ expected, reason: expect.stringMatching(/^film roll retake probe/) });
+    }
+    expect(rt1.sites.length).toBe(fn5.sites.length + 4);
+    expect((rt1.entries as Record<string, number>).filmProbeTime).toBeGreaterThan(0x53000000);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'rt1' });
+    expect(built.report.revision).toBe('T13-RT1');
+  }, 240000);
+  it('Retake cancels the whole frame (T13-FN6)', async () => {
+    const fn5 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'fn5' });
+    const fn6 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'fn6' });
+    expect(fn5.sites.some(s => s.address === 0x5346a8d8)).toBe(false);
+    expect(fn6.sites.find(s => s.address === 0x5346a8d8)!).toMatchObject({ expected: '0dc0a0e1', reason: expect.stringMatching(/^film retake: the whole frame/) });
+    expect(fn6.sites.length).toBe(fn5.sites.length + 1);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'fn6' });
+    expect(built.report.revision).toBe('T13-FN6');
+  }, 240000);
+  it('closes that screen only after a shot, without Retake (T13-FN7)', async () => {
+    const fn = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'fn' });
+    const fn7 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'fn7' });
+    expect(fn7.sites.find(s => s.address === 0x531cbde4)!.reason).toMatch(/^film roll: Next \/ Retake \/ Complete closes/);
+    expect(fn7.sites.find(s => s.address === 0x53226738)!).toMatchObject({ expected: '0dc0a0e1', reason: expect.stringMatching(/^film roll: the Next \/ Retake \/ Complete screen opened after a shot/) });
+    expect(fn7.sites.find(s => s.address === 0x531be698)!.replacement).toBe('256084e2');
+    expect(fn7.sites.length).toBe(fn.sites.length + 2);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'fn7' });
+    expect(built.report.revision).toBe('T13-FN7');
+  }, 240000);
+  it('names the roll folder from the film and the roll length (T14-DIR1)', async () => {
+    const fn7 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'fn7' });
+    const dir1 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'dir1' });
+    const e = dir1.entries as Record<string, number>;
+    expect(dir1.sites.map(s => s.address)).toEqual(fn7.sites.map(s => s.address));
+    for (const k of ['filmFolderNameSet', 'filmFolderNameRestore']) expect(e[k]).toBeGreaterThan(0x53000000);
+    expect((fn7.entries as Record<string, number>).filmFolderNameSet).toBeUndefined();
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'dir1' });
+    expect(built.report.revision).toBe('T14-DIR1');
+  }, 240000);
+  it('presses Next shot at the screen\'s first event (T14-DIR2)', async () => {
+    const dir1 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'dir1' });
+    const dir2 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'dir2' });
+    expect(dir1.sites.some(s => s.address === 0x531cbfc4)).toBe(false);
+    expect(dir2.sites.find(s => s.address === 0x531cbfc4)!).toMatchObject({ expected: '0dc0a0e1', reason: expect.stringMatching(/^film roll: Next shot at the screen's first event/) });
+    expect(dir2.sites.find(s => s.address === 0x531cbde4)!.reason).toMatch(/noted for Next shot/);
+    expect(dir2.sites.length).toBe(dir1.sites.length + 1);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'dir2' });
+    expect(built.report.revision).toBe('T14-DIR2');
+  }, 240000);
+  it('posts one Complete per frame from Film Advance (T14-DIR3)', async () => {
+    const dir2 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'dir2' });
+    const dir3 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'dir3' });
+    expect(dir3.sites.map(s => s.address)).toEqual(dir2.sites.map(s => s.address));
+    expect(dir3.append.bytes).not.toBe(dir2.append.bytes);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'dir3' });
+    expect(built.report.revision).toBe('T14-DIR3');
+  }, 240000);
+  it('logs the screen\'s events in the pictures\' date (T14-DG1)', async () => {
+    const dir3 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'dir3' });
+    const dg1 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'dg1' });
+    expect(dg1.sites.find(s => s.address === 0x531cab24)!).toMatchObject({ expected: '0dc0a0e1', reason: expect.stringMatching(/^film roll review probe/) });
+    expect(dg1.sites.length).toBe(dir3.sites.length + 1);
+    expect((dg1.entries as Record<string, number>).filmProbeTime).toBeGreaterThan(0x53000000);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'dg1' });
+    expect(built.report.revision).toBe('T14-DG1');
+  }, 240000);
+  it('posts a half press to the screen instead of Next shot (T14-DG2)', async () => {
+    const dg1 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'dg1' });
+    const dg2 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'dg2' });
+    expect(dg2.sites.map(s => s.address).sort()).toEqual(dg1.sites.map(s => s.address).sort());
+    expect(dg2.sites.find(s => s.address === 0x531cbde4)!.reason).toMatch(/UI event e7 posted/);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'dg2' });
+    expect(built.report.revision).toBe('T14-DG2');
+  }, 240000);
+  it('posts the remote Next shot (0xb6) to the screen (T14-DG3)', async () => {
+    const dg3 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'dg3' });
+    expect(dg3.sites.find(s => s.address === 0x531cbde4)!.reason).toMatch(/UI event b6 posted/);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'dg3' });
+    expect(built.report.revision).toBe('T14-DG3');
+  }, 240000);
+  it('closes the screen with its own review timer (T14-DIR4)', async () => {
+    const dir3 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'dir3' });
+    const dir4 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'dir4' });
+    expect(dir4.sites.find(s => s.address === 0x531cbde4)!.reason).toMatch(/review timer/);
+    expect(dir4.sites.some(s => s.address === 0x531cbfc4)).toBe(false);
+    expect(dir4.sites.length).toBe(dir3.sites.length - 1);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'dir4' });
+    expect(built.report.revision).toBe('T14-DIR4');
+  }, 240000);
+  it('presses Next shot when our review timer expires (T14-DIR5)', async () => {
+    const dir4 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'dir4' });
+    const dir5 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'dir5' });
+    expect(dir5.sites.find(s => s.address === 0x531ca86c)!).toMatchObject({ expected: '782190e5', reason: expect.stringMatching(/review timer expires/) });
+    expect(dir5.sites.length).toBe(dir4.sites.length + 1);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'dir5' });
+    expect(built.report.revision).toBe('T14-DIR5');
+  }, 240000);
+  it('gives the screen a single picture\'s review layout (T14-DIR6)', async () => {
+    const dir3 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'dir3' });
+    const dir6 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'dir6' });
+    expect(dir6.sites.find(s => s.address === 0x531cbe4c)!).toMatchObject({ expected: '0010a0e1', reason: expect.stringMatching(/single picture's review layout/) });
+    for (const at of [0x531cbde4, 0x531cbfc4]) expect(dir6.sites.some(s => s.address === at)).toBe(false);
+    expect(dir6.sites.length).toBe(dir3.sites.length - 1);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'dir6' });
+    expect(built.report.revision).toBe('T14-DIR6');
+  }, 240000);
+  it('gives the screen no buttons in film mode (T14-DIR7)', async () => {
+    const dir6 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'dir6' });
+    const dir7 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'dir7' });
+    expect(dir7.sites.find(s => s.address === 0x531cbe2c)!).toMatchObject({ expected: '0310a013', reason: expect.stringMatching(/no Next \/ Retake \/ Complete buttons/) });
+    expect(dir7.sites.some(s => s.address === 0x531cbe4c)).toBe(false);
+    expect(dir7.sites.length).toBe(dir6.sites.length);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'dir7' });
+    expect(built.report.revision).toBe('T14-DIR7');
+  }, 240000);
+  it('gives the screen a single picture\'s review id in film mode (T14-DIR8)', async () => {
+    const dir3 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'dir3' });
+    const dir8 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'dir8' });
+    expect(dir8.sites.find(s => s.address === 0x531ca6e8)!).toMatchObject({ expected: '9937d0e5', reason: expect.stringMatching(/single picture's review instead/) });
+    for (const at of [0x531cbde4, 0x531cbfc4, 0x53226738]) expect(dir8.sites.some(s => s.address === at)).toBe(false);
+    expect(dir8.sites.length).toBe(dir3.sites.length - 2);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'dir8' });
+    expect(built.report.revision).toBe('T14-DIR8');
+  }, 240000);
+  it('reads Instant Review Off or Hold as 500 ms in film mode (T14-DIR9)', async () => {
+    const dir8 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'dir8' });
+    const dir9 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'dir9' });
+    expect(dir9.sites.find(s => s.address === 0x531caaa4)!).toMatchObject({ expected: '005050e2', reason: expect.stringMatching(/Instant Review Off or Hold/) });
+    expect(dir9.sites.length).toBe(dir8.sites.length + 1);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'dir9' });
+    expect(built.report.revision).toBe('T14-DIR9');
+  }, 240000);
+  it('reads only Instant Review Off, as 100 ms, in film mode (T14-DIR10)', async () => {
+    const dir10 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'dir10' });
+    expect(dir10.sites.find(s => s.address === 0x531caaa4)!.reason).toMatch(/Off read as 100 ms/);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'dir10' });
+    expect(built.report.revision).toBe('T14-DIR10');
+  }, 240000);
+  it('reads only Instant Review Off, as 25 ms, in film mode (T14-DIR11)', async () => {
+    const dir11 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'dir11' });
+    expect(dir11.sites.find(s => s.address === 0x531caaa4)!.reason).toMatch(/Off read as 25 ms/);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'dir11' });
+    expect(built.report.revision).toBe('T14-DIR11');
+  }, 240000);
+  it('reads only Instant Review Off, as 10 ms, in film mode (T14-DIR12)', async () => {
+    const dir12 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'dir12' });
+    expect(dir12.sites.find(s => s.address === 0x531caaa4)!.reason).toMatch(/Off read as 10 ms/);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'dir12' });
+    expect(built.report.revision).toBe('T14-DIR12');
+  }, 240000);
+  it('reads only Instant Review Off, as 1 ms, in film mode (T14-DIR13)', async () => {
+    const dir13 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'dir13' });
+    expect(dir13.sites.find(s => s.address === 0x531caaa4)!.reason).toMatch(/Off read as 1 ms/);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'dir13' });
+    expect(built.report.revision).toBe('T14-DIR13');
+  }, 240000);
+  it('counts a frame ended by the mode dial in its own roll (T14-DIR14)', async () => {
+    const dir13 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'dir13' });
+    const dir14 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'dir14' });
+    expect(dir14.sites.map(s => s.address)).toEqual(dir13.sites.map(s => s.address));
+    expect(dir14.append.bytes).not.toBe(dir13.append.bytes);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'dir14' });
+    expect(built.report.revision).toBe('T14-DIR14');
+  }, 240000);
+  it('ends a roll with its last picture in its folder and the message (T15-END1)', async () => {
+    const dir14 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'dir14' });
+    const end1 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'end1' });
+    expect(end1.sites.find(s => s.address === 0x531ce174)!).toMatchObject({ expected: 'be1200e3', reason: expect.stringMatching(/New roll loaded/) });
+    expect(end1.sites.length).toBe(dir14.sites.length + 1);
+    expect((end1.entries as Record<string, number>).filmMessageText).toBeGreaterThan(0x53000000);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'end1' });
+    expect(built.report.revision).toBe('T15-END1');
+  }, 240000);
+  it('lets the review give way to the waiting message (T15-END2)', async () => {
+    const end1 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'end1' });
+    const end2 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'end2' });
+    expect(end2.sites.find(s => s.address === 0x5316c9d8)!).toMatchObject({ expected: '0dc0a0e1', reason: expect.stringMatching(/waiting message/) });
+    expect(end2.sites.length).toBe(end1.sites.length + 1);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'end2' });
+    expect(built.report.revision).toBe('T15-END2');
+  }, 240000);
+  it('keeps the message until its own timer, with a switch probe (T15-END3)', async () => {
+    const end3 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'end3' });
+    expect((end3.entries as Record<string, number>).filmProbeTime).toBeGreaterThan(0x53000000);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'end3' });
+    expect(built.report.revision).toBe('T15-END3');
+  }, 240000);
+  it('ends the roll when its film or format changes, without the probe (T16-CLO1)', async () => {
+    const end3 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'end3' });
+    const clo1 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'clo1' });
+    const e = clo1.entries as Record<string, number>;
+    expect(e.filmProbeTime).toBeUndefined();
+    expect(e.filmRollCheck).toBeGreaterThan(0x53000000);
+    expect(clo1.sites.length).toBe(end3.sites.length);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'clo1' });
+    expect(built.report.revision).toBe('T16-CLO1');
+  }, 240000);
+  it('checks the roll at a U mode\'s recall too (T16-CLO2)', async () => {
+    const clo2 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'clo2' });
+    const e = clo2.entries as Record<string, number>;
+    expect(e.filmRollCheckAt).toBeGreaterThan(0x53000000);
+    expect(e.filmProbeTime).toBeUndefined();
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'clo2' });
+    expect(built.report.revision).toBe('T16-CLO2');
+  }, 240000);
+  it('checks only the BOX\'s own roll and counts from 0 (T16-CLO3)', async () => {
+    const clo2 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'clo2' });
+    const clo3 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'clo3' });
+    expect(clo3.sites.map(s => s.address)).toEqual(clo2.sites.map(s => s.address));
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'clo3' });
+    expect(built.report.revision).toBe('T16-CLO3');
+  }, 240000);
+  it('checks the roll only when a menu screen goes back to the live view (T16-CLO4)', async () => {
+    const clo4 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'clo4' });
+    expect((clo4.entries as Record<string, number>).filmMessageSwitch).toBeGreaterThan(0x53000000);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'clo4' });
+    expect(built.report.revision).toBe('T16-CLO4');
+  }, 240000);
+  it('makes our message last 2 s, OK closing it after 0.5 s (T17-MSG1)', async () => {
+    const clo4 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'clo4' });
+    const msg1 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'msg1' });
+    const e = msg1.entries as Record<string, number>;
+    expect(e.filmMessageArm).toBeGreaterThan(0x53000000);
+    expect(e.filmMessageFire).toBeGreaterThan(0x53000000);
+    expect(msg1.sites.map(s => s.address).sort()).toEqual([...clo4.sites.map(s => s.address), 0x531ce2d0, 0x531cdd58].sort());
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'msg1' });
+    expect(built.report.revision).toBe('T17-MSG1');
+  }, 240000);
+  it('adds the Rewind Film line through Create New Folder\'s dialog (T17-RWD1)', async () => {
+    const msg1 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'msg1' });
+    const rwd1 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'rwd1' });
+    const e = rwd1.entries as Record<string, number>;
+    for (const k of ['filmRollRewind', 'filmRewindVisible', 'filmRewindLine', 'filmRewindQuestion', 'filmRewindAction']) expect(e[k]).toBeGreaterThan(0x53000000);
+    expect(rwd1.sites.map(s => s.address).filter(a => !msg1.sites.some(s => s.address === a)).sort())
+      .toEqual([0x531e5ee8, 0x531e5f40, 0x531e6558, 0x531e6568, 0x531e65c8]);
+    expect(GR3X_FILM_REWIND_NAMES).toHaveLength(21);
+    expect(GR3X_FILM_REWIND_QUESTIONS).toHaveLength(21);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'rwd1' });
+    expect(built.report.revision).toBe('T17-RWD3');
+  }, 240000);
+  it('builds the menu again at each opening (T18-HIDE1)', async () => {
+    const rwd1 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'rwd1' });
+    const hide1 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'hide1' });
+    expect((hide1.entries as Record<string, number>).menuRebuild).toBeGreaterThan(0x53000000);
+    expect(hide1.sites.map(s => s.address).filter(a => !rwd1.sites.some(s => s.address === a))).toEqual([0x53199f3c]);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'hide1' });
+    expect(built.report.revision).toBe('T18-HIDE1');
+  }, 240000);
+  it('loses a roll whose folder left the card (T19-CARD1)', async () => {
+    const hide1 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'hide1' });
+    const card1 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'card1' });
+    expect(card1.sites.map(s => s.address)).toEqual(hide1.sites.map(s => s.address));
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'card1' });
+    expect(built.report.revision).toBe('T19-CARD1');
+  }, 240000);
+  it('logs the roll folder\'s path in the date (T19-CARD2)', async () => {
+    const card2 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'card2' });
+    expect((card2.entries as Record<string, number>).filmProbeTime).toBeGreaterThan(0x53000000);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'card2' });
+    expect(built.report.revision).toBe('T19-CARD2');
+  }, 240000);
+  it('finds a lost roll at the advance (T19-CARD3)', async () => {
+    const card1 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'card1' });
+    const card3 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'card3' });
+    expect(card3.sites.map(s => s.address)).toEqual(card1.sites.map(s => s.address));
+    expect((card3.entries as Record<string, number>).filmProbeTime).toBeUndefined();
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'card3' });
+    expect(built.report.revision).toBe('T19-CARD3');
+  }, 240000);
+  it('hides the Movie Settings tab (T20-VID1)', async () => {
+    const card3 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'card3' });
+    const vid1 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'vid1' });
+    expect(vid1.sites.map(s => s.address).filter(a => !card3.sites.some(s => s.address === a))).toEqual([0x53b37514]);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'vid1' });
+    expect(built.report.revision).toBe('T20-VID1');
+  }, 240000);
+  it('blocks the movie mode (T20-VID2)', async () => {
+    const vid1 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'vid1' });
+    const vid2 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'vid2' });
+    expect(vid2.sites.map(s => s.address).filter(a => !vid1.sites.some(s => s.address === a))).toEqual([0x5327b7cc]);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'vid2' });
+    expect(built.report.revision).toBe('T20-VID2');
+  }, 240000);
+  it('hides the Still/Movie and Movie Edit lines and the Still/Movie Fn function (T20-VID3)', async () => {
+    const vid2 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'vid2' });
+    const vid3 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'vid3' });
+    expect(vid3.sites.map(s => s.address).filter(a => !vid2.sites.some(s => s.address === a)).sort((a, b) => a - b)).toEqual([0x5319a978, 0x531b9410]);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'vid3' });
+    expect(built.report.revision).toBe('T20-VID3');
+  }, 240000);
+  it('takes Framerate out and names the side button without the movie (T20-VID4)', async () => {
+    const vid3 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'vid3' });
+    const vid4 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'vid4' });
+    expect(vid4.sites.map(s => s.address)).toEqual(vid3.sites.map(s => s.address));
+    expect(GR3X_SIDE_BUTTON_NAMES).toHaveLength(21);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'vid4' });
+    expect(built.report.revision).toBe('T20-VID4');
+  }, 240000);
+  it('puts the film mode in a tab of its own, with its icons (T21-TAB1)', async () => {
+    const tab1 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'tab1' });
+    const e = tab1.entries as Record<string, number>;
+    expect(e.filmTab).toBeGreaterThan(0x53000000);
+    expect(e.filmCustomMenu).toBeUndefined();
+    const icons = [...filmTabIcons(), filmAdvanceIcon(fnTile(new Uint8Array(6400).fill(255)))];
+    expect(icons.map(i => i.length)).toEqual([6400, 6400, 6400, 6400]);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'tab1' });
+    expect(built.report.revision).toBe('T21-TAB1');
+  }, 240000);
+  it('names the film mode\'s files after the film (T22-NAME1)', async () => {
+    const tab1 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'tab1' });
+    const name1 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'name1' });
+    expect(name1.sites.map(s => s.address).filter(a => !tab1.sites.some(s => s.address === a))).toEqual([0x535b6b28]);
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'name1' });
+    expect(built.report.revision).toBe('T22-NAME1');
+  }, 240000);
+  it('uses 4-letter file codes and one folder for the free modes (T22-NAME2)', async () => {
+    const name1 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'name1' });
+    const name2 = await buildGr3xAdjResearch(raw, menu, { ...r10, filmRoll: 'name2' });
+    expect(name2.sites.map(s => s.address)).toEqual(name1.sites.map(s => s.address));
+    const built = await buildGr3xTestFirmware(raw, [], undefined, menu, { ...r10, filmRoll: 'name2' });
+    expect(built.report.revision).toBe('T22-NAME2');
+  }, 240000);
+  it('adds an AF Point box to Mode Memory, after Focus (T24-AF2)', async () => {
+    const base = await buildGr3xAdjResearch(raw, menu, { ...r10 });
+    const af = await buildGr3xAdjResearch(raw, menu, { ...r10, afPoint: true });
+    expect(af.sites.map(s => s.address).filter(a => !base.sites.some(s => s.address === a)).sort((a, b) => a - b))
+      .toEqual([0x532071f8, 0x53207350, 0x53207354, 0x53207364, 0x532074e8, 0x53240874]);
+    const e = af.entries as Record<string, number>;
+    for (const k of ['afPointDraw', 'afPointToggle', 'afPointWrite', 'afPointRead', 'afPointReset', 'afPointItems']) expect(e[k]).toBeGreaterThan(0x53000000);
+    expect(GR3X_AF_POINT_NAMES).toHaveLength(21);
+  }, 240000);
+  it('adds an Apply to U modes box last in Mode Memory, and Mode Memory in U at power-on (V1-RC2)', async () => {
+    const af = await buildGr3xAdjResearch(raw, menu, { ...r10, afPoint: true });
+    const u = await buildGr3xAdjResearch(raw, menu, { ...r10, afPoint: true, memoryU: true });
+    expect(u.sites.map(s => s.address).filter(a => !af.sites.some(s => s.address === a))).toEqual([0x5324b154]);
+    const e = u.entries as Record<string, number>;
+    for (const k of ['memoryUDraw', 'memoryUToggle', 'memoryUWrite', 'memoryUMerge']) expect(e[k]).toBeGreaterThan(0x53000000);
+    expect(GR3X_MEMORY_U_NAMES).toHaveLength(21);
+    // Without the AF Point box, no U box.
+    const alone = await buildGr3xAdjResearch(raw, menu, { ...r10, memoryU: true });
+    expect(alone.sites.some(s => s.address === 0x5324b154)).toBe(false);
+  }, 240000);
+  it('builds the film mode and the movie removal through the app\'s engine, with films and their codes (T23)', async () => {
+    const curve = Array.from({ length: 256 }, (_, i) => Math.round(i * 16383 / 255));
+    const preset = { matrixQ13: [8192, 0, 0, 0, 8192, 0, 0, 0, 8192], curves: [curve, curve, curve] as [number[], number[], number[]] };
+    const requests = [{ slot: 'CY' as const, names: { en: 'Portra' }, preset }, { slot: 'CG' as const, names: { en: 'Gold' }, preset }];
+    const ratios = [{ ratio: '65:24', name: 'XPan' }];
+    const engine = await Engine.open(raw);
+    for (const noMovie of [false, true]) {
+      const built = await engine.buildFirmware(requests, ratios, [], { filmCount: 3, adjSoftFocus: true, filmMode: { codes: { CY: 'PORT', CG: 'GOLD' } }, ...(noMovie ? { noMovie } : {}) });
+      expect(await (await Engine.open(raw)).inspect(built.file)).toMatchObject({ verified: true });
+    }
+    // Without films, the movie removal alone.
+    const alone = await engine.buildFirmware([], ratios, [], { filmCount: 0, dateStamp: true, noMovie: true });
+    expect(await (await Engine.open(raw)).inspect(alone.file)).toMatchObject({ verified: true });
+    // T24-AF1: the AF point reset with Mode Memory's Focus, recorded and recognised.
+    const af = await engine.buildFirmware(requests, ratios, [], { filmCount: 3, adjSoftFocus: true, afReset: true, filmMode: { codes: { CY: 'PORT' } }, noMovie: true });
+    expect(await (await Engine.open(raw)).inspect(af.file)).toMatchObject({ verified: true });
+    // T24-AF2: the « AF Point » box of Mode Memory, recorded and recognised; alone or with the film mode.
+    const point = await engine.buildFirmware(requests, ratios, [], { filmCount: 3, adjSoftFocus: true, afPoint: true, memoryU: true, filmMode: { codes: { CY: 'PORT' } }, noMovie: true });
+    expect(await (await Engine.open(raw)).inspect(point.file)).toMatchObject({ verified: true });
+    const pointAlone = await engine.buildFirmware([], ratios, [], { filmCount: 0, dateStamp: true, afPoint: true });
+    expect(await (await Engine.open(raw)).inspect(pointAlone.file)).toMatchObject({ verified: true });
+    await expect(engine.buildFirmware(requests, ratios, [], { filmCount: 3, filmMode: { codes: { CY: 'port' } } })).rejects.toThrow(/4 characters/);
+    await expect(engine.buildFirmware(requests, ratios, [], { filmCount: 3, filmMode: { codes: { F5: 'PORT' } } })).rejects.toThrow(/film code/);
+  }, 600000);
+});
