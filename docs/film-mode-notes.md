@@ -2407,3 +2407,44 @@ la place de `afReset`). Certitude : vérifié en émulation, à confirmer sur le
   l'enregistrement de travail, pas le mode P). Décision de l'utilisateur : garder ainsi (case
   décochée = centre à chaque allumage, dans tous les modes).
 
+
+## BOX supplémentaires : analyse statique (2026-11-02)
+
+Certitude : lu dans le code (désassemblage), non testé.
+
+- **Objet UserDataModel (`0x55063f30`)** : `+0` pointeur de l'octet de mode, `+4` enregistrement en
+  cours, **`+8` à `+0x20` les 7 copies stockées** (copie 0 = réglages du boîtier, copies 1 à 6 =
+  BOX1 à BOX6), **`+0x24` l'enregistrement d'usine** (construit au premier appel de `0x532406fc`,
+  gardé en RAM, jamais sauvegardé). Les fonctions natives refusent l'index 7 (`cmp r1,#7` en
+  `0x5324b760` Save Settings et `0x5327a110` remise à zéro d'une BOX).
+- **Défaut trouvé dans notre code** : deux boucles écrivent dans les index 0 à 7 au lieu de 0 à 6,
+  donc aussi dans l'enregistrement d'usine : dossier P (`0x906`, T22-NAME2) et case Point AF
+  (`0x905`, T24-AF2). Effet limité (l'enregistrement d'usine est reconstruit à chaque allumage et
+  la fusion ne recopie que des champs nommés), mais à corriger : borne 6 au prochain build.
+- **Stockage** : fichiers `APData%02d.bin` (format `0x54056268`) par l'objet AppData
+  (`[0x53828014()+8]`) : écriture `0x53826c54(objet, id, taille, données)`, taille `0x538270bc`,
+  lecture `0x53827218`. Identifiants 0 à 11 seulement (`cmp r1,#0xb` en `0x53826bdc`, un octet
+  d'état par identifiant en `+0x10`) : 0 octet de mode, 1 enregistrement en cours, 2 à 8 les
+  7 copies (table `0x53b59200`), 9 noms des réglages (contrôle de version), 10 disposition des
+  champs. Au démarrage, une disposition différente efface les réglages (« Invalid user FwUp!!!!!
+  Clear UserData »).
+- **Champs des BOX dans l'enregistrement** (ordre des 1043 noms) : `CustomSettingBox1..3` (BOX de
+  U1, U2, U3) `+0x7e0`, `+0x7e2`, `+0x7e4` ; `CustomSettingBoxName1..6` 32 octets chacun de
+  `+0x7e6` à `+0x8af` ; `CustomSettingBoxRegist1..6` `+0x8b2` à `+0x8bc`.
+- **Écrans** : `UserModeBoxSelectController` (liste des BOX, format « BOX%1d: » `0x53b207c4`, un
+  seul chiffre ; boucles de 6 lignes en `0x531d0408` et `0x531d1754`, machine à états `+0x15c`
+  de 0 à 0xb) et `UserModeSelectDialController` (affectation à U1 à U3). Le nombre 6 y est écrit en
+  dur à de nombreux endroits.
+- **Accès indexés aux copies** : peu nombreux (`0x5324b780` Save Settings, `0x5327a130` remise à
+  zéro, chargement `0x5324b284` par pointeur incrémenté, sauvegarde `0x5323f274`), ce qui rend
+  possible le déplacement du tableau des copies.
+- Notre mode pellicule suppose partout un mode de 1 à 6.
+
+Pistes :
+- A. **Vraies BOX supplémentaires** (par exemple 12 ou 20) : tableau des copies déplacé et agrandi,
+  enregistrements alloués au démarrage, fichiers à nous pour les BOX 7 et plus (identifiants du
+  stockage limités à 11), noms hors de l'enregistrement (14 × 32 octets > 253 octets libres),
+  écrans de liste refaits (pages, deux chiffres), bornes du mode pellicule. Chantier important et
+  sensible (fichiers de réglages en mémoire interne).
+- B. **Accès rapide aux 6 BOX** : une fonction Fn « BOX suivante » qui change la BOX du mode U en
+  cours (U3 parcourt BOX1 à BOX6 sans passer par le menu). Petit chantier, 6 rouleaux au plus.
