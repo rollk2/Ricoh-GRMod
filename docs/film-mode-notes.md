@@ -2299,3 +2299,8 @@ Certitude : lu dans le code.
   (nécessaire au rouleau) avec `dateHidden` : la ligne Date Imprint (`0x020001a0`) est masquée par
   identifiant (impression toujours sur Off, invisible). Inscrit dans la recette. Vérifié en émulation
   (constructeur réel : ligne absente avec `dateHidden`, présente sans) ; garde-fou ; tests.
+- Résultats T23b (2026-11-02), en cours : onglet photo sans ligne Date Imprint, films Portra, Gold et
+  Film 3 dans Image Control ; mode U pellicule avec Portra : 1/xx, onglet Mode pellicule présent ;
+  passage à Gold puis Film 3 : message de nouvelle pellicule à chaque fois, compteur à 1 ; photo P
+  sans erreur ; en 简体中文, 底片模式 s'affiche entier (**le nom chinois n'a pas besoin de correction** :
+  la police a le glyphe 底). Noms de dossiers et de fichiers : capture de l'utilisateur attendue.
