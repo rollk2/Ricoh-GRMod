@@ -2595,3 +2595,5 @@ Demande de l'utilisateur : pouvoir masquer Standard dans l'ordre des Image Contr
 - Contrôles : `guard_probe.py` (repli calculé depuis l'ordre), `look_layout_probe.py`,
   `film_roll_check.py` sur un build avec Standard, Soft Monotone, Hard Monotone et Hi-Contrast B&W
   masqués (repli Monotone) ; tests unitaires (repli, validation, build par l'Engine reconnu).
+- **V1-RC7 testé sur le boîtier (2026-11-02)** : Reset Settings en P avec Standard masqué → la ligne
+  Image Control affiche Monotone tout de suite. Candidat retenu pour la 0.9.1.

@@ -33,6 +33,8 @@ addresses, same emulator checks) but has **not been tested on a camera**.
   U3, at power-on and when the dial recalls a U mode; the BOXes saved are never changed). In a BOX
   with Film Roll Mode on, Mode Memory never touches the roll's Image Control, Aspect Ratio and Drive.
   With No movie, Still/Movie is not in the list.
+- **Standard can be hidden** from the Image Control list (0.9.1): a hidden look in use, or Standard
+  after a reset, becomes the first camera look shown in your order. One camera look stays shown.
 - The film mode builds on GR Mod's date imprint stage; when the date imprint itself is not
   wanted, its menu line is hidden and nothing is printed on the photos.
 
