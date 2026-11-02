@@ -114,4 +114,36 @@ void dv_grain_setup(struct dv_grain *g, const struct dv_textures *t, const struc
  * (a diptych is one frame), so that bands put together give the same bytes as the whole. */
 void dv_grain_apply(const struct dv_grain *g, struct dv_image *img, u32 x0, u32 y0);
 
+/* ------------------------------------------------------------------ diptych */
+
+/* A print of the half-frame roll: two views (frame numbers from 1), or one view and a black
+ * unexposed one (DV_BLACK), or one view alone (right = DV_ALONE). */
+#define DV_BLACK 0u
+#define DV_ALONE 0xffffu
+struct dv_pair { u16 left, right; };
+
+/* The prints of `frames` views: 1-2, 3-4, ... or, `shifted`, 2-3, 4-5, ... (frame 1 then comes
+ * first, alone or after a black view); a view left over is alone or with a black view
+ * (`odd_black`, the spec's default). Returns the number of prints (at most frames / 2 + 2). */
+u32 dv_diptych_pairs(u32 frames, u32 shifted, u32 odd_black, struct dv_pair *out);
+
+/* Put two views side by side: rows of `out` (2 * view_w + sep wide, as high as the views) from
+ * the rows of `left` and `right` (NULL: a black view), with a separator of `sep` pixels (even,
+ * computed by GR Mod: 0 to 3 % of the print's width, 2 % by default), black or `white`. Works on
+ * bands as well: give the bands of the same rows. */
+void dv_diptych_rows(struct dv_image *out, const struct dv_image *left, const struct dv_image *right, u32 view_w, u32 sep, u32 white);
+
+/* ------------------------------------------------------------------ date at printing */
+
+struct dv_date { u16 year; u8 month, day, hour, minute; };
+#define DV_DATE_SHORT 0u  /* '26 10 08 */
+#define DV_DATE_LONG 1u   /* 2026.10.08 17:34 */
+
+/* The date's glyphs (text.h), at most 16; 0 when the date is not valid. */
+u32 dv_date_glyphs(const struct dv_date *d, u32 style, u16 *out);
+/* Draw the date bottom right of the picture as it is shown (orientation 0 as stored, 1 turned a
+ * quarter anticlockwise, 2 upside down, 3 a quarter clockwise: EXIF 1, 8, 3, 6), as the date
+ * imprint does; `mono`: in light only (black-and-white film). Returns 0 when nothing is drawn. */
+int dv_date_draw(struct dv_image *im, const struct dv_date *d, u32 style, u32 orient, u32 mono);
+
 #endif

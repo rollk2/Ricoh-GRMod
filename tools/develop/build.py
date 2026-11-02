@@ -20,7 +20,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
-LIB = ['grain.c']
+LIB = ['grain.c', 'text.c', 'date.c', 'diptych.c']
 HOST = ['host/host.c', 'host/test.c']
 ARM_FLAGS = ['-target', 'armv7-none-eabi', '-mcpu=cortex-a9', '-marm', '-mfloat-abi=soft', '-Os',
              '-ffreestanding', '-fno-builtin', '-fno-unwind-tables', '-fno-asynchronous-unwind-tables', '-nostdlib',

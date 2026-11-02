@@ -251,6 +251,104 @@ static void test_bw(void) {
   }
 }
 
+/* ------------------------------------------------------------------ diptych */
+
+static void test_pairs(void) {
+  struct dv_pair p[80];
+  unsigned n, i, ok;
+  n = dv_diptych_pairs(72, 0, 1, p);
+  for (ok = n == 36, i = 0; i < n; i++) ok &= p[i].left == 2 * i + 1 && p[i].right == 2 * i + 2;
+  CHECK(ok, "appariement 1-2 / 3-4 : 72 vues, %u diptyques", n);
+  n = dv_diptych_pairs(71, 0, 1, p);
+  CHECK(n == 36 && p[35].left == 71 && p[35].right == DV_BLACK, "vue impaire avec une vue noire : 71 vues, %u tirages, dernier 71 + noire", n);
+  n = dv_diptych_pairs(71, 0, 0, p);
+  CHECK(n == 36 && p[35].left == 71 && p[35].right == DV_ALONE, "vue impaire seule : dernier tirage 71 seule");
+  n = dv_diptych_pairs(72, 1, 1, p);
+  CHECK(n == 37 && p[0].left == DV_BLACK && p[0].right == 1 && p[1].left == 2 && p[1].right == 3 && p[36].left == 72 && p[36].right == DV_BLACK,
+        "appariement décalé 2-3 / 4-5 : %u tirages, 1 après une vue noire, 72 avec une vue noire", n);
+}
+
+static void fill_pattern(struct host_image *h, unsigned seed) {
+  unsigned i, n = h->im.width * h->im.height;
+  for (i = 0; i < n; i++) { seed = seed * 1103515245u + 12345u; h->im.y[i] = (unsigned char)(seed >> 24); h->im.c[i] = (unsigned char)(seed >> 16); }
+}
+
+static void test_diptych(void) {
+  struct host_image l, r, d, b;
+  unsigned W = 3000, H = 4000, sep = 120, y, ok = 1, y0;
+  host_image_new(&l, W, H, 0, 128, 128); host_image_new(&r, W, H, 0, 128, 128);
+  fill_pattern(&l, 1); fill_pattern(&r, 2);
+  host_image_new(&d, 2 * W + sep, H, 7, 7, 7);
+  dv_diptych_rows(&d.im, &l.im, &r.im, W, sep, 0);
+  for (y = 0; y < H && ok; y += 37) {
+    const unsigned char *row = d.im.y + y * d.im.stride, *crow = d.im.c + y * d.im.stride;
+    unsigned x;
+    ok &= !memcmp(row, l.im.y + y * W, W) && !memcmp(row + W + sep, r.im.y + y * W, W);
+    ok &= !memcmp(crow, l.im.c + y * W, W) && !memcmp(crow + W + sep, r.im.c + y * W, W);
+    for (x = W; x < W + sep; x++) ok &= row[x] == 0 && crow[x] == 128;
+  }
+  CHECK(ok && d.im.width == 6120, "diptyque 3000 x 4000 + 3000 x 4000 : %u x %u, vues intactes, séparateur noir de %u px", d.im.width, d.im.height, sep);
+  host_image_new(&b, 2 * W + sep, H, 7, 7, 7);
+  for (y0 = 0; y0 < H; y0 += 16) {
+    struct dv_image ob = b.im, lb = l.im, rb = r.im;
+    ob.y += y0 * ob.stride; ob.c += y0 * ob.stride; ob.height = 16;
+    lb.y += y0 * W; lb.c += y0 * W; rb.y += y0 * W; rb.c += y0 * W;
+    dv_diptych_rows(&ob, &lb, &rb, W, sep, 0);
+  }
+  CHECK(!memcmp(d.buf, b.buf, (size_t)(2 * W + sep) * H * 2), "diptyque par bandes de 16 lignes : identique");
+  dv_diptych_rows(&b.im, &l.im, 0, W, sep, 1);
+  CHECK(b.im.y[W + sep + 5] == 0 && b.im.y[W + 3] == 255, "vue noire non exposée à droite, séparateur blanc");
+  host_image_free(&l); host_image_free(&r); host_image_free(&d); host_image_free(&b);
+}
+
+/* ------------------------------------------------------------------ date */
+
+/* The bounding box of the pixels a draw changed. */
+static void changed_box(const struct dv_image *a, const unsigned char *before, unsigned *x0, unsigned *y0, unsigned *x1, unsigned *y1) {
+  unsigned x, y;
+  *x0 = *y0 = ~0u; *x1 = *y1 = 0;
+  for (y = 0; y < a->height; y++) for (x = 0; x < a->width; x++)
+    if (a->y[y * a->stride + x] != before[y * a->width + x]) {
+      if (x < *x0) *x0 = x;
+      if (y < *y0) *y0 = y;
+      if (x > *x1) *x1 = x;
+      if (y > *y1) *y1 = y;
+    }
+}
+
+static void test_date(void) {
+  struct dv_date d = { 2026, 11, 2, 17, 34 }, bad = { 2026, 13, 2, 0, 0 };
+  u16 g[24];
+  unsigned o;
+  CHECK(dv_date_glyphs(&d, DV_DATE_SHORT, g) == 9 && g[0] == 16 && g[1] == 2 && g[2] == 6 && g[4] == 1 && g[5] == 1 && g[7] == 0 && g[8] == 2,
+        "date courte : '26 11 02");
+  CHECK(dv_date_glyphs(&d, DV_DATE_LONG, g) == 16 && g[13] == 19 && g[11] == 1 && g[12] == 7, "date longue : 2026.11.02 17:34");
+  CHECK(dv_date_glyphs(&bad, DV_DATE_SHORT, g) == 0, "date invalide refusée");
+  for (o = 0; o < 4; o++) {
+    struct host_image h;
+    unsigned char *before;
+    unsigned x0, y0, x1, y1, W = 3000, H = 4000;
+    int where;
+    host_image_new(&h, W, H, 60, 128, 128);
+    before = malloc((size_t)W * H);
+    memcpy(before, h.im.y, (size_t)W * H);
+    dv_date_draw(&h.im, &d, DV_DATE_SHORT, o, 0);
+    changed_box(&h.im, before, &x0, &y0, &x1, &y1);
+    /* Bottom right as shown: as stored, that is bottom right (0), bottom left (1, shown turned a
+     * quarter anticlockwise), top left (2), top right (3). */
+    where = o == 0 ? x0 > W / 2 && y0 > H / 2 : o == 1 ? x1 < W / 2 && y0 > H / 2 : o == 2 ? x1 < W / 2 && y1 < H / 2 : x0 > W / 2 && y1 < H / 2;
+    CHECK(x0 != ~0u && where, "date au tirage, orientation %u : dessinée dans le coin attendu (%u,%u)-(%u,%u)", o, x0, y0, x1, y1);
+    free(before); host_image_free(&h);
+  }
+  {
+    struct host_image a, b;
+    host_image_new(&a, 3000, 4000, 60, 128, 128); host_image_new(&b, 3000, 4000, 60, 128, 128);
+    dv_date_draw(&a.im, &d, DV_DATE_LONG, 0, 1);
+    CHECK(!memcmp(a.im.c, b.im.c, 3000 * 4000) && memcmp(a.im.y, b.im.y, 3000 * 4000), "date en noir et blanc : en lumière seule (Cb et Cr inchangés)");
+    host_image_free(&a); host_image_free(&b);
+  }
+}
+
 /* ------------------------------------------------------------------ images to look at */
 
 static int read_ppm(const char *path, struct host_image *h) {
@@ -304,6 +402,31 @@ static void images(const char *dir, const char *photo) {
       }
     }
   }
+  if (photo) {
+    /* A diptych: two 3:4 views cut from the photo, each with its date, then the grain over the print. */
+    struct host_image src, a, b, d;
+    if (!read_ppm(photo, &src)) {
+      unsigned vw = (src.im.height * 3 / 4) & ~1u, vh = src.im.height, sep = ((2 * vw * 2 / 100) + 1) & ~1u, y;
+      struct dv_date d1 = { 2026, 11, 2, 10, 5 }, d2 = { 2026, 11, 2, 10, 7 };
+      struct dv_grain_profile p;
+      struct dv_grain g;
+      host_image_new(&a, vw, vh, 0, 128, 128); host_image_new(&b, vw, vh, 0, 128, 128);
+      for (y = 0; y < vh; y++) {
+        memcpy(a.im.y + y * vw, src.im.y + y * src.im.stride, vw); memcpy(a.im.c + y * vw, src.im.c + y * src.im.stride, vw);
+        memcpy(b.im.y + y * vw, src.im.y + y * src.im.stride + (src.im.width - vw), vw);
+        memcpy(b.im.c + y * vw, src.im.c + y * src.im.stride + (src.im.width - vw), vw);
+      }
+      dv_date_draw(&a.im, &d1, DV_DATE_SHORT, 0, 0); dv_date_draw(&b.im, &d2, DV_DATE_SHORT, 0, 0);
+      host_image_new(&d, 2 * vw + sep, vh, 0, 128, 128);
+      dv_diptych_rows(&d.im, &a.im, &b.im, vw, sep, 0);
+      host_profile(&p, ARCH_NEG400);
+      dv_grain_setup(&g, &T, &p, DV_INTENSITY_PROFILE, DV_SIZE_PROFILE, dv_frame_seed(23, 7));
+      dv_grain_apply(&g, &d.im, 0, 0);
+      snprintf(path, sizeof path, "%s/diptyque.ppm", dir);
+      host_write_ppm(path, &d.im);
+      host_image_free(&a); host_image_free(&b); host_image_free(&d); host_image_free(&src);
+    }
+  }
   {
     FILE *f;
     snprintf(path, sizeof path, "%s/archetypes.txt", dir);
@@ -327,6 +450,9 @@ int main(int argc, char **argv) {
   test_crop();
   test_sizes();
   test_bw();
+  test_pairs();
+  test_diptych();
+  test_date();
   if (argc > 1) images(argv[1], argc > 2 ? argv[2] : 0);
   printf("%s : %d échec(s)\n", failures ? "ÉCHEC" : "TOUT EST BON", failures);
   return failures != 0;
