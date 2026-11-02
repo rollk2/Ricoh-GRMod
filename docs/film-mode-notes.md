@@ -2512,6 +2512,8 @@ Demande de l'utilisateur : que Mode Memory puisse s'appliquer aussi aux modes U.
   avec un octet de mode ; fusion en U avec échange temporaire des 24 octets de cases). 3 à 5 builds.
 - **BOX suivante** (fonction Fn, plan T25-BOX1).
 - Réglages ADJ supplémentaires, Image Control custom supplémentaires, palier de crop 40 mm.
+- **Touche WB dans Fn Button Settings** : ajouter la touche WB à la liste des touches réglables
+  (demande du 2026-11-02 ; liste des touches et fonctions à retrouver, voir T13-FN).
 
 ## Publication GR Mod Film 0.9.0 (2026-11-02)
 
@@ -2597,3 +2599,22 @@ Demande de l'utilisateur : pouvoir masquer Standard dans l'ordre des Image Contr
   masqués (repli Monotone) ; tests unitaires (repli, validation, build par l'Engine reconnu).
 - **V1-RC7 testé sur le boîtier (2026-11-02)** : Reset Settings en P avec Standard masqué → la ligne
   Image Control affiche Monotone tout de suite. Candidat retenu pour la 0.9.1.
+
+## Correctif 0.9.2 : date incrustée alors qu'elle est désactivée (2026-11-02)
+
+- Symptôme (boîtier, 0.9.1) : avec le mode pellicule et sans « Date stamp » dans GR Mod Film, la
+  date s'incruste quand même.
+- Cause (certaine) : sans date proposée (`dateHidden`), l'étape date est construite quand même, car
+  le code du rouleau tourne dans son crochet d'exposition (`installGr3xExposureOrientation`). Seule la
+  ligne de menu était masquée (`adj.ts`, `GR3X_DATE_MENU_ID`). Le module lit toujours l'octet de
+  réglage `0x9a2` de l'enregistrement : une date activée auparavant (GR Mod, firmware précédent)
+  reste active et ne peut plus être coupée, la ligne étant masquée.
+- Correctif : `installGr3xDateImprintStage(..., off)` ; avec `dateHidden`, le contexte du module
+  contient le décalage `0xffff` (`GR3X_DATE_OFF`) au lieu de `0x9a2`. Le module
+  (`tools/datestamp/datestamp.c`, `k->offset >= 0x1000`) revient alors avant son premier appel,
+  quel que soit l'octet. L'étape et le crochet d'exposition restent en place (compteur intact).
+  Sans `dateHidden`, les octets du firmware ne changent pas.
+- Preuve : `film_roll_check.py` vérifie le mot du contexte et exécute le module avec l'octet `0x9a2`
+  à 1, 3 et 7 : avec la date masquée, aucun appel (retour immédiat, pile rendue) ; avec le décalage
+  `0x9a2`, l'appel de la plateforme est bien atteint (contrôle de la sonde). Le build 0.9.1 (V1-RC6
+  et suivants) échoue à ce contrôle, le build corrigé le passe ; idem build avec date proposée.

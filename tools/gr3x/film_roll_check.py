@@ -26,7 +26,7 @@ This does not establish the camera's storage, menus or pictures.
 """
 import argparse,hashlib,json,random,struct
 from pathlib import Path
-from unicorn import arm_const as reg
+from unicorn import arm_const as reg,UC_HOOK_CODE
 from film_probe_check import Probe,TIME,UDM
 from guard_probe import RECALL_FROM,RECALL_TO,UD,RECS,SIZE
 from native_probe import STOP,STACK
@@ -1098,6 +1098,29 @@ def verify(data,manifest,seed=3101):
         # T23b: the Date Imprint line (0x020001a0) hidden when the stage is there for the film mode only.
         assert (0x020001a0 in allids)==(not manifest.get('dateHidden')),('date line',manifest.get('dateHidden'))
         if manifest.get('dateHidden'):count('date line hidden')
+        # 0.9.2: with the date imprint not offered (dateHidden) the module must print nothing, even
+        # when a date was turned on before (setting byte 0x9a2 kept in the record): its context
+        # holds the offset 0xffff and it returns before its first call (the platform's). Reference:
+        # the same context with 0x9a2 does reach that call.
+        ctx=e['dateContext'];off=struct.unpack('<I',bytes(cpu.mem_read(ctx+24,4)))[0]
+        assert off==(0xffff if manifest.get('dateHidden') else 0x9a2),hex(off)
+        cache=struct.unpack('<I',bytes(cpu.mem_read(ctx+12,4)))[0];reached=[]
+        def at_cache(u,a,sz,d):reached.append(a);u.emu_stop()
+        hk=cpu.hook_add(UC_HOOK_CODE,at_cache,begin=cache,end=cache)
+        CONFIG=0x63057000
+        for offset in ((0xffff,0x9a2) if manifest.get('dateHidden') else (0x9a2,)):
+            for setting in (1,3,7):
+                rec=bytearray(SIZE);rec[0x9a2]=setting;cpu.mem_write(RECS,bytes(rec));cpu.mem_write(POINTER,struct.pack('<I',RECS))
+                cpu.mem_write(ctx+24,struct.pack('<I',offset));cpu.mem_write(CONFIG,bytes(0x100));reached.clear()
+                regs={0:ctx,1:CONFIG}
+                for i in range(13):cpu.reg_write(getattr(reg,'UC_ARM_REG_R'+str(i)),regs.get(i,0x1230+i))
+                cpu.reg_write(reg.UC_ARM_REG_SP,STACK);cpu.reg_write(reg.UC_ARM_REG_LR,STOP);cpu.reg_write(reg.UC_ARM_REG_CPSR,0x13)
+                cpu.emu_start(e['dateModule'],STOP,count=200000)
+                if offset==0xffff:
+                    assert not reached and cpu.reg_read(reg.UC_ARM_REG_PC)==STOP and cpu.reg_read(reg.UC_ARM_REG_SP)==STACK,('date printed though hidden',setting)
+                    count('date off when hidden')
+                else:assert reached==[cache],('reference run',setting)
+        cpu.mem_write(ctx+24,struct.pack('<I',off));cpu.hook_del(hk)
         setup(0,film=True)
         # The places in P (C tab: pages from 0, 4, 13; 22 lines): within → kept; else the page's first line.
         for page,pos,line,want in ((0,0x30,3,(0,0x30,3)),(0,0x50,5,(0,0,0)),(1,0x40,12,(1,0x40,12)),(1,0x40,13,(1,0,4)),
