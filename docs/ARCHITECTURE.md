@@ -268,11 +268,46 @@ assembler deux vues (diptyque) alors que le pipeline traite une vue à la fois.
 Dans les deux cas, le moteur de grain lui-même (textures, LUT, application en 4:2:2) peut être
 écrit et validé sur PC en C, puis appelé au point d'accroche JPEG comme la halation.
 
-## 6. Mesures à prévoir (sans flash à ce stade)
+## 6. Décisions prises (2 novembre 2026)
+
+**D1. Le négatif est le DNG, le développement passe par le développement RAW du boîtier** (voie B
+du §5). Conséquences :
+- en mode pellicule, la qualité doit être RAW+JPEG (à imposer au rappel d'un U, comme la
+  multi-exposition, `film-roll.ts` `filmRollRecall`). La multi-exposition enregistre bien un DNG
+  de la superposition (testé, `docs/film-mode-notes.md`, essai F1 : `.DNG` « superposition, qualité
+  de la BOX ») ;
+- la spec suppose un négatif JPEG décodé par bandes (« Lecture du négatif et décodage JPEG par
+  bandes ») : ce n'est plus le cas, le boîtier refait l'image depuis le DNG.
+
+**D2. Le grain s'applique aussi au JPEG de la prise de vue.** Le même module de grain, au point
+d'accroche JPEG (§2.1), traite :
+- à la prise de vue, le JPEG de chaque vue (image principale, vignette d'écran, miniature), avec le
+  profil du film du rouleau et les réglages de grain de l'utilisateur ;
+- au développement RAW, le tirage produit depuis le DNG, qui n'a pas de grain.
+
+Conséquences :
+- **écart assumé avec la spec** : « Réactivité : aucun coût de traitement à la prise de vue » et
+  « Coût à la prise de vue : 0 ms ajouté » ne tiennent plus. La passe de grain (cible ≤ 1 s pour
+  24 Mpx) s'ajoute au temps d'enregistrement de chaque vue, comme la halation aujourd'hui. À
+  mesurer ;
+- le JPEG de la prise de vue montre le rendu final pendant le rouleau, ce qui va dans le sens de la
+  lecture non masquée d'aujourd'hui (§3.9) ;
+- le grain doit être identique au bit près entre le JPEG de la prise de vue et le tirage de la même
+  vue (même graine, même profil) quand la géométrie est la même, ce qui renforce l'exigence de
+  déterminisme de la spec ;
+- en demi-format, le JPEG de la prise de vue reçoit le grain vue par vue ; au tirage en diptyque, le
+  grain est appliqué sur le cadre assemblé (spec, « Diptyque »). Les deux ne coïncident donc pas pour
+  les diptyques, ce qui est conforme à la spec ;
+- le module doit savoir s'il traite une prise de vue ou un développement RAW (pour le diptyque et la
+  date au tirage), point déjà listé dans les inconnues de la voie B.
+
+## 7. Mesures à prévoir (sans flash à ce stade)
 
 À lister pour l'étape 6, chacune par un build de sonde dédié, le moment venu :
 - temps d'un développement RAW natif d'une vue 24 Mpx ;
 - mémoire disponible à l'allocateur au point d'accroche JPEG et hors prise de vue ;
 - taille réelle des JPEG en crop 35 mm et 50 mm ;
+- temps ajouté à la prise de vue par une passe de grain 24 Mpx au point d'accroche JPEG (D2) ;
+- moyen de distinguer, au point d'accroche JPEG, une prise de vue d'un développement RAW (D1, D2) ;
 - fonctions du firmware pour lire un fichier, écrire un fichier, lire le niveau de batterie et
   lancer une tâche (recherche statique d'abord).
