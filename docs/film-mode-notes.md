@@ -2345,7 +2345,7 @@ Certitude : lu dans le code ; correspondance noms / champs : la liste de 1043 no
   Focus et Focus Peaking**, dont le nom dit la remise au centre. T24-AF1 abandonné (l'option
   `afReset` reste dans le moteur, l'application ne l'active plus).
 
-### Écran Mode Memory : analyse statique (en cours)
+### Écran Mode Memory : analyse statique
 
 - Ligne « Memory » du menu C : identifiant `0x0200009b`, écran `ModeMemoryController` (table de
   méthodes `0x53b4d930`, démarrage `0x532070a8`).
@@ -2375,3 +2375,27 @@ Plan T24-AF2 :
    l'ouverture de l'écran (crochet sur `b 0x53206a30`).
 2. À l'allumage, dans Mode Memory (`0x5324075c`, modes libres) : si `0x905` vaut 1, copie des 8
    octets d'usine de `+0x120` (le centre) ; le mode de mise au point reste réglé par la case Focus.
+
+### Build de test T24-AF2 : case « Point AF » dans Mode Memory (2026-11-02)
+
+Option `afPoint` (moteur, recette, Engine ; l'application l'envoie pour tout build GR III complet à
+la place de `afReset`). Certitude : vérifié en émulation, à confirmer sur le boîtier.
+
+- Table recopiée en fin d'image : 25 éléments, le nôtre (numéro 24, texte « Point AF » dans les
+  21 langues) en 4e position, entre Focus et Focus Peaking. Patches : `0x53207350` / `0x53207354`
+  (`movw/movt r4`, adresse de la copie) et `0x53207364` (`add r5,r4,#0x3e8`, 25 × 0x28).
+- État de la case pendant l'écran : octet RAM `0x558043bc` (zone des sondes, 1 = cochée). Lu à
+  l'ouverture (le saut `b 0x53206a30` de `0x532071f8` passe par notre lecture : cochée sauf si
+  `+0x905` de l'enregistrement en cours vaut 1).
+- fn1 dessine la coche (0x10f / 0x10e) ; fn2 bascule l'octet, retrouve la ligne n° 24 dans le
+  vecteur `+0x168` / `+0x16c` et la redessine (`0x53394758` puis `0x533a8990`) ; fn3 écrit
+  `état ^ 1` dans `+0x905` de l'enregistrement en cours et des huit enregistrements stockés.
+- Allumage : `0x53240874` (`ldr r2,[fp,#-0x30]`, atteint que la case Focus soit cochée ou non)
+  devient un saut vers : la même lecture, puis si `+0x905` vaut 1, copie des 8 octets d'usine de
+  `+0x120` (r3) vers l'enregistrement chargé (r4) ; retour en `0x53240878`. r0, r1, ip sont libres
+  à cet endroit (rechargés par le bloc suivant).
+- Contrôles : `film_roll_check.py` section 41 (table, textes, dessin, bascule à toutes les places,
+  écriture avec et sans enregistrement en cours, lecture pour 0 / 1 / 2 / 255, allumage pour 0 / 1 /
+  2 avec registres conservés), `guard_probe.py`, inspection par l'Engine (build identique à celui du
+  moteur), test unitaire T24-AF2.
+

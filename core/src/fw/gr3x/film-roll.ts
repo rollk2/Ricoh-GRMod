@@ -1273,6 +1273,78 @@ export function installGr3xAfReset(p: Gr3xRollProgram) {
   return { afReset: reset };
 }
 
+/** Mode Memory's items (ModeMemoryController): 24 records of 0x28 bytes at 0x53b4d550 { number, text,
+ * draw (this, row: the tick, icon 0x10f / 0x10e), toggle (this: its state byte and the row drawn again),
+ * write (this: the setting), visible? } copied into the screen's list by 0x53207348 (movw / movt r4 at
+ * 0x53207350 / 0x53207354, end `add r5,r4,#0x3c0` at 0x53207364); the states are read at the screen's
+ * start, which ends with `b 0x53206a30` (the list filled) at 0x532071f8. Row drawing: 0x53394758(list,
+ * row) then 0x533a8990(row, icon). */
+export const GR3X_MEMORY_ITEMS = 0x53b4d550, GR3X_MEMORY_ITEM_COUNT = 24, GR3X_MEMORY_FOCUS_ITEM = 2;
+const MEMORY_COPY_LOW = 0x53207350, MEMORY_COPY_HIGH = 0x53207354, MEMORY_COPY_END = 0x53207364, MEMORY_START_END = 0x532071f8, MEMORY_FILL = 0x53206a30;
+const LIST_ROW = 0x53394758, ROW_ICON = 0x533a8990, TICK_ON = 0x10f, TICK_OFF = 0x10e;
+/** Mode Memory's merge, after the Focus box (0x53240874: `ldr r2,[fp,#-0x30]`, the record in use;
+ * r3 the factory record, r4 the record loaded). */
+const MEMORY_AFTER_FOCUS = 0x53240874;
+/** T24-AF2: the AF Point box's setting: padding byte 0x905 of every record (0 kept, the default;
+ * 1 the AF point back to the centre at power-on), and its state while the screen is open (a RAM byte,
+ * zero at start-up, the key probe's area; 1 ticked). */
+export const GR3X_AF_POINT_SETTING = 0x905;
+const AF_POINT_STATE = KEY_LAST + 0x2c, AF_POINT_ITEM = 24;
+/** « AF Point » in `LANGS` order: the AF point part of the camera's own « AF Point+Focus » (0x211). */
+export const GR3X_AF_POINT_NAMES: readonly string[] = [
+  'Bod AF', 'AF-punkt', 'AF Point', 'AF-piste', 'Point AF', 'AF-Punkt', 'Σημείο AF', 'AF-pont', 'Punto AF', '測距点', '측거점',
+  'AF-punt', 'Punkt AF', 'Ponto AF', 'Точка АФ', '对焦点', 'Punto AF', 'AF-punkt', 'จุด AF', '對焦點', 'AF Nokta',
+];
+
+/**
+ * T24-AF2: an « AF Point » box in Mode Memory, after Focus. Ticked (the default), the AF point is kept
+ * as the camera does; unticked, at power-on (free modes, where Mode Memory applies) the AF point goes
+ * back to the factory's, the centre (StillFocusAreaCenter, 8 bytes at + 0x120); the focus mode keeps
+ * following the Focus box.
+ */
+export function installGr3xAfPointMemory(p: Gr3xRollProgram & { read(at: number, n: number): Uint8Array; append(b: Uint8Array): number }, text: number) {
+  for (const at of [MEMORY_COPY_LOW, MEMORY_COPY_HIGH, MEMORY_COPY_END, MEMORY_START_END, MEMORY_AFTER_FOCUS])
+    if (p.sites.some(s => s.address === at)) throw new FirmwareError('unexpected-instruction', 'IIIx AF point box: already patched');
+  const entries: Record<string, number> = {};
+  const st = `movw ip,#${lo(AF_POINT_STATE)};movt ip,#${hi(AF_POINT_STATE)};`;
+  const tick = `ldrb ip,[ip];cmp ip,#0;movwne r1,#${TICK_ON};movweq r1,#${TICK_OFF};`;
+  entries.afPointDraw = p.code(`${st}mov r0,r1;${tick}b #${ROW_ICON};`);
+  entries.afPointToggle = p.code(`push {r4,lr};mov r4,r0;${st}ldrb r3,[ip];eor r3,r3,#1;strb r3,[ip];
+    ldr r2,[r4,#0x168];ldr ip,[r4,#0x16c];mov r1,#0;
+    find:cmp r2,ip;bhs none;ldrb r3,[r2];cmp r3,#${AF_POINT_ITEM};beq found;add r2,r2,#0x28;add r1,r1,#1;b find;
+    none:mov r1,#0;
+    found:ldr r0,[r4,#0x164];bl #${LIST_ROW};${st}${tick}pop {r4,lr};b #${ROW_ICON};`);
+  const rec = (r: string, label: string) => `${ram(r, label)}strb r1,[${r},#${GR3X_AF_POINT_SETTING}];${label}:`;
+  entries.afPointWrite = p.code(`${st}ldrb r1,[ip];eor r1,r1,#1;and r1,r1,#1;
+    movw r2,#${lo(POINTER)};movt r2,#${hi(POINTER)};ldr r3,[r2];${rec('r3', 'w0')}
+    mov r0,#0;wl:movw r2,#${lo(STORED)};movt r2,#${hi(STORED)};ldr r3,[r2,r0,lsl #2];${ram('r3', 'wn')}strb r1,[r3,#${GR3X_AF_POINT_SETTING}];
+    wn:add r0,r0,#1;cmp r0,#7;bls wl;bx lr;`);
+  // The screen's start: the box's state from the record in use (ticked unless 1).
+  entries.afPointRead = p.code(`movw r2,#${lo(POINTER)};movt r2,#${hi(POINTER)};ldr r3,[r2];mov r1,#1;${ram('r3', 'rd')}
+    ldrb r2,[r3,#${GR3X_AF_POINT_SETTING}];cmp r2,#1;moveq r1,#0;rd:${st}strb r1,[ip];b #${MEMORY_FILL};`);
+  p.patch(MEMORY_START_END, branchWord(MEMORY_START_END, MEMORY_FILL), branchWord(MEMORY_START_END, entries.afPointRead), 'Mode Memory: the AF Point box read at the screen\'s start');
+  // The items: the camera's 24 with ours after Focus.
+  const items = p.read(GR3X_MEMORY_ITEMS, GR3X_MEMORY_ITEM_COUNT * 0x28);
+  const iv = new DataView(items.buffer, items.byteOffset, items.byteLength);
+  for (let k = 0; k < GR3X_MEMORY_ITEM_COUNT; k++) if (iv.getUint32(k * 0x28, true) !== k) throw new FirmwareError('unexpected-layout', 'IIIx Mode Memory items');
+  if (iv.getUint32(GR3X_MEMORY_FOCUS_ITEM * 0x28 + 4, true) !== 0x2a) throw new FirmwareError('unexpected-layout', 'IIIx Mode Memory Focus item');
+  const ours = new Uint8Array(0x28), ov = new DataView(ours.buffer);
+  ov.setUint32(0, AF_POINT_ITEM, true); ov.setUint32(4, text, true);
+  ov.setUint32(8, entries.afPointDraw, true); ov.setUint32(0x10, entries.afPointToggle, true); ov.setUint32(0x18, entries.afPointWrite, true);
+  const at = (GR3X_MEMORY_FOCUS_ITEM + 1) * 0x28;
+  const table = p.append(new Uint8Array([...items.subarray(0, at), ...ours, ...items.subarray(at)]));
+  entries.afPointItems = table;
+  p.patch(MEMORY_COPY_LOW, movWord(4, lo(GR3X_MEMORY_ITEMS)), movWord(4, lo(table)), 'Mode Memory: 25 items (low half)');
+  p.patch(MEMORY_COPY_HIGH, movWord(4, hi(GR3X_MEMORY_ITEMS), true), movWord(4, hi(table), true), 'Mode Memory: 25 items (high half)');
+  p.patch(MEMORY_COPY_END, 0xe2845d0f, 0xe2845ffa, 'Mode Memory: 25 items (end: + 0x3e8)');
+  // Power-on, free modes: the AF point back to the factory's when the box is unticked.
+  entries.afPointReset = p.code(`ldr r2,[fp,#-0x30];ldrb ip,[r2,#${GR3X_AF_POINT_SETTING}];cmp ip,#1;bne kept;
+    add ip,r3,#${GR3X_AF_AREA_CENTER};ldr r0,[ip];ldr r1,[ip,#4];add ip,r4,#${GR3X_AF_AREA_CENTER};str r0,[ip];str r1,[ip,#4];
+    kept:b #${MEMORY_AFTER_FOCUS + 4};`);
+  p.patch(MEMORY_AFTER_FOCUS, 0xe51b2030, branchWord(MEMORY_AFTER_FOCUS, entries.afPointReset), 'Mode Memory: AF Point unticked, the AF point to the centre');
+  return entries;
+}
+
 /** The tables of methods of QuickViewController (the review) and of the message screens. */
 export const GR3X_REVIEW_VTABLE = 0x53b41380, GR3X_MESSAGE_VTABLE = 0x53b41ca8;
 /** T15-END2: the message byte cleared at each exposure (every register kept but ip). */
