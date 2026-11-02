@@ -2520,7 +2520,7 @@ Demande de l'utilisateur : que Mode Memory puisse s'appliquer aussi aux modes U.
   « based on GR Mod by Maxwooow (GPL-2.0) ». Dossier de données propre (`GRModFilm`, `grmod-film`) :
   cohabite avec GR Mod. Version 0.9.0.
 - Mises à jour coupées (`filmEdition` dans `shell/updates.go`) ; le menu « ? » ouvre la page des
-  releases de rollk2/Ricoh-GRMod à la place de « Check for updates ».
+  releases de rollk2/Ricoh-GRModFilm (dépôt renommé le 2026-11-02) à la place de « Check for updates ».
 - README : section GR Mod Film en tête. Workflow `.github/workflows/release.yml` : un tag `vX.Y.Z`
   (égal à la version de package.json) lance les tests Go, construit l'interface, les programmes
   Linux, Windows et Mac (signé ad hoc par rcodesign), et publie la release.
