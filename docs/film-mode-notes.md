@@ -2458,3 +2458,30 @@ Pistes :
   cours et les sept copies stockées (index 0 à 6) ; l'enregistrement d'usine (index 7, `+0x24`)
   n'est plus touché. L'émulateur le vérifie désormais (il échoue sur T24-AF2, passe sur V1-RC1).
 - Build V1-RC1 = T24-AF2 corrigé, candidat à la v1 « GR Mod Film ». À tester sur le boîtier.
+- Test de V1-RC1 sur le boîtier : en P, Point AF décoché recentre ; **en U, le point n'est plus
+  recentré**. Lecture du code : au démarrage, la fusion `0x53246df8` choisit en `0x5324b154`
+  Mode Memory complet (`0x5324075c`) pour le mode 0 et la fusion réduite des BOX (`0x532419cc`,
+  quelques champs vidéo et de mise au point, pas `+0x120`) pour un mode U. V1-RC1 suit donc le code.
+  Le recentrage en U de T24-AF2 venait très probablement de l'écriture de `0x905 = 1` dans
+  l'enregistrement d'usine (seule différence), par un chemin non identifié (certitude : probable).
+- Les cases natives de Mode Memory sont écrites dans l'enregistrement de travail et les 7 copies
+  (setters `0x53243a98` et suivants) : réglage global.
+
+### Build V1-RC2 : case « Appliquer en U » dans Mode Memory (2026-11-02)
+
+Demande de l'utilisateur : que Mode Memory puisse s'appliquer aussi aux modes U. Option `memoryU`
+(avec `afPoint`), moteur, recette, Engine, envoyée par l'application.
+
+- Case n° 25 en dernière position de Mode Memory (table recopiée à 26 éléments, fin
+  `add r5,r4,#0x410`, mot 0xe2845e41), nom en 21 langues (« Appliquer en U », « Apply to U modes »,
+  在U中应用 …, caractères tous présents dans le boîtier). Décochée par défaut.
+- Réglage : octet libre `0x943` (aucun accès exact du firmware par un enregistrement, mot lu en
+  `+0x940` par un relevé de débogage, recopié au rappel), 1 = appliquer en U, écrit dans
+  l'enregistrement de travail et les 7 copies. État pendant l'écran : `0x558043bd`.
+- Aiguillage `0x5324b154` (`cmp r7,#0`) remplacé par un saut : Mode Memory complet si mode 0, ou si
+  mode 1 à 6 **et** enregistrement fusionné = enregistrement de travail (`[r6,#4]`) **et** `0x943`
+  vaut 1 ; sinon la fusion réduite des BOX. Les copies stockées (fusionnées au démarrage et à Save
+  Settings avec leur numéro) ne sont jamais concernées.
+- Contrôles : `film_roll_check.py` section 41 étendue (table de 26, textes, dessin, bascule,
+  écriture, lecture des deux cases, aiguillage pour les modes 0 à 8, 0x943 = 0 / 1 / 2,
+  enregistrement de travail ou copie, registres conservés), garde-fou, Engine (identique), tests.

@@ -1273,7 +1273,7 @@ export async function outputFirmware(dest: Dest, stock = false): Promise<void> {
           ...(films ? { filmCount: films } : {}), ...(lookLayout ? { lookLayout } : {}),
           ...(filmMode ? { filmMode: { codes: filmCodes() } } : {}), ...(noMovie ? { noMovie } : {}),
           // Every full GR III / IIIx build: the « AF Point » box in Mode Memory (ticked by default: no change until unticked).
-          ...(filmModeChoosable() ? { afPoint: true } : {}) });
+          ...(filmModeChoosable() ? { afPoint: true, memoryU: true } : {}) });
       if (!Object.values(built.checks).every((v) => v === true)) throw new EngineError('selfcheck-failed', 'self-check');
       file = built.file;
       void recordBuild(file, changes);

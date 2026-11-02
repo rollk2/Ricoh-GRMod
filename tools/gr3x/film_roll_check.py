@@ -48,7 +48,7 @@ LOOK_CODES={11:'STD',12:'VIV',13:'MON',14:'SMO',15:'HMO',16:'HCB',17:'POS',18:'B
 
 class RollProbe(Probe):
     def __init__(self,data,manifest):
-        super().__init__(data,manifest);self.writes=[];self.box_native=0;self.next=0;self.next_calls=0;self.sfp_ret=None;self.sfp_calls=0;self.entry_sp=None;self.prints=[];self.setters=[];self.ui=[];self.real_post=False;self.fn_stubs=False;self.posters=0;self.model_no=0;self.events=[];self.qv_stubs=False;self.qv=[];self.dir_stubs=False;self.live=[];self.timer_stubs=False;self.timers=[];self.end_stubs=False;self.opens=[];self.menu_stubs=False;self.memory_stubs=False
+        super().__init__(data,manifest);self.writes=[];self.box_native=0;self.next=0;self.next_calls=0;self.sfp_ret=None;self.sfp_calls=0;self.entry_sp=None;self.prints=[];self.setters=[];self.ui=[];self.real_post=False;self.fn_stubs=False;self.posters=0;self.model_no=0;self.events=[];self.qv_stubs=False;self.qv=[];self.dir_stubs=False;self.live=[];self.timer_stubs=False;self.timers=[];self.end_stubs=False;self.opens=[];self.menu_stubs=False;self.memory_stubs=False;self.merge_stubs=False
         for at in range(0x63040000,0x63059000,0x1000):
             try:self.uc.mem_map(at,0x1000)
             except Exception:pass
@@ -108,6 +108,7 @@ class RollProbe(Probe):
             assert r(0)==0xc0c0;ret(self.model_no)
         elif self.memory_stubs and at==0x53394758:self.ui.append(('row',r(0),r(1)));ret(0x6305a000)
         elif self.memory_stubs and at==0x533a8990:self.ui.append(('tick',r(0),r(1)));ret(0)
+        elif self.merge_stubs and at in (0x5324b15c,0x5324b168):self.ui.append(('merge',at));cpu.emu_stop()
         elif at==LINE_VALUE_ICON:self.ui.append(('icon',r(0),r(1)));ret(0)
         elif at==TOP_SET_TITLE:self.ui.append(('title',r(0),r(1),r(2)));ret(0)
         elif at==LIST_SET_ITEM:self.ui.append(('item',r(0),r(1),r(2)));ret(0)
@@ -1207,20 +1208,29 @@ def verify(data,manifest,seed=3101):
         count('AF point reset')
     # 41. T24-AF2: the « AF Point » box of Mode Memory (after Focus), its setting at + 0x905 of the records.
     if manifest.get('afPoint'):
-        AFS=0x558043bc;SET=0x905;ITEMS=0x53b4d550;T=e['afPointItems']
+        AFS=0x558043bc;SET=0x905;ITEMS=0x53b4d550;T=e['afPointItems'];MU=bool(manifest.get('memoryU'));US=0x558043bd;USET=0x943
         rd32=lambda a:struct.unpack('<I',bytes(cpu.mem_read(a,4)))[0]
-        orig=bytes(data[ITEMS-0x53000000:ITEMS-0x53000000+24*0x28]);tab=bytes(cpu.mem_read(T,25*0x28))
-        assert tab[:3*0x28]==orig[:3*0x28] and tab[4*0x28:]==orig[3*0x28:],'items copied'
+        N=26 if MU else 25
+        orig=bytes(data[ITEMS-0x53000000:ITEMS-0x53000000+24*0x28]);tab=bytes(cpu.mem_read(T,N*0x28))
+        assert tab[:3*0x28]==orig[:3*0x28] and tab[4*0x28:25*0x28]==orig[3*0x28:],'items copied'
         ours=struct.unpack('<10I',tab[3*0x28:4*0x28])
         assert ours[0]==24 and ours[2]==e['afPointDraw'] and ours[4]==e['afPointToggle'] and ours[6]==e['afPointWrite'] and ours[1]>=0x200 and ours[9]==0 and ours[8]==0,ours
         assert rd32(0x53207350)==0xe3000000|(4<<12)|((T&0xf000)<<4)|(T&0xfff) and rd32(0x53207354)==0xe3400000|(4<<12)|((T>>12)&0xf0000)|((T>>16)&0xfff),'items address'
-        assert rd32(0x53207364)==0xe2845ffa,'items end'
+        assert rd32(0x53207364)==(0xe2845e41 if MU else 0xe2845ffa),'items end'
         lo_,hi_=[rd32(a_) for a_ in (0x533966e8,0x533966f0)]
         ROOTS=(((hi_>>4)&0xf000|(hi_&0xfff))<<16)|((lo_>>4)&0xf000|(lo_&0xfff))
         def atext(row):
             desc=rd32(rd32(ROOTS+row*4)+ours[1]*4);n=cpu.mem_read(desc,1)[0]
             return bytes(cpu.mem_read(rd32(desc+4),2*(n-1))).decode('utf-16-le')
         assert (atext(0),atext(1),atext(2))==('測距点','AF Point','Point AF'),[atext(r_) for r_ in range(3)]
+        if MU:
+            uo=struct.unpack('<10I',tab[25*0x28:26*0x28])
+            assert uo[0]==25 and uo[2]==e['memoryUDraw'] and uo[4]==e['memoryUToggle'] and uo[6]==e['memoryUWrite'] and uo[8]==0 and uo[9]==0,uo
+            def utext(row):
+                desc=rd32(rd32(ROOTS+row*4)+uo[1]*4);n=cpu.mem_read(desc,1)[0]
+                return bytes(cpu.mem_read(rd32(desc+4),2*(n-1))).decode('utf-16-le')
+            assert (utext(0),utext(1),utext(2),utext(19))==('Uにも適用','Apply to U modes','Appliquer en U','在U中应用'),[utext(r_) for r_ in range(21)]
+            count('apply to U item')
         count('AF point items')
         p.memory_stubs=True;LISTO=0x63059000
         try:cpu.mem_map(LISTO,0x2000)
@@ -1248,13 +1258,37 @@ def verify(data,manifest,seed=3101):
                 for b in want_b[:7]:b[SET]=st^1
                 assert c2==bytes(want_c) and b2==[bytes(b) for b in want_b],(st,pointer)
                 for k in (4,5):assert cpu.reg_read(getattr(reg,'UC_ARM_REG_R%d'%k))==regs[k]
+        if MU:
+            for st in (0,1,5):
+                cpu.mem_write(US,bytes([st]));cpu.ctl_flush_tb();p.ui=[]
+                p.run(e['memoryUDraw'],STOP,{0:0x1111,1:0x6305b000});count('apply to U draw')
+                assert p.ui==[('tick',0x6305b000,0x10f if st else 0x10e)],p.ui
+            for st in (0,1):
+                for at_row in (2,25,None):
+                    n=27;base=LISTO+0x400
+                    for k in range(n):cpu.mem_write(base+k*0x28,bytes([k+30 if (at_row is None or k!=at_row) else 25])+bytes(0x27))
+                    cpu.mem_write(LISTO+0x164,struct.pack('<III',0xa0a0,base,base+n*0x28))
+                    cpu.mem_write(US,bytes([st]));cpu.mem_write(AFS,b'\x01');cpu.ctl_flush_tb();p.ui=[]
+                    regs={0:LISTO,4:0x4444,5:0x5555};p.run(e['memoryUToggle'],STOP,regs);count('apply to U toggle')
+                    assert cpu.mem_read(US,1)[0]==st^1 and cpu.mem_read(AFS,1)[0]==1
+                    assert p.ui==[('row',0xa0a0,at_row or 0),('tick',0x6305a000,0x10f if st^1 else 0x10e)],(p.ui,at_row)
+            for st in (0,1):
+                for pointer in (True,False):
+                    cur,boxes=setup(3,pointer=pointer);cpu.mem_write(US,bytes([st]));cpu.ctl_flush_tb()
+                    regs={4:0x4444,5:0x5555};p.run(e['memoryUWrite'],STOP,regs);count('apply to U write')
+                    c2,b2=state();want_c=bytearray(cur);want_b=[bytearray(b) for b in boxes]
+                    if pointer:want_c[USET]=st
+                    for b in want_b[:7]:b[USET]=st
+                    assert c2==bytes(want_c) and b2==[bytes(b) for b in want_b],(st,pointer)
         assert rd32(0x532071f8)==(0xea000000|(((e['afPointRead']-0x532071f8-8)>>2)&0xffffff))
         for v,want in ((0,1),(1,0),(2,1),(255,1),(None,1)):
-            cur,boxes=setup(3,pointer=v is not None)
-            if v is not None:cur[SET]=v;cpu.mem_write(CUR,bytes(cur))
-            cpu.mem_write(AFS,b'\x77');cpu.ctl_flush_tb()
-            regs={0:0x7070,4:0x4444};p.run(e['afPointRead'],0x53206a30,regs);count('AF point read')
-            assert cpu.mem_read(AFS,1)[0]==want and cpu.reg_read(reg.UC_ARM_REG_R0)==0x7070 and cpu.reg_read(reg.UC_ARM_REG_R4)==0x4444,(v,cpu.mem_read(AFS,1)[0])
+            for u in ((0,1,2,255) if MU else (0,)):
+                cur,boxes=setup(3,pointer=v is not None)
+                if v is not None:cur[SET]=v;cur[USET]=u;cpu.mem_write(CUR,bytes(cur))
+                cpu.mem_write(AFS,b'\x77\x77');cpu.ctl_flush_tb()
+                regs={0:0x7070,4:0x4444};p.run(e['afPointRead'],0x53206a30,regs);count('AF point read')
+                assert cpu.mem_read(AFS,1)[0]==want and cpu.reg_read(reg.UC_ARM_REG_R0)==0x7070 and cpu.reg_read(reg.UC_ARM_REG_R4)==0x4444,(v,cpu.mem_read(AFS,1)[0])
+                assert cpu.mem_read(US,1)[0]==((1 if (u==1 and v is not None) else 0) if MU else 0x77),(v,u,cpu.mem_read(US,1)[0])
         p.memory_stubs=False;cpu.mem_write(AFS,b'\0');cpu.ctl_flush_tb()
         # Power-on: the merge after Focus (0x53240874), r3 the factory record, r4 the record loaded.
         FAC,DST,INUSE,FP=0x63054000,0x63055000,0x63056000,0x63057800
@@ -1272,6 +1306,24 @@ def verify(data,manifest,seed=3101):
             for k in (3,4,5,6,7,11):assert cpu.reg_read(getattr(reg,'UC_ARM_REG_R%d'%k))==regs[k]
             assert cpu.reg_read(reg.UC_ARM_REG_SP)==STACK and cpu.reg_read(reg.UC_ARM_REG_LR)==0xbeefcafe
             count('AF point power-on')
+        if MU:
+            assert rd32(0x5324b154)==(0xea000000|(((e['memoryUMerge']-0x5324b154-8)>>2)&0xffffff))
+            p.merge_stubs=True;cpu.ctl_flush_tb()
+            for mode in range(9):
+                for v in (0,1,2):
+                    for same in (True,False):
+                        cur,boxes=setup(3);cur[USET]=v;cpu.mem_write(CUR,bytes(cur))
+                        rec=CUR if same else BOXES+0x1000
+                        regs={4:rec,5:0x5555,6:MODEL,7:mode,0:0x1010,1:0x2020,2:0x3030,3:0x4040}
+                        for i in range(13):cpu.reg_write(getattr(reg,'UC_ARM_REG_R'+str(i)),regs.get(i,0x1230+i))
+                        cpu.reg_write(reg.UC_ARM_REG_SP,STACK);cpu.reg_write(reg.UC_ARM_REG_LR,0xbeefcafe);cpu.reg_write(reg.UC_ARM_REG_CPSR,0x13)
+                        p.ui=[];cpu.emu_start(0x5324b154,0,count=40)
+                        full=mode==0 or (1<=mode<=6 and same and v==1)
+                        assert p.ui==[('merge',0x5324b168 if full else 0x5324b15c)],(mode,v,same,p.ui)
+                        for k,x in regs.items():assert cpu.reg_read(getattr(reg,'UC_ARM_REG_R%d'%k))==x,(k,mode)
+                        assert cpu.reg_read(reg.UC_ARM_REG_SP)==STACK and cpu.reg_read(reg.UC_ARM_REG_LR)==0xbeefcafe
+                        count('apply to U merge')
+            p.merge_stubs=False;cpu.ctl_flush_tb()
     # 29. Form 'clo2': the check at a U mode's recall ends a roll whose film changed and opens the message.
     if clo2:
         RECALL=e['filmRollRecall'];LK,RT=0x9c2,0x9c3

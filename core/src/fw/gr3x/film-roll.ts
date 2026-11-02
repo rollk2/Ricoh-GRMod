@@ -1296,52 +1296,92 @@ export const GR3X_AF_POINT_NAMES: readonly string[] = [
   'AF-punt', 'Punkt AF', 'Ponto AF', 'Точка АФ', '对焦点', 'Punto AF', 'AF-punkt', 'จุด AF', '對焦點', 'AF Nokta',
 ];
 
+/** V1-RC2: the « Apply to U modes » box's setting: padding byte 0x943 of every record (0 the camera's
+ * way, the default: Mode Memory applies to the free modes only; 1 also at power-on in U1 to U3, to the
+ * record in use only), no exact access by the firmware (a word read at + 0x940 by a debug dump), copied
+ * at a recall; its state while the screen is open: a RAM byte (zero at start-up, 1 ticked). */
+export const GR3X_MEMORY_U_SETTING = 0x943;
+const MEMORY_U_STATE = KEY_LAST + 0x2d, MEMORY_U_ITEM = 25;
+/** « Apply to U modes » in `LANGS` order; every character is in the camera's texts of that language. */
+export const GR3X_MEMORY_U_NAMES: readonly string[] = [
+  'Použít v U', 'Anvend i U', 'Apply to U modes', 'Käytä U-tiloissa', 'Appliquer en U', 'In U anwenden', 'Εφαρμογή σε U',
+  'Alkalmazás U-ban', 'Applica in U', 'Uにも適用', 'U에도 적용', 'Toepassen in U', 'Zastosuj w U', 'Aplicar em U', 'Применять в U',
+  '在U中应用', 'Aplicar en U', 'Använd i U', 'ใช้กับ U', '在U中應用', "U'da uygula",
+];
+/** The settings merge (0x53246df8; r6 UserDataModel, r4 the record merged, r7 the mode: the record in
+ * use at power-on with the active mode, each stored copy with its index) chooses at 0x5324b154
+ * (`cmp r7,#0`): mode 0, Mode Memory (0x5324075c, at 0x5324b168); else the BOXes' short merge
+ * (0x532419cc, at 0x5324b15c). */
+const MERGE_CHOICE = 0x5324b154, MERGE_MEMORY = 0x5324b168, MERGE_BOX = 0x5324b15c;
+
 /**
  * T24-AF2: an « AF Point » box in Mode Memory, after Focus. Ticked (the default), the AF point is kept
- * as the camera does; unticked, at power-on (free modes, where Mode Memory applies) the AF point goes
- * back to the factory's, the centre (StillFocusAreaCenter, 8 bytes at + 0x120); the focus mode keeps
- * following the Focus box.
+ * as the camera does; unticked, at power-on (where Mode Memory applies) the AF point goes back to the
+ * factory's, the centre (StillFocusAreaCenter, 8 bytes at + 0x120); the focus mode keeps following the
+ * Focus box. With `uText` (V1-RC2), an « Apply to U modes » box last: ticked, Mode Memory also applies at
+ * power-on in U1 to U3, to the record in use (the BOXes saved are never changed).
  */
-export function installGr3xAfPointMemory(p: Gr3xRollProgram & { read(at: number, n: number): Uint8Array; append(b: Uint8Array): number }, text: number) {
-  for (const at of [MEMORY_COPY_LOW, MEMORY_COPY_HIGH, MEMORY_COPY_END, MEMORY_START_END, MEMORY_AFTER_FOCUS])
-    if (p.sites.some(s => s.address === at)) throw new FirmwareError('unexpected-instruction', 'IIIx AF point box: already patched');
+export function installGr3xAfPointMemory(p: Gr3xRollProgram & { read(at: number, n: number): Uint8Array; append(b: Uint8Array): number }, text: number, uText?: number) {
+  const withU = uText !== undefined;
+  for (const at of [MEMORY_COPY_LOW, MEMORY_COPY_HIGH, MEMORY_COPY_END, MEMORY_START_END, MEMORY_AFTER_FOCUS, ...(withU ? [MERGE_CHOICE] : [])])
+    if (p.sites.some(s => s.address === at)) throw new FirmwareError('unexpected-instruction', 'IIIx Mode Memory boxes: already patched');
   const entries: Record<string, number> = {};
-  const st = `movw ip,#${lo(AF_POINT_STATE)};movt ip,#${hi(AF_POINT_STATE)};`;
-  const tick = `ldrb ip,[ip];cmp ip,#0;movwne r1,#${TICK_ON};movweq r1,#${TICK_OFF};`;
-  entries.afPointDraw = p.code(`${st}mov r0,r1;${tick}b #${ROW_ICON};`);
-  entries.afPointToggle = p.code(`push {r4,lr};mov r4,r0;${st}ldrb r3,[ip];eor r3,r3,#1;strb r3,[ip];
-    ldr r2,[r4,#0x168];ldr ip,[r4,#0x16c];mov r1,#0;
-    find:cmp r2,ip;bhs none;ldrb r3,[r2];cmp r3,#${AF_POINT_ITEM};beq found;add r2,r2,#0x28;add r1,r1,#1;b find;
-    none:mov r1,#0;
-    found:ldr r0,[r4,#0x164];bl #${LIST_ROW};${st}${tick}pop {r4,lr};b #${ROW_ICON};`);
-  const rec = (r: string, label: string) => `${ram(r, label)}strb r1,[${r},#${GR3X_AF_POINT_SETTING}];${label}:`;
-  entries.afPointWrite = p.code(`${st}ldrb r1,[ip];eor r1,r1,#1;and r1,r1,#1;
-    movw r2,#${lo(POINTER)};movt r2,#${hi(POINTER)};ldr r3,[r2];${rec('r3', 'w0')}
-    mov r0,#0;wl:movw r2,#${lo(STORED)};movt r2,#${hi(STORED)};ldr r3,[r2,r0,lsl #2];${ram('r3', 'wn')}strb r1,[r3,#${GR3X_AF_POINT_SETTING}];
-    wn:add r0,r0,#1;cmp r0,#6;bls wl;bx lr;`);
-  // The screen's start: the box's state from the record in use (ticked unless 1).
-  entries.afPointRead = p.code(`movw r2,#${lo(POINTER)};movt r2,#${hi(POINTER)};ldr r3,[r2];mov r1,#1;${ram('r3', 'rd')}
-    ldrb r2,[r3,#${GR3X_AF_POINT_SETTING}];cmp r2,#1;moveq r1,#0;rd:${st}strb r1,[ip];b #${MEMORY_FILL};`);
-  p.patch(MEMORY_START_END, branchWord(MEMORY_START_END, MEMORY_FILL), branchWord(MEMORY_START_END, entries.afPointRead), 'Mode Memory: the AF Point box read at the screen\'s start');
-  // The items: the camera's 24 with ours after Focus.
+  // One box: its state byte (1 ticked), its item number, its setting; `inverted`: ticked is setting 0.
+  const box = (name: string, state: number, item: number, setting: number, inverted: boolean) => {
+    const st = `movw ip,#${lo(state)};movt ip,#${hi(state)};`;
+    const tick = `ldrb ip,[ip];cmp ip,#0;movwne r1,#${TICK_ON};movweq r1,#${TICK_OFF};`;
+    entries[`${name}Draw`] = p.code(`${st}mov r0,r1;${tick}b #${ROW_ICON};`);
+    entries[`${name}Toggle`] = p.code(`push {r4,lr};mov r4,r0;${st}ldrb r3,[ip];eor r3,r3,#1;strb r3,[ip];
+      ldr r2,[r4,#0x168];ldr ip,[r4,#0x16c];mov r1,#0;
+      find:cmp r2,ip;bhs none;ldrb r3,[r2];cmp r3,#${item};beq found;add r2,r2,#0x28;add r1,r1,#1;b find;
+      none:mov r1,#0;
+      found:ldr r0,[r4,#0x164];bl #${LIST_ROW};${st}${tick}pop {r4,lr};b #${ROW_ICON};`);
+    // The setting into the record in use and the seven stored copies (0..6; not the factory record).
+    entries[`${name}Write`] = p.code(`${st}ldrb r1,[ip];${inverted ? 'eor r1,r1,#1;' : ''}and r1,r1,#1;
+      movw r2,#${lo(POINTER)};movt r2,#${hi(POINTER)};ldr r3,[r2];${ram('r3', 'w0')}strb r1,[r3,#${setting}];w0:
+      mov r0,#0;wl:movw r2,#${lo(STORED)};movt r2,#${hi(STORED)};ldr r3,[r2,r0,lsl #2];${ram('r3', 'wn')}strb r1,[r3,#${setting}];
+      wn:add r0,r0,#1;cmp r0,#6;bls wl;bx lr;`);
+    // Its state at the screen's start, from the record in use (r3; r1, r2 free).
+    return (tag: string) => inverted
+      ? `mov r1,#1;${ram('r3', `r${tag}`)}ldrb r2,[r3,#${setting}];cmp r2,#1;moveq r1,#0;r${tag}:${st}strb r1,[ip];`
+      : `mov r1,#0;${ram('r3', `r${tag}`)}ldrb r2,[r3,#${setting}];cmp r2,#1;moveq r1,#1;r${tag}:${st}strb r1,[ip];`;
+  };
+  const readAf = box('afPoint', AF_POINT_STATE, AF_POINT_ITEM, GR3X_AF_POINT_SETTING, true);
+  const readU = withU ? box('memoryU', MEMORY_U_STATE, MEMORY_U_ITEM, GR3X_MEMORY_U_SETTING, false) : undefined;
+  entries.afPointRead = p.code(`movw r2,#${lo(POINTER)};movt r2,#${hi(POINTER)};ldr r3,[r2];${readAf('a')}${readU ? readU('u') : ''}b #${MEMORY_FILL};`);
+  p.patch(MEMORY_START_END, branchWord(MEMORY_START_END, MEMORY_FILL), branchWord(MEMORY_START_END, entries.afPointRead), 'Mode Memory: our boxes read at the screen\'s start');
+  // The items: the camera's 24 with AF Point after Focus, Apply to U modes last.
   const items = p.read(GR3X_MEMORY_ITEMS, GR3X_MEMORY_ITEM_COUNT * 0x28);
   const iv = new DataView(items.buffer, items.byteOffset, items.byteLength);
   for (let k = 0; k < GR3X_MEMORY_ITEM_COUNT; k++) if (iv.getUint32(k * 0x28, true) !== k) throw new FirmwareError('unexpected-layout', 'IIIx Mode Memory items');
   if (iv.getUint32(GR3X_MEMORY_FOCUS_ITEM * 0x28 + 4, true) !== 0x2a) throw new FirmwareError('unexpected-layout', 'IIIx Mode Memory Focus item');
-  const ours = new Uint8Array(0x28), ov = new DataView(ours.buffer);
-  ov.setUint32(0, AF_POINT_ITEM, true); ov.setUint32(4, text, true);
-  ov.setUint32(8, entries.afPointDraw, true); ov.setUint32(0x10, entries.afPointToggle, true); ov.setUint32(0x18, entries.afPointWrite, true);
-  const at = (GR3X_MEMORY_FOCUS_ITEM + 1) * 0x28;
-  const table = p.append(new Uint8Array([...items.subarray(0, at), ...ours, ...items.subarray(at)]));
+  const item = (n: number, t: number, name: string) => {
+    const b = new Uint8Array(0x28), v = new DataView(b.buffer);
+    v.setUint32(0, n, true); v.setUint32(4, t, true);
+    v.setUint32(8, entries[`${name}Draw`], true); v.setUint32(0x10, entries[`${name}Toggle`], true); v.setUint32(0x18, entries[`${name}Write`], true);
+    return b;
+  };
+  const at = (GR3X_MEMORY_FOCUS_ITEM + 1) * 0x28, count = GR3X_MEMORY_ITEM_COUNT + (withU ? 2 : 1);
+  const table = p.append(new Uint8Array([...items.subarray(0, at), ...item(AF_POINT_ITEM, text, 'afPoint'), ...items.subarray(at),
+    ...(withU ? item(MEMORY_U_ITEM, uText!, 'memoryU') : [])]));
   entries.afPointItems = table;
-  p.patch(MEMORY_COPY_LOW, movWord(4, lo(GR3X_MEMORY_ITEMS)), movWord(4, lo(table)), 'Mode Memory: 25 items (low half)');
-  p.patch(MEMORY_COPY_HIGH, movWord(4, hi(GR3X_MEMORY_ITEMS), true), movWord(4, hi(table), true), 'Mode Memory: 25 items (high half)');
-  p.patch(MEMORY_COPY_END, 0xe2845d0f, 0xe2845ffa, 'Mode Memory: 25 items (end: + 0x3e8)');
-  // Power-on, free modes: the AF point back to the factory's when the box is unticked.
+  p.patch(MEMORY_COPY_LOW, movWord(4, lo(GR3X_MEMORY_ITEMS)), movWord(4, lo(table)), `Mode Memory: ${count} items (low half)`);
+  p.patch(MEMORY_COPY_HIGH, movWord(4, hi(GR3X_MEMORY_ITEMS), true), movWord(4, hi(table), true), `Mode Memory: ${count} items (high half)`);
+  // `add r5,r4,#count * 0x28`: 25 items 0x3e8 (0xfa ror 30), 26 items 0x410 (0x41 ror 28).
+  p.patch(MEMORY_COPY_END, 0xe2845d0f, withU ? 0xe2845e41 : 0xe2845ffa, `Mode Memory: ${count} items (end: + 0x${(count * 0x28).toString(16)})`);
+  // Power-on, where Mode Memory applies: the AF point back to the factory's when the box is unticked.
   entries.afPointReset = p.code(`ldr r2,[fp,#-0x30];ldrb ip,[r2,#${GR3X_AF_POINT_SETTING}];cmp ip,#1;bne kept;
     add ip,r3,#${GR3X_AF_AREA_CENTER};ldr r0,[ip];ldr r1,[ip,#4];add ip,r4,#${GR3X_AF_AREA_CENTER};str r0,[ip];str r1,[ip,#4];
     kept:b #${MEMORY_AFTER_FOCUS + 4};`);
   p.patch(MEMORY_AFTER_FOCUS, 0xe51b2030, branchWord(MEMORY_AFTER_FOCUS, entries.afPointReset), 'Mode Memory: AF Point unticked, the AF point to the centre');
+  if (withU) {
+    // The merge's choice: Mode Memory also for a U mode (1..6) when the record merged is the record in use
+    // and its « Apply to U modes » is 1; flags and r0..r3 untouched by the camera after this point.
+    entries.memoryUMerge = p.code(`cmp r7,#0;beq mm;cmp r7,#6;bhi box;ldr ip,[r6,#4];cmp ip,r4;bne box;
+      ldrb ip,[ip,#${GR3X_MEMORY_U_SETTING}];cmp ip,#1;bne box;
+      mm:b #${MERGE_MEMORY};box:b #${MERGE_BOX};`);
+    p.patch(MERGE_CHOICE, 0xe3570000, branchWord(MERGE_CHOICE, entries.memoryUMerge), 'Mode Memory: also in U modes at power-on when Apply to U modes is ticked');
+  }
   return entries;
 }
 

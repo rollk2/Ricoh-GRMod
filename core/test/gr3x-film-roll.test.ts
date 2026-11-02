@@ -8,7 +8,7 @@ import { Engine } from '../src/app/engine';
 import { planGr3xMenu } from '../src/fw/gr3x/geometry';
 import { buildGr3xTestFirmware } from '../src/fw/gr3x/research-package';
 import { filmAdvanceIcon, filmTabIcons, fnTile } from '../src/fw/gr3x/film-mode-icons';
-import { GR3X_BOX_SAVE, GR3X_ROLL_COUNTER, GR3X_ROLL_MODEL_END, GR3X_FILM_REWIND_NAMES, GR3X_FILM_REWIND_QUESTIONS, GR3X_SIDE_BUTTON_NAMES, GR3X_AF_POINT_NAMES } from '../src/fw/gr3x/film-roll';
+import { GR3X_BOX_SAVE, GR3X_ROLL_COUNTER, GR3X_ROLL_MODEL_END, GR3X_FILM_REWIND_NAMES, GR3X_FILM_REWIND_QUESTIONS, GR3X_SIDE_BUTTON_NAMES, GR3X_AF_POINT_NAMES, GR3X_MEMORY_U_NAMES } from '../src/fw/gr3x/film-roll';
 import { GR3X_RECALL_COPY } from '../src/fw/gr3x/guard';
 import { GR3X_FOLDER_MARK, GR3X_SET_FILE_PATH } from '../src/fw/gr3x/film-probe';
 import { GR3X_CUSTOM_ENTRY_IMAGE, GR3X_CUSTOM_MENU, GR3X_FILM_MENU_ID } from '../src/fw/gr3x/datestamp';
@@ -484,6 +484,17 @@ describe.skipIf(!input)('GR III film roll (film mode phase 3.1)', () => {
     for (const k of ['afPointDraw', 'afPointToggle', 'afPointWrite', 'afPointRead', 'afPointReset', 'afPointItems']) expect(e[k]).toBeGreaterThan(0x53000000);
     expect(GR3X_AF_POINT_NAMES).toHaveLength(21);
   }, 240000);
+  it('adds an Apply to U modes box last in Mode Memory, and Mode Memory in U at power-on (V1-RC2)', async () => {
+    const af = await buildGr3xAdjResearch(raw, menu, { ...r10, afPoint: true });
+    const u = await buildGr3xAdjResearch(raw, menu, { ...r10, afPoint: true, memoryU: true });
+    expect(u.sites.map(s => s.address).filter(a => !af.sites.some(s => s.address === a))).toEqual([0x5324b154]);
+    const e = u.entries as Record<string, number>;
+    for (const k of ['memoryUDraw', 'memoryUToggle', 'memoryUWrite', 'memoryUMerge']) expect(e[k]).toBeGreaterThan(0x53000000);
+    expect(GR3X_MEMORY_U_NAMES).toHaveLength(21);
+    // Without the AF Point box, no U box.
+    const alone = await buildGr3xAdjResearch(raw, menu, { ...r10, memoryU: true });
+    expect(alone.sites.some(s => s.address === 0x5324b154)).toBe(false);
+  }, 240000);
   it('builds the film mode and the movie removal through the app\'s engine, with films and their codes (T23)', async () => {
     const curve = Array.from({ length: 256 }, (_, i) => Math.round(i * 16383 / 255));
     const preset = { matrixQ13: [8192, 0, 0, 0, 8192, 0, 0, 0, 8192], curves: [curve, curve, curve] as [number[], number[], number[]] };
@@ -501,7 +512,7 @@ describe.skipIf(!input)('GR III film roll (film mode phase 3.1)', () => {
     const af = await engine.buildFirmware(requests, ratios, [], { filmCount: 3, adjSoftFocus: true, afReset: true, filmMode: { codes: { CY: 'PORT' } }, noMovie: true });
     expect(await (await Engine.open(raw)).inspect(af.file)).toMatchObject({ verified: true });
     // T24-AF2: the « AF Point » box of Mode Memory, recorded and recognised; alone or with the film mode.
-    const point = await engine.buildFirmware(requests, ratios, [], { filmCount: 3, adjSoftFocus: true, afPoint: true, filmMode: { codes: { CY: 'PORT' } }, noMovie: true });
+    const point = await engine.buildFirmware(requests, ratios, [], { filmCount: 3, adjSoftFocus: true, afPoint: true, memoryU: true, filmMode: { codes: { CY: 'PORT' } }, noMovie: true });
     expect(await (await Engine.open(raw)).inspect(point.file)).toMatchObject({ verified: true });
     const pointAlone = await engine.buildFirmware([], ratios, [], { filmCount: 0, dateStamp: true, afPoint: true });
     expect(await (await Engine.open(raw)).inspect(pointAlone.file)).toMatchObject({ verified: true });
