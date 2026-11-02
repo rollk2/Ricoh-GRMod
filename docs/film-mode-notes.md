@@ -2448,3 +2448,6 @@ Pistes :
   sensible (fichiers de réglages en mémoire interne).
 - B. **Accès rapide aux 6 BOX** : une fonction Fn « BOX suivante » qui change la BOX du mode U en
   cours (U3 parcourt BOX1 à BOX6 sans passer par le menu). Petit chantier, 6 rouleaux au plus.
+- Décision de l'utilisateur (2026-11-02) : la voie B (fonction Fn « BOX suivante », plan T25-BOX1)
+  est retenue mais **mise en attente** ; priorité aux réglages ADJ. La correction des boucles 0..7
+  reste à faire au prochain build.
