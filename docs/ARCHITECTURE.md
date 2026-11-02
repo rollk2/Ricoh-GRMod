@@ -320,3 +320,26 @@ doivent donc rester indépendants de la source (DNG développé par le boîtier 
 - moyen de distinguer, au point d'accroche JPEG, une prise de vue d'un développement RAW (D1, D2) ;
 - fonctions du firmware pour lire un fichier, écrire un fichier, lire le niveau de batterie et
   lancer une tâche (recherche statique d'abord).
+
+## 8. Étape 2 : bibliothèque `tools/develop/` (2 novembre 2026)
+
+Livrée et vérifiée sur PC et dans l'émulateur, sans aucun changement du firmware : grain,
+diptyque, date au tirage, mise en page de la planche contact. Détails et chiffres dans
+`tools/develop/README.md`. Écarts avec l'algorithme de référence de la spec :
+- **Répétition des textures** : lue d'une seule traite, une texture de 512 se répète tous les
+  512 × taille pixels (autocorrélation de 0,74 à 717 px pour une taille de 1,4). La spec ne tient
+  donc pas son propre critère « Non-répétition ». Correction : cases de 128 pixels lisant chacune
+  la texture à un décalage tiré de la graine, coutures fondues sur 16 pixels avec un gain qui garde
+  l'intensité (autocorrélation résiduelle de 0,02).
+- **4:2:2** au lieu de 4:2:0 (§3.2).
+- **Normalisation des textures et inverse de la taille** calculés sur PC et passés au boîtier (pas
+  de division ni de racine dans le boîtier).
+- **Performance** : 275 instructions par pixel, environ 6,6 milliards pour 24 Mpx ; la cible de
+  1 s n'est pas tenue en C simple. À mesurer sur le boîtier (étape 6) avant toute décision ; NEON
+  est la piste principale. Avec D2 (grain au déclenchement), ce temps s'ajoute à chaque prise de
+  vue.
+- **Textures** : 199 millions d'instructions à fabriquer, 650 Ko à garder en mémoire. Avec D2, il
+  faut les fabriquer avant la première vue d'un rouleau (au démarrage ou au premier
+  déclenchement), puis les garder.
+- **Planche contact** : mise en page seulement ; l'écriture en JPEG dépend du pipeline (étape 6).
+- **Écriture des fichiers, tâche de fond, batterie** : hors bibliothèque, inchangé (§4, point 12).

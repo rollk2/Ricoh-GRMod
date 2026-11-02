@@ -135,11 +135,12 @@ void dv_grain_setup(struct dv_grain *g, const struct dv_textures *t, const struc
  * pixels for 512 at size 1.4, a visible pattern on a plain sky). So the frame is cut into tiles of
  * DV_TILE pixels, each reading the texture from its own offset (from the frame's seed and the
  * tile's position): a tile never spans a period, and two tiles are independent. Across a band of
- * DV_SEAM pixels at each tile edge the two readings are blended, with a gain that keeps the grain's
+ * 16 pixels at each tile edge the two readings are blended (the grain's correlation is a few
+ * pixels), with a gain that keeps the grain's
  * strength (two independent fields blended with weights w and 1 - w have the variance
  * w^2 + (1 - w)^2 of one). */
 #define TILE_SHIFT 7u
-#define SEAM_SHIFT 5u
+#define SEAM_SHIFT 4u
 #define TILE (1u << TILE_SHIFT)
 #define SEAM (1u << SEAM_SHIFT)
 
@@ -200,26 +201,31 @@ static void octave_next(struct octave *o) {
   o->x = wrap_add(o->x, o->ax, o->n16); o->y = wrap_add(o->y, o->ay, o->n16);
 }
 
+/* A tile's offset: 9 bits of the hash (0..511) reduced to the texture's size in at most two
+ * subtractions (sizes 251..512), and a fraction. */
 static void tile_offset(const struct octave *o, s32 kx, s32 ky, u32 *ox, u32 *oy) {
   u32 h = mix32(o->salt ^ mix32((u32)kx * 0x9e3779b1u ^ (u32)ky * 0x85ebca77u));
-  *ox = (mod_small(h >> 16, o->n) << 16) | ((h & 255u) << 8);
+  *ox = (mod_small(h >> 23, o->n) << 16) | ((h & 255u) << 8);
   h = mix32(h + 0x632be5abu);
-  *oy = (mod_small(h >> 16, o->n) << 16) | ((h & 255u) << 8);
+  *oy = (mod_small(h >> 23, o->n) << 16) | ((h & 255u) << 8);
 }
 
 static s32 tile_sample(const struct octave *o, u32 k) {
   return tex_at(o->t, o->n, wrap_add(o->x, (s32)o->ox[k], o->n16), wrap_add(o->y, (s32)o->oy[k], o->n16));
 }
 
+/* The offsets of the four tiles around cell (kx, ky). */
+static void octave_take_offsets(struct octave *o, s32 kx, s32 ky) {
+  tile_offset(o, kx - 1, ky - 1, &o->ox[0], &o->oy[0]); tile_offset(o, kx, ky - 1, &o->ox[1], &o->oy[1]);
+  tile_offset(o, kx - 1, ky, &o->ox[2], &o->oy[2]); tile_offset(o, kx, ky, &o->ox[3], &o->oy[3]);
+  o->kx = kx; o->ky = ky;
+}
+
 /* The grain value of the current position in tile cell (kx, ky) with seam weights (Q8 of the
  * right / lower tile, or -1 outside a seam), Q8. */
 static s32 octave_take(struct octave *o, s32 kx, s32 ky, s32 wx, s32 wy, const u16 *gain) {
   s32 v;
-  if (kx != o->kx || ky != o->ky) {
-    tile_offset(o, kx - 1, ky - 1, &o->ox[0], &o->oy[0]); tile_offset(o, kx, ky - 1, &o->ox[1], &o->oy[1]);
-    tile_offset(o, kx - 1, ky, &o->ox[2], &o->oy[2]); tile_offset(o, kx, ky, &o->ox[3], &o->oy[3]);
-    o->kx = kx; o->ky = ky;
-  }
+  if (kx != o->kx || ky != o->ky) octave_take_offsets(o, kx, ky);
   if (wx < 0 && wy < 0) v = tile_sample(o, 3);
   else if (wy < 0) v = ((((256 - wx) * tile_sample(o, 2) + wx * tile_sample(o, 3)) >> 8) * gain[wx]) >> 12;
   else if (wx < 0) v = ((((256 - wy) * tile_sample(o, 1) + wy * tile_sample(o, 3)) >> 8) * gain[wy]) >> 12;
@@ -253,12 +259,64 @@ static void seam_gains(u16 *gain) {
 
 /* ------------------------------------------------------------------ application */
 
+/* The grain of `count` samples of one octave from frame pixel X (`pitch` frame pixels apart: 1 for
+ * the luma, 2 for the chroma grid) in row cell (ky, wy), into `out` (Q8). Inside a tile, away from
+ * its seams (most of the frame), one texture reading per sample and the position just moves on;
+ * the full computation (octave_take) only on the seams. Gives the same values as octave_take
+ * sample by sample. */
+static void octave_fill(struct octave *o, u32 X, u32 count, u32 pitch, s32 ky, s32 wy, const u16 *gain, s32 *out) {
+  u32 done = 0;
+  while (done < count) {
+    s32 kx, wx;
+    u32 s = X + (SEAM >> 1), t = s & (TILE - 1u), run, i;
+    cell(X, &kx, &wx);
+    if (wx >= 0 || wy >= 0) {          /* on a seam: the general way */
+      out[done++] = octave_take(o, kx, ky, wx, wy, gain);
+      X += pitch;
+      continue;
+    }
+    /* Inside the tile: as far as its end (t reaches TILE). */
+    run = (TILE - t + pitch - 1u) >> (pitch == 2u ? 1u : 0u);
+    if (run > count - done) run = count - done;
+    if (kx != o->kx || ky != o->ky) octave_take_offsets(o, kx, ky);
+    {
+      const s8 *T = o->t;
+      u32 n = o->n, n16 = o->n16, cx = wrap_add(o->x, (s32)o->ox[3], n16), cy = wrap_add(o->y, (s32)o->oy[3], n16);
+      s32 ax = o->ax, ay = o->ay;
+      if (!ay) {                       /* along a texture row: its two rows and their weight stay */
+        u32 j0 = cy >> 16, j1 = j0 + 1u == n ? 0u : j0 + 1u;
+        s32 fy = (s32)((cy >> 8) & 255u);
+        const s8 *r0 = T + j0 * n, *r1 = T + j1 * n;
+        for (i = 0; i < run; i++) {
+          u32 i0 = cx >> 16, i1 = i0 + 1u == n ? 0u : i0 + 1u;
+          s32 fx = (s32)((cx >> 8) & 255u);
+          s32 top = r0[i0] * (256 - fx) + r0[i1] * fx, bot = r1[i0] * (256 - fx) + r1[i1] * fx;
+          out[done + i] = (top * (256 - fy) + bot * fy) >> 8;
+          cx = wrap_add(cx, ax, n16);
+        }
+      } else {
+        for (i = 0; i < run; i++) {
+          out[done + i] = tex_at(T, n, cx, cy);
+          cx = wrap_add(cx, ax, n16); cy = wrap_add(cy, ay, n16);
+        }
+      }
+      /* The frame's position follows: the reading minus the tile's offset. */
+      o->x = wrap_add(cx, -(s32)o->ox[3], n16); o->y = wrap_add(cy, -(s32)o->oy[3], n16);
+    }
+    done += run;
+    X += run * pitch;
+  }
+}
+
+#define CHUNK 256u
+
 void dv_grain_apply(const struct dv_grain *g, struct dv_image *img, u32 x0, u32 y0) {
   const struct dv_textures *t = g->tex;
   struct octave of, oc, ob, orr;
   u16 gain[257];
-  u32 x, y, w = img->width & ~1u, mf = 100u - g->mix, mc = g->mix;
-  s32 half = 1 << (DV_GRAIN_SHIFT - 1);
+  s32 fb[CHUNK], cbuf[CHUNK], bb[CHUNK >> 1], rb[CHUNK >> 1];
+  u32 x, y, i, w = img->width & ~1u, mf = 100u - g->mix, mc = g->mix;
+  s32 half = 1 << (DV_GRAIN_SHIFT - 1), amount = (s32)g->amount, chroma = (s32)g->chroma;
   if (!g->amount && !g->chroma) return;
   seam_gains(gain);
   octave_init(&of, t->fine, DV_FINE_N, g->offx[0], g->offy[0], g->orient[0], g->step_q16, x0, y0, 1, g->salt[0]);
@@ -270,23 +328,29 @@ void dv_grain_apply(const struct dv_grain *g, struct dv_image *img, u32 x0, u32 
     s32 ky, wy;
     cell(y0 + y, &ky, &wy);
     if (y) { octave_row(&of); octave_row(&oc); octave_row(&ob); octave_row(&orr); }
-    for (x = 0; x < w; x += 2) {
-      u32 y0v = Y[x], y1v = Y[x + 1];
-      s32 kx, wx;
-      cell(x0 + x, &kx, &wx);
-      if (g->amount) {
-        s32 m0 = ((s32)mf * octave_take(&of, kx, ky, wx, wy, gain) + (s32)mc * octave_take(&oc, kx, ky, wx, wy, gain)) >> 8, m1;
-        cell(x0 + x + 1, &kx, &wx);
-        m1 = ((s32)mf * octave_take(&of, kx, ky, wx, wy, gain) + (s32)mc * octave_take(&oc, kx, ky, wx, wy, gain)) >> 8;
-        Y[x] = clamp8((s32)y0v + ((m0 * (s32)g->amount * (s32)g->lut[y0v] + half) >> DV_GRAIN_SHIFT));
-        Y[x + 1] = clamp8((s32)y1v + ((m1 * (s32)g->amount * (s32)g->lut[y1v] + half) >> DV_GRAIN_SHIFT));
-        cell(x0 + x, &kx, &wx);
+    for (x = 0; x < w; x += CHUNK) {
+      u32 len = w - x < CHUNK ? w - x : CHUNK;
+      if (amount) {
+        octave_fill(&of, x0 + x, len, 1, ky, wy, gain, fb);
+        octave_fill(&oc, x0 + x, len, 1, ky, wy, gain, cbuf);
       }
-      if (g->chroma) {
-        s32 wgt = g->lut[(y0v + y1v) >> 1];
-        s32 db = (100 * octave_take(&ob, kx, ky, wx, wy, gain)) >> 8, dr = (100 * octave_take(&orr, kx, ky, wx, wy, gain)) >> 8;
-        C[x] = clamp8((s32)C[x] + ((db * (s32)g->chroma * wgt + half) >> DV_GRAIN_SHIFT));
-        C[x + 1] = clamp8((s32)C[x + 1] + ((dr * (s32)g->chroma * wgt + half) >> DV_GRAIN_SHIFT));
+      if (chroma) {
+        octave_fill(&ob, x0 + x, len >> 1, 2, ky, wy, gain, bb);
+        octave_fill(&orr, x0 + x, len >> 1, 2, ky, wy, gain, rb);
+      }
+      for (i = 0; i < len; i += 2) {
+        u8 *py = Y + x + i, *pc = C + x + i;
+        u32 a = py[0], b = py[1];
+        if (amount) {
+          s32 m0 = ((s32)mf * fb[i] + (s32)mc * cbuf[i]) >> 8, m1 = ((s32)mf * fb[i + 1] + (s32)mc * cbuf[i + 1]) >> 8;
+          py[0] = clamp8((s32)a + ((m0 * amount * (s32)g->lut[a] + half) >> DV_GRAIN_SHIFT));
+          py[1] = clamp8((s32)b + ((m1 * amount * (s32)g->lut[b] + half) >> DV_GRAIN_SHIFT));
+        }
+        if (chroma) {
+          s32 wgt = g->lut[(a + b) >> 1], db = (100 * bb[i >> 1]) >> 8, dr = (100 * rb[i >> 1]) >> 8;
+          pc[0] = clamp8((s32)pc[0] + ((db * chroma * wgt + half) >> DV_GRAIN_SHIFT));
+          pc[1] = clamp8((s32)pc[1] + ((dr * chroma * wgt + half) >> DV_GRAIN_SHIFT));
+        }
       }
     }
   }

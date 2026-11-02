@@ -17,8 +17,38 @@ l'adresse).
 
 - `develop.h` : types et fonctions publiques.
 - `grain.c` : grain argentique (textures, courbe tonale, graine par vue, cases sans répétition).
+- `diptych.c` : appariement des vues demi-format et assemblage côte à côte avec séparateur.
+- `date.c` : date au tirage, à partir de la date de la vue (et non de l'horloge).
+- `text.c`, `text.h` : dessin en segments, repris de `tools/datestamp/datestamp.c` (non modifié).
+- `sheet.c` : mise en page de la planche contact (bandes de 6, numéros, nom du film), réduction
+  des vues.
 - `host/` : partie PC (recettes de textures, profils d'archétypes, tests, lecture et écriture
   d'images).
+
+## Vérifications faites par `build.py`
+
+- Tous les critères de la spec qui relèvent de la bibliothèque, sur PC : déterminisme,
+  neutralité (Off), bandes et fenêtres identiques à l'image entière, courbe tonale à ±10 %,
+  hautes lumières (255 ne descend pas sous 250), non-répétition horizontale et verticale, coutures
+  invisibles, même taille de grain en plein format, en crop et en demi-format, réglage Taille,
+  noir et blanc sans grain chromatique, appariements, géométrie du diptyque (72 vues : 36 tirages
+  de 6000 px plus le séparateur), date dans les 4 orientations, planche contact.
+- Version boîtier : compilée avec les drapeaux des modules, sans données, sans division, sans
+  appel externe, indépendante de l'adresse (environ 16 Ko).
+- Dans l'émulateur Unicorn : textures et grain de la version ARM **identiques au PC au bit près**.
+
+## Performances (mesurées dans l'émulateur, en instructions)
+
+| Étape | Coût |
+| --- | --- |
+| Fabrication des 4 textures | 199 millions d'instructions, 650 Ko de textures et 513 Ko de travail temporaire |
+| Grain | 275 instructions par pixel, soit 6,6 milliards pour une vue de 24 Mpx |
+
+La cible de la spec (passe de grain ≤ 1 s pour 24 Mpx) n'est pas tenue en C simple : à un
+milliard d'instructions par seconde, ce serait de l'ordre de 6 s. La fréquence réelle du
+processeur du GR III n'est pas connue ; elle sera mesurée à l'étape 6. Pistes si besoin : les
+instructions NEON du Cortex-A9 (4 à 8 pixels à la fois), une boucle sans test de bouclage de
+texture, une voie rapide pour les lignes de couture.
 
 ## Grain : écarts avec l'algorithme de référence de la spec
 

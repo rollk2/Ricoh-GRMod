@@ -146,4 +146,24 @@ u32 dv_date_glyphs(const struct dv_date *d, u32 style, u16 *out);
  * imprint does; `mono`: in light only (black-and-white film). Returns 0 when nothing is drawn. */
 int dv_date_draw(struct dv_image *im, const struct dv_date *d, u32 style, u32 orient, u32 mono);
 
+/* ------------------------------------------------------------------ contact sheet */
+
+#define DV_SHEET_COLUMNS 6u
+struct dv_sheet {
+  u32 frames, tw, th, rows;
+  u32 gap, rebate, margin, strip;
+  u32 width, height;   /* of the whole sheet */
+};
+/* The sheet for `frames` views of tw x th (the size of the small pictures put in it). */
+void dv_sheet_geometry(struct dv_sheet *s, u32 frames, u32 tw, u32 th);
+/* Top left of view `index` (from 0) in the sheet. */
+void dv_sheet_slot(const struct dv_sheet *s, u32 index, u32 *x, u32 *y);
+void dv_sheet_clear(struct dv_image *sheet);
+/* Put view `index` in its frame with its number under it and, at the start of a strip, the film's
+ * name above (glyphs made by GR Mod, at most 32; NULL for none). */
+void dv_sheet_place(struct dv_image *sheet, const struct dv_sheet *s, u32 index, const struct dv_image *thumb,
+                    u32 number, const u16 *name, u32 name_len);
+/* A view made `f` times smaller (box average; dst is src / f in both directions, width even). */
+void dv_thumb_box(struct dv_image *dst, const struct dv_image *src, u32 f);
+
 #endif

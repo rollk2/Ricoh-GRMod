@@ -10,6 +10,9 @@
    has no data section of any kind (.data, .bss, .rodata, .got), calls nothing outside itself
    (no __aeabi_* helper: no division) and does not depend on where it is loaded (linked at two
    addresses, the bytes are the same). Prints each function's size.
+3. Emulator (Unicorn, when installed): the camera build makes the textures, the seed and a frame's
+   set-up and puts the grain on a band of 6000 x 16; every byte must be the PC's (the spec's
+   "same print to the bit on PC and camera"). Prints the instructions per pixel.
 """
 import os
 import shutil
@@ -20,7 +23,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
-LIB = ['grain.c', 'text.c', 'date.c', 'diptych.c']
+LIB = ['grain.c', 'text.c', 'date.c', 'diptych.c', 'sheet.c']
 HOST = ['host/host.c', 'host/test.c']
 ARM_FLAGS = ['-target', 'armv7-none-eabi', '-mcpu=cortex-a9', '-marm', '-mfloat-abi=soft', '-Os',
              '-ffreestanding', '-fno-builtin', '-fno-unwind-tables', '-fno-asynchronous-unwind-tables', '-nostdlib',
@@ -62,11 +65,98 @@ def host(tmp, images):
     return r.returncode == 0
 
 
+def emulate(tmp, exe):
+    try:
+        import struct
+        from unicorn import Uc, UC_ARCH_ARM, UC_MODE_ARM, UC_HOOK_BLOCK
+        from unicorn import arm_const as A
+    except ImportError:
+        print('(Unicorn absent : vérification dans l\'émulateur non faite)')
+        return True
+    dump = tmp / 'dump'
+    dump.mkdir()
+    run([exe, '--dump', dump])
+    sym = {}
+    for line in run(['llvm-nm', tmp / 'dev_60000000.elf']).split('\n'):
+        p = line.split()
+        if len(p) == 3:
+            sym[p[2]] = int(p[0], 16)
+    code = (tmp / 'dev_60000000.bin').read_bytes()
+    CODE, STOP, STACK, D = 0x60000000, 0x60f00000, 0x70100000, 0x80000000
+    uc = Uc(UC_ARCH_ARM, UC_MODE_ARM)
+    uc.mem_map(CODE, 0x01000000); uc.mem_write(CODE, code)
+    uc.mem_map(STACK - 0x100000, 0x100000)
+    uc.mem_map(D, 0x01000000)
+    count = [0]
+    starts = sorted((a, n) for n, a in sym.items() if CODE <= a < CODE + len(code))
+    prof = {}
+
+    def block(u, a, size, d):
+        count[0] += size // 4
+        if PROFILE_ON[0]:
+            name = '?'
+            for s0, n in starts:
+                if s0 > a:
+                    break
+                name = n
+            prof[name] = prof.get(name, 0) + size // 4
+    PROFILE_ON = [False]
+    uc.hook_add(UC_HOOK_BLOCK, block)
+
+    def call(name, *args):
+        regs = [A.UC_ARM_REG_R0, A.UC_ARM_REG_R1, A.UC_ARM_REG_R2, A.UC_ARM_REG_R3]
+        sp = STACK - 0x100
+        extra = args[4:]
+        for i, v in enumerate(extra):
+            uc.mem_write(sp + 4 * i, struct.pack('<I', v & 0xffffffff))
+        for r, v in zip(regs, args[:4]):
+            uc.reg_write(r, v & 0xffffffff)
+        uc.reg_write(A.UC_ARM_REG_SP, sp); uc.reg_write(A.UC_ARM_REG_LR, STOP)
+        count[0] = 0
+        uc.emu_start(sym[name], STOP)
+        return uc.reg_read(A.UC_ARM_REG_R0), count[0]
+
+    rd = lambda n: (dump / n).read_bytes()
+    RECIPES, PROFILE, TEX, GRAIN, IMG = D, D + 0x200, D + 0x300, D + 0x400, D + 0x800
+    FINE, COARSE, CB, CR = D + 0x1000, D + 0x50000, D + 0xa0000, D + 0xc0000
+    WORK, Y, C = D + 0x100000, D + 0x300000, D + 0x400000
+    uc.mem_write(RECIPES, rd('recipes.bin')); uc.mem_write(PROFILE, rd('profile.bin'))
+    uc.mem_write(TEX, struct.pack('<4I', FINE, COARSE, CB, CR))
+    _, n_tex = call('dv_textures_make', TEX, RECIPES, WORK)
+    ok = True
+    for name, at in (('fine.bin', FINE), ('coarse.bin', COARSE), ('cb.bin', CB), ('cr.bin', CR)):
+        ref = rd(name)
+        same = bytes(uc.mem_read(at, len(ref))) == ref
+        ok &= same
+        print(f'{"ok    " if same else "ÉCHEC "} émulateur : texture {name[:-4]} identique au PC')
+    seed, _ = call('dv_frame_seed', 23, 7)
+    call('dv_grain_setup', GRAIN, TEX, PROFILE, 3, 1, seed)
+    band = rd('band_in.bin')
+    W, H = 2048, 128
+    uc.mem_write(Y, band[:W * H]); uc.mem_write(C, band[W * H:])
+    uc.mem_write(IMG, struct.pack('<5I', Y, C, W, H, W))
+    PROFILE_ON[0] = True
+    _, n_apply = call('dv_grain_apply', GRAIN, IMG, 0, 1000)
+    PROFILE_ON[0] = False
+    out = bytes(uc.mem_read(Y, W * H)) + bytes(uc.mem_read(C, W * H))
+    same = out == rd('band_out.bin')
+    ok &= same
+    print(f'{"ok    " if same else "ÉCHEC "} émulateur : grain sur une bande de {W} x {H} identique au PC, au bit près')
+    per_px = n_apply / (W * H)
+    for n, c in sorted(prof.items(), key=lambda kv: -kv[1])[:6]:
+        print(f'  {n:<20} {c / (W * H):6.1f} instructions par pixel')
+    print(f'boîtier (émulateur) : textures {n_tex / 1e6:.0f} M instructions, grain {per_px:.0f} instructions par pixel '
+          f'({per_px * 24e6 / 1e9:.1f} G instructions pour 24 Mpx)')
+    return ok
+
+
 def camera(tmp):
     objs = []
     for src in LIB:
         obj = tmp / (Path(src).stem + '.o')
-        run(['clang'] + ARM_FLAGS + ['-I', HERE, '-c', HERE / src, '-o', obj])
+        # The grain's loop is the hot one: optimised for speed, the rest for size (as the modules).
+        flags = [f for f in ARM_FLAGS if f != '-Os'] + ['-O2'] if src == 'grain.c' else ARM_FLAGS
+        run(['clang'] + flags + ['-I', HERE, '-c', HERE / src, '-o', obj])
         objs.append(obj)
     blobs = []
     for origin in (0x60000000, 0x60123450):
@@ -100,6 +190,7 @@ def main():
         ok = host(tmp, images)
         if shutil.which('clang') and shutil.which('ld.lld'):
             camera(tmp)
+            ok &= emulate(tmp, tmp / 'test')
         else:
             print('(clang / ld.lld absents : compilation pour le boîtier non vérifiée)')
     sys.exit(0 if ok else 1)

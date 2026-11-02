@@ -349,6 +349,77 @@ static void test_date(void) {
   }
 }
 
+/* ------------------------------------------------------------------ contact sheet */
+
+/* A film's name as glyphs, as GR Mod makes them (core/src/fw/aspect/datestamp.ts, LETTER_SEGMENTS):
+ * capitals, digits, spaces. */
+static unsigned name_glyphs(const char *s, u16 *out) {
+  enum { A = 1, B = 2, C = 4, D = 8, E = 16, F = 32, G1 = 64, G2 = 128, UL = 256, UM = 512, UR = 1024, LL = 2048, LM = 4096, LR = 8192 };
+  static const unsigned seg[26] = {
+    A | B | C | E | F | G1 | G2, A | B | C | D | G2 | UM | LM, A | D | E | F, A | B | C | D | UM | LM, A | D | E | F | G1 | G2,
+    A | E | F | G1 | G2, A | C | D | E | F | G2, B | C | E | F | G1 | G2, A | D | UM | LM, B | C | D | E, E | F | G1 | UR | LR,
+    D | E | F, B | C | E | F | UL | UR, B | C | E | F | UL | LR, A | B | C | D | E | F, A | B | E | F | G1 | G2,
+    A | B | C | D | E | F | LR, A | B | E | F | G1 | G2 | LR, A | C | D | F | G1 | G2, A | UM | LM, B | C | D | E | F,
+    E | F | LL | UR, B | C | E | F | LL | LR, UL | UR | LL | LR, UL | UR | LM, A | D | UR | LL };
+  unsigned n = 0;
+  for (; *s; s++) out[n++] = *s >= 'A' && *s <= 'Z' ? (u16)(0x4000u | seg[*s - 'A']) : *s >= '0' && *s <= '9' ? (u16)(*s - '0') : 17;
+  return n;
+}
+
+static void test_sheet(void) {
+  struct dv_sheet s;
+  unsigned i, ok = 1;
+  dv_sheet_geometry(&s, 36, 240, 160);
+  for (i = 0; i < 36; i++) {
+    unsigned x, y, x2, y2;
+    dv_sheet_slot(&s, i, &x, &y);
+    ok &= x + s.tw <= s.width && y + s.th <= s.height;
+    if (i % 6) { dv_sheet_slot(&s, i - 1, &x2, &y2); ok &= y2 == y && x2 + s.tw < x; }
+    else if (i) { dv_sheet_slot(&s, i - 6, &x2, &y2); ok &= x2 == x && y2 + s.th < y; }
+  }
+  CHECK(ok && s.rows == 6, "planche contact 36 vues : 6 bandes de 6, dans l'ordre, sans chevauchement (%u x %u)", s.width, s.height);
+  dv_sheet_geometry(&s, 72, 120, 160);
+  CHECK(s.rows == 12, "planche contact demi-format 72 vues : 12 bandes");
+  dv_sheet_geometry(&s, 13, 240, 160);
+  {
+    struct host_image sheet, th;
+    u16 name[16];
+    unsigned nn = name_glyphs("PORTRA 400", name), x, y, numbers = 1, all = 1;
+    host_image_new(&sheet, s.width, s.height, 99, 99, 99);
+    dv_sheet_clear(&sheet.im);
+    for (i = 0; i < 13; i++) {
+      host_image_new(&th, 240, 160, (unsigned char)(10 + i), 128, 128);
+      dv_sheet_place(&sheet.im, &s, i, &th.im, i + 1, name, nn);
+      host_image_free(&th);
+    }
+    for (i = 0; i < 13; i++) {
+      unsigned changed = 0;
+      dv_sheet_slot(&s, i, &x, &y);
+      all &= sheet.im.y[(y + 80) * sheet.im.stride + x + 120] == 10 + i;
+      {
+        unsigned yy, xx, top = y + s.th;   /* the edge under the frame, and nothing else */
+        for (yy = top; yy < top + s.rebate; yy++)
+          for (xx = x; xx < x + s.tw; xx++) changed += sheet.im.y[yy * sheet.im.stride + xx] != 0;
+      }
+      numbers &= changed > 0;
+    }
+    CHECK(all && numbers, "planche contact : 13 vues présentes dans l'ordre, chacune avec son numéro");
+    host_image_free(&sheet);
+  }
+  {
+    struct host_image src, dst;
+    unsigned ok2 = 1;
+    host_image_new(&src, 64, 32, 0, 128, 128);
+    for (i = 0; i < 64 * 32; i++) src.im.y[i] = (unsigned char)((i % 64) * 4);
+    for (i = 0; i < 64 * 32; i += 2) { src.im.c[i] = 100; src.im.c[i + 1] = 150; }
+    host_image_new(&dst, 16, 8, 0, 0, 0);
+    dv_thumb_box(&dst.im, &src.im, 4);
+    for (i = 0; i < 16; i++) ok2 &= dst.im.y[i] == (unsigned char)((i * 4 * 4 + 6) & 0xff) && dst.im.c[i & ~1u] == 100 && dst.im.c[i | 1u] == 150;
+    CHECK(ok2, "réduction par 4 : moyenne exacte de chaque bloc, chrominance comprise");
+    host_image_free(&src); host_image_free(&dst);
+  }
+}
+
 /* ------------------------------------------------------------------ images to look at */
 
 static int read_ppm(const char *path, struct host_image *h) {
@@ -427,6 +498,33 @@ static void images(const char *dir, const char *photo) {
       host_image_free(&a); host_image_free(&b); host_image_free(&d); host_image_free(&src);
     }
   }
+  if (photo) {
+    /* A contact sheet of 36 views cut from the photo (3:2, made 4 times smaller). */
+    struct host_image src, view, th, sheet;
+    struct dv_sheet s;
+    u16 name[16];
+    unsigned nn = name_glyphs("PORTRA 400", name), i, vw = 640, vh = 428, y;
+    if (!read_ppm(photo, &src)) {
+      dv_sheet_geometry(&s, 36, vw / 4, vh / 4);
+      host_image_new(&sheet, s.width, s.height, 0, 128, 128);
+      dv_sheet_clear(&sheet.im);
+      for (i = 0; i < 36; i++) {
+        unsigned ox = ((i * 151u) % (src.im.width - vw)) & ~1u, oy = (i * 97u) % (src.im.height - vh);
+        host_image_new(&view, vw, vh, 0, 128, 128);
+        for (y = 0; y < vh; y++) {
+          memcpy(view.im.y + y * vw, src.im.y + (oy + y) * src.im.stride + ox, vw);
+          memcpy(view.im.c + y * vw, src.im.c + (oy + y) * src.im.stride + ox, vw);
+        }
+        host_image_new(&th, vw / 4, vh / 4, 0, 128, 128);
+        dv_thumb_box(&th.im, &view.im, 4);
+        dv_sheet_place(&sheet.im, &s, i, &th.im, i + 1, name, nn);
+        host_image_free(&th); host_image_free(&view);
+      }
+      snprintf(path, sizeof path, "%s/planche-contact.ppm", dir);
+      host_write_ppm(path, &sheet.im);
+      host_image_free(&sheet); host_image_free(&src);
+    }
+  }
   {
     FILE *f;
     snprintf(path, sizeof path, "%s/archetypes.txt", dir);
@@ -436,9 +534,37 @@ static void images(const char *dir, const char *photo) {
   }
 }
 
+/* Inputs and outputs for the camera build's check in the emulator (build.py): the recipes, a
+ * profile, a band of 2048 x 128 (a tile's height: as many rows on seams as in a frame) at row 1000
+ * of a frame before and after the grain, the textures. */
+static int dump(const char *dir) {
+  char path[512];
+  FILE *f;
+  struct dv_grain_profile p;
+  struct dv_grain g;
+  struct host_image h;
+  unsigned i;
+  host_profile(&p, ARCH_NEG400);
+  host_image_new(&h, 2048, 128, 0, 128, 128);
+  for (i = 0; i < 2048u * 128; i++) { h.im.y[i] = (unsigned char)((i * 7u) % 251u); h.im.c[i] = (unsigned char)(100 + (i % 57u)); }
+#define OUT(name, ptr, size) do { snprintf(path, sizeof path, "%s/" name, dir); f = fopen(path, "wb"); if (!f) return 1; fwrite(ptr, 1, size, f); fclose(f); } while (0)
+  OUT("recipes.bin", R, sizeof(struct dv_tex_recipe) * 4);
+  OUT("profile.bin", &p, sizeof p);
+  OUT("band_in.bin", h.buf, 2048u * 128 * 2);
+  OUT("fine.bin", T.fine, DV_FINE_N * DV_FINE_N); OUT("coarse.bin", T.coarse, DV_COARSE_N * DV_COARSE_N);
+  OUT("cb.bin", T.cb, DV_CB_N * DV_CB_N); OUT("cr.bin", T.cr, DV_CR_N * DV_CR_N);
+  dv_grain_setup(&g, &T, &p, DV_INTENSITY_HIGH, DV_SIZE_PROFILE, dv_frame_seed(23, 7));
+  dv_grain_apply(&g, &h.im, 0, 1000);
+  OUT("band_out.bin", h.buf, 2048u * 128 * 2);
+  host_image_free(&h);
+  printf("dump : %u octets de recette, %u de profil\n", (unsigned)(sizeof(struct dv_tex_recipe) * 4), (unsigned)sizeof p);
+  return 0;
+}
+
 int main(int argc, char **argv) {
   host_recipes(R);
   host_textures(&T, R);
+  if (argc > 2 && !strcmp(argv[1], "--dump")) return dump(argv[2]);
   test_textures();
   test_determinism();
   test_neutral();
@@ -453,6 +579,7 @@ int main(int argc, char **argv) {
   test_pairs();
   test_diptych();
   test_date();
+  test_sheet();
   if (argc > 1) images(argv[1], argc > 2 ? argv[2] : 0);
   printf("%s : %d échec(s)\n", failures ? "ÉCHEC" : "TOUT EST BON", failures);
   return failures != 0;
