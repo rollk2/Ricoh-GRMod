@@ -2355,3 +2355,23 @@ Certitude : lu dans le code ; correspondance noms / champs : la liste de 1043 no
   `+0x16c`, chacun avec ses pointeurs de méthode de dessin et d'action).
 - À poursuivre : construction des éléments (ordre, textes), bascule d'une case, écriture des cases
   à la sortie ; un octet de réglage libre pour la nouvelle case (candidat `0x905`, à vérifier).
+- Décisions de l'utilisateur : case « Point AF », cochée = point gardé (comme les autres cases),
+  décochée = point AF au centre à l'allumage ; par défaut cochée (comportement actuel).
+- Table des éléments de Mode Memory : **24 éléments de 0x28 octets à `0x53b4d550`** (recopiés par
+  `0x53207348`, bornes `movw/movt r4,#0x53b4d550` et `add r5,r4,#0x3c0`) : `{ numéro, texte, fn1
+  (dessin de la coche : icône 0x10f cochée / 0x10e), fn2 (bascule de l'octet d'état de l'écran et
+  redessin de la ligne dont le numéro correspond), fn3 (écriture dans le réglage par le setter de
+  UserDataModel), visibilité facultative }` (pointeurs de méthode). Numéro 2 = Focus (texte 0x2a,
+  état `+0x176`), numéro 3 = Focus Peaking (0x4d). État lu à l'ouverture (`0x532070a8`, puis
+  `b 0x53206a30` en `0x532071f8` qui remplit la liste).
+- Nom de la case dans les 21 langues : la partie « point AF » du texte natif 0x211 (« AF Point+Focus »,
+  « Point AF+mise au pt », 測距点, 对焦点 …) : tous les caractères existent.
+- Réglage : octet `0x905` (bourrage, même profil que `0x906` / `0x907` validés), 0 = gardé (défaut),
+  1 = centrer ; écrit dans l'enregistrement en cours et les huit stockés.
+
+Plan T24-AF2 :
+1. Table recopiée à 25 éléments, le nouveau (numéro 24, texte « Point AF ») inséré après Focus ;
+   fn1, fn2, fn3 à nous (état dans un octet RAM libre de la zone des sondes) ; lecture du réglage à
+   l'ouverture de l'écran (crochet sur `b 0x53206a30`).
+2. À l'allumage, dans Mode Memory (`0x5324075c`, modes libres) : si `0x905` vaut 1, copie des 8
+   octets d'usine de `+0x120` (le centre) ; le mode de mise au point reste réglé par la case Focus.
