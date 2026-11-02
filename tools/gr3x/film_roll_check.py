@@ -1187,6 +1187,21 @@ def verify(data,manifest,seed=3101):
                 assert cpu.reg_read(reg.UC_ARM_REG_R4)==0x44
             else:
                 p.run(PF,PF+4,regs);kept(regs,True);assert bytes(cpu.mem_read(PBUF,4))==b'R001';count('file prefix native')
+    # 40. T24-AF1: Mode Memory's Focus unticked: the last focus field written, then the AF point (8 bytes at
+    # + 0x120) copied from the factory record (r3) to the record loaded (r4); back to 0x53240874.
+    if manifest.get('afReset'):
+        FAC,DST=0x63054000,0x63055000
+        fac=bytes(rng.randrange(256) for _ in range(0x600));dst=bytearray(rng.randrange(256) for _ in range(0x600))
+        cpu.mem_write(FAC,fac);cpu.mem_write(DST,bytes(dst));cpu.ctl_flush_tb()
+        regs={1:0x4fe,3:FAC,4:DST,5:0x55,6:0x66,7:0x77}
+        for i in range(13):cpu.reg_write(getattr(reg,'UC_ARM_REG_R'+str(i)),regs.get(i,0x1230+i))
+        cpu.reg_write(reg.UC_ARM_REG_SP,STACK);cpu.reg_write(reg.UC_ARM_REG_LR,0xbeefcafe);cpu.reg_write(reg.UC_ARM_REG_CPSR,0x13)
+        cpu.emu_start(0x53240870,0x53240874,count=100);assert cpu.reg_read(reg.UC_ARM_REG_PC)==0x53240874
+        out=bytes(cpu.mem_read(DST,0x600));want=bytearray(dst);want[0x4fe:0x500]=struct.pack('<H',0xcafe);want[0x120:0x128]=fac[0x120:0x128]
+        assert out==bytes(want),'af reset'
+        for k in (3,4,5,6,7):assert cpu.reg_read(getattr(reg,'UC_ARM_REG_R%d'%k))==regs[k]
+        assert cpu.reg_read(reg.UC_ARM_REG_SP)==STACK
+        count('AF point reset')
     # 29. Form 'clo2': the check at a U mode's recall ends a roll whose film changed and opens the message.
     if clo2:
         RECALL=e['filmRollRecall'];LK,RT=0x9c2,0x9c3

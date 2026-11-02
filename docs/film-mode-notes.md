@@ -2331,3 +2331,12 @@ Certitude : lu dans le code ; correspondance noms / champs : la liste de 1043 no
   d'usine de `+0x120` (enregistrement d'usine `0x532406fc()`) dans l'enregistrement en cours. Effet :
   à chaque allumage, point AF au centre, en P comme en U (la BOX garde son propre point jusqu'au
   prochain rappel de mode).
+- Décision de l'utilisateur : recentrage lié à la case Focus de Mode Memory ; test sur T23b.
+- Précision : `0x53246df8` n'appelle `0x5324075c` (Mode Memory) que pour le mode 0 (`r2` = numéro de
+  mode ; les BOX passent par `0x532419cc`) : Mode Memory ne vaut que pour P, Av, Tv, M, au
+  chargement ; Save Settings dans une BOX n'est pas concerné. En U, la BOX garde son point AF.
+- T24-AF1 (option `afReset`, Engine et recette ; l'application l'active pour tout build GR III
+  complet) : la dernière instruction de la branche Focus décochée (`0x53240870`, `strh lr,[r4,r1]`)
+  devient un saut vers : la même écriture, puis copie des 8 octets d'usine de `+0x120` (r3) vers
+  l'enregistrement chargé (r4), retour en `0x53240874`. Vérifié en émulation (écriture d'origine,
+  copie du point, registres conservés), garde-fou, inspection par l'Engine ; build = T23b + afReset.

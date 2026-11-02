@@ -488,6 +488,9 @@ describe.skipIf(!input)('GR III film roll (film mode phase 3.1)', () => {
     // Without films, the movie removal alone.
     const alone = await engine.buildFirmware([], ratios, [], { filmCount: 0, dateStamp: true, noMovie: true });
     expect(await (await Engine.open(raw)).inspect(alone.file)).toMatchObject({ verified: true });
+    // T24-AF1: the AF point reset with Mode Memory's Focus, recorded and recognised.
+    const af = await engine.buildFirmware(requests, ratios, [], { filmCount: 3, adjSoftFocus: true, afReset: true, filmMode: { codes: { CY: 'PORT' } }, noMovie: true });
+    expect(await (await Engine.open(raw)).inspect(af.file)).toMatchObject({ verified: true });
     await expect(engine.buildFirmware(requests, ratios, [], { filmCount: 3, filmMode: { codes: { CY: 'port' } } })).rejects.toThrow(/4 characters/);
     await expect(engine.buildFirmware(requests, ratios, [], { filmCount: 3, filmMode: { codes: { F5: 'PORT' } } })).rejects.toThrow(/film code/);
   }, 600000);

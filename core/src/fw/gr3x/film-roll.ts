@@ -1257,6 +1257,22 @@ export function installGr3xFilmFileNames(p: Gr3xRollProgram, four = false, filmC
   return { filmFilePrefix: prefix };
 }
 
+/** Mode Memory (0x5324075c, the end of the merge with the factory values 0x53246df8, for the free
+ * modes' records at loading): with its Focus box unticked (+ 0xaf2 of the record in use 0), the focus
+ * modes go back to the factory's (+ 0x11c, + 0x11e, + 0x4fc, + 0x4fe; r3 the factory record, r4 the
+ * record loaded), the last of them at 0x53240870 (`strh lr,[r4,r1]`); the AF area's place
+ * (StillFocusAreaCenter, 8 bytes at + 0x120) is always kept. */
+export const GR3X_MEMORY_FOCUS_END = 0x53240870, GR3X_AF_AREA_CENTER = 0x120;
+
+/** T24-AF1: with Mode Memory's Focus unticked, the AF point also goes back to the factory's (the
+ * centre) at power-on, as GR IV can. */
+export function installGr3xAfReset(p: Gr3xRollProgram) {
+  if (p.sites.some(s => s.address === GR3X_MEMORY_FOCUS_END)) throw new FirmwareError('unexpected-instruction', 'IIIx AF reset: already patched');
+  const reset = p.code(`add ip,r4,r1;strh lr,[ip];add ip,r3,#${GR3X_AF_AREA_CENTER};ldr r0,[ip];ldr r1,[ip,#4];add ip,r4,#${GR3X_AF_AREA_CENTER};str r0,[ip];str r1,[ip,#4];b #${GR3X_MEMORY_FOCUS_END + 4};`);
+  p.patch(GR3X_MEMORY_FOCUS_END, 0xe184e0b1, branchWord(GR3X_MEMORY_FOCUS_END, reset), 'Mode Memory: Focus unticked resets the AF point too');
+  return { afReset: reset };
+}
+
 /** The tables of methods of QuickViewController (the review) and of the message screens. */
 export const GR3X_REVIEW_VTABLE = 0x53b41380, GR3X_MESSAGE_VTABLE = 0x53b41ca8;
 /** T15-END2: the message byte cleared at each exposure (every register kept but ip). */

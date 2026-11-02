@@ -37,7 +37,7 @@ import { installGr3xLiveView } from './liveview';
 import { installGr3xRawDevelopment } from './raw-development';
 import { installGr3xShading } from './shading';
 import { installGr3xFullFrameRaw } from './raw-full-frame';
-import { GR3X_FILM_ADVANCE_NAMES, GR3X_FILM_ROLL_MODE_NAMES, installGr3xFilmAdvanceFn, installGr3xFilmRoll, installGr3xRetakeProbe, installGr3xFilmMessage, GR3X_FILM_NEW_ROLL_NAMES, GR3X_MESSAGE_CLEAR, GR3X_CANCEL_CLEAR, GR3X_REVIEW_ARM_CLEAR, GR3X_ADVANCE_ONCE_CLEAR, GR3X_FILM_REWIND_NAMES, GR3X_FILM_REWIND_QUESTIONS, installGr3xFilmRewind, GR3X_FILM_REWIND_ID, GR3X_FOLDER_DIALOG_ID, GR3X_REWIND_MODE, GR3X_MENU_IDS, installGr3xMenuRebuild, installGr3xHideMovieTab, installGr3xBlockMovie, installGr3xHideLines, installGr3xFilmFileNames, GR3X_HIDDEN_LINES, GR3X_FILM_TAB_NAMES, GR3X_MOVIE_ENTRY_IMAGE, GR3X_MOVIE_TAB, GR3X_FILM_ADVANCE_ICON, GR3X_FN_STILL_MOVIE, GR3X_FN_FRAMERATE, GR3X_SIDE_BUTTON_TEXTS, GR3X_SIDE_BUTTON_NAMES } from './film-roll';
+import { GR3X_FILM_ADVANCE_NAMES, GR3X_FILM_ROLL_MODE_NAMES, installGr3xFilmAdvanceFn, installGr3xFilmRoll, installGr3xRetakeProbe, installGr3xFilmMessage, GR3X_FILM_NEW_ROLL_NAMES, GR3X_MESSAGE_CLEAR, GR3X_CANCEL_CLEAR, GR3X_REVIEW_ARM_CLEAR, GR3X_ADVANCE_ONCE_CLEAR, GR3X_FILM_REWIND_NAMES, GR3X_FILM_REWIND_QUESTIONS, installGr3xFilmRewind, GR3X_FILM_REWIND_ID, GR3X_FOLDER_DIALOG_ID, GR3X_REWIND_MODE, GR3X_MENU_IDS, installGr3xMenuRebuild, installGr3xHideMovieTab, installGr3xBlockMovie, installGr3xHideLines, installGr3xFilmFileNames, installGr3xAfReset, GR3X_HIDDEN_LINES, GR3X_FILM_TAB_NAMES, GR3X_MOVIE_ENTRY_IMAGE, GR3X_MOVIE_TAB, GR3X_FILM_ADVANCE_ICON, GR3X_FN_STILL_MOVIE, GR3X_FN_FRAMERATE, GR3X_SIDE_BUTTON_TEXTS, GR3X_SIDE_BUTTON_NAMES } from './film-roll';
 
 export const GR3X_ADJ = {
   order: 0x53b5a520,
@@ -115,6 +115,8 @@ export interface Gr3xAdjFeatures {
    * blocked, Still/Movie and Movie Edit lines and the Still/Movie and Framerate Fn functions hidden, the
    * side button named without the movie. */
   noMovie?: boolean;
+  /** T24-AF1: with Mode Memory's Focus unticked, the AF point back to the centre at power-on. */
+  afReset?: boolean;
   /** With `filmMode`: the date imprint stage is built for the film mode only, its menu line hidden. */
   dateHidden?: boolean;
   filmRoll?: boolean | 'film' | 'folders' | 'folders-diag' | 'menu' | 'keys' | 'fn' | 'fn2' | 'fn3' | 'fn4' | 'fn5' | 'rt1' | 'fn6' | 'fn7' | 'dir1' | 'dir2' | 'dir3' | 'dg1' | 'dg2' | 'dg3' | 'dir4' | 'dir5' | 'dir6' | 'dir7' | 'dir8' | 'dir9' | 'dir10' | 'dir11' | 'dir12' | 'dir13' | 'dir14' | 'end1' | 'end2' | 'end3' | 'clo1' | 'clo2' | 'clo3' | 'clo4' | 'msg1' | 'rwd1' | 'hide1' | 'card1' | 'card2' | 'card3' | 'vid1' | 'vid2' | 'vid3' | 'vid4' | 'tab1' | 'name1' | 'name2';
@@ -392,6 +394,8 @@ export async function buildGr3xAdjResearch(raw: Uint8Array, ratioMenu: readonly 
   const rewindEntries = filmRewind ? { ...installGr3xFilmRewind({ code, sites, patch }, filmText + 4, filmText + 2, roll!.entries.filmRollRewind),
     ...(features.filmRoll === 'hide1' || features.filmRoll === 'card1' || features.filmRoll === 'card2' || features.filmRoll === 'card3' || features.filmRoll === 'vid1' || features.filmRoll === 'vid2' || features.filmRoll === 'vid3' || features.filmRoll === 'vid4' || features.filmRoll === 'tab1' || features.filmRoll === 'name1' || (features.filmRoll === 'name2' || features.filmRoll === 'film') ? installGr3xMenuRebuild({ code, sites, patch }) : {}),
     ...(features.filmRoll === 'name1' || (features.filmRoll === 'name2' || features.filmRoll === 'film') ? installGr3xFilmFileNames({ code, sites, patch }, (features.filmRoll === 'name2' || features.filmRoll === 'film'), filmCodes) : {}) } : {};
+  // T24-AF1: the AF point reset with Mode Memory's Focus.
+  const afResetEntries = features.afReset ? installGr3xAfReset({ code, sites, patch }) : {};
   // T23: the movie taken out (test forms vid1.. or noMovie), with or without the film mode.
   const movieEntries = {
     ...(movieTabHidden ? installGr3xHideMovieTab({ code, sites, patch }) : {}),
@@ -546,12 +550,12 @@ export async function buildGr3xAdjResearch(raw: Uint8Array, ratioMenu: readonly 
     schema: 1, kind: 'gr3x-adj-patchset' as const, profile: profile.id,
     originalRtosSha256: profile.rtosSha256, originalLength: p.rtosLength, base: BASE,
     sites, append: { address: geometry.append.address, bytes: hex(payload) }, geometry,
-    entries: { ...geometry.entries, ...scaffold, ratioText, ratioIcon, fnCycle, ...imageEntries, ...developEntries, ...afEntries, ...mapEntries, ...liveEntries, ...messageEntries, ...rawEntries, ...shadingEntries, ...fullRawEntries, ...softEntries, ...dateEntries, ...lookEntries, ...(probeEntries ?? {}), ...fnEntries, ...rewindEntries, ...movieEntries, ...(filmIcons ? { filmIconBase: filmIcon } : {}) },
+    entries: { ...geometry.entries, ...scaffold, ratioText, ratioIcon, fnCycle, ...imageEntries, ...developEntries, ...afEntries, ...mapEntries, ...liveEntries, ...messageEntries, ...rawEntries, ...shadingEntries, ...fullRawEntries, ...softEntries, ...dateEntries, ...lookEntries, ...(probeEntries ?? {}), ...fnEntries, ...rewindEntries, ...movieEntries, ...afResetEntries, ...(filmIcons ? { filmIconBase: filmIcon } : {}) },
     catalogs: { order, textRoots, textColumns: columns, iconRoot, iconCount },
     adjSoftFocus: softFocus,
     dateImprint: dateImprint ? { ...dateIds, form: dateForm, ...(round7 ? { iconOff: 296, iconOn: 297 } : {}), ...(lookNames ? { names: lookNames } : {}) } : undefined,
     round7,
-    ...(round8 ? { round8 } : {}), ...(round9 ? { round9 } : {}), ...(round10 ? { round10 } : {}), ...(filmProbe ? { filmProbe: features.filmProbe } : {}), ...(filmRoll ? { filmRoll: features.filmRoll } : {}), ...(features.filmMode ? { filmCodes } : {}), ...(dateHidden ? { dateHidden } : {}),
+    ...(round8 ? { round8 } : {}), ...(round9 ? { round9 } : {}), ...(round10 ? { round10 } : {}), ...(filmProbe ? { filmProbe: features.filmProbe } : {}), ...(filmRoll ? { filmRoll: features.filmRoll } : {}), ...(features.filmMode ? { filmCodes } : {}), ...(dateHidden ? { dateHidden } : {}), ...(features.afReset ? { afReset: true } : {}),
     ...(round8 && !layer.looksFollow && features.lookLayout && !isGr3xFactoryLayout(features.lookLayout, 0) ? { lookLayout: { order: [...features.lookLayout.order], hidden: [...features.lookLayout.hidden] } } : {}),
     pictures: pictureCount ? (pictureSub ? { form: 'submenu' as const, count: pictureCount, ...endIds, names: pictures.map((_, k) => endIds.factoryText + 1 + k),
       factoryIcons: [...endIds.factoryIcons], icons: [...endIds.icons], choices: pictures.map(x => x.id!) }
