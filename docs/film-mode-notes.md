@@ -2398,4 +2398,12 @@ la place de `afReset`). Certitude : vérifié en émulation, à confirmer sur le
   écriture avec et sans enregistrement en cours, lecture pour 0 / 1 / 2 / 255, allumage pour 0 / 1 /
   2 avec registres conservés), `guard_probe.py`, inspection par l'Engine (build identique à celui du
   moteur), test unitaire T24-AF2.
+- **Testé sur le boîtier (2026-11-02)** : case « Point AF » entre Focus et Focus Peaking, cochée
+  par défaut ; bascule et mémorisation correctes ; décochée, point AF au centre à l'allumage, mode de
+  mise au point gardé ; cochée, point gardé ; mode pellicule intact.
+- Découverte au test : **le recentrage vaut aussi en U** (contrôle : case cochée, U garde son point
+  à l'allumage). La fusion Mode Memory s'applique donc à l'enregistrement de travail chargé à
+  l'allumage quel que soit le mode, U compris (la précision « mode 0 seulement » plus haut désigne
+  l'enregistrement de travail, pas le mode P). Décision de l'utilisateur : garder ainsi (case
+  décochée = centre à chaque allumage, dans tous les modes).
 
