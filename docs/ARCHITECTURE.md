@@ -272,14 +272,17 @@ Dans les deux cas, le moteur de grain lui-même (textures, LUT, application en 4
 
 **D1. Le négatif est le DNG, le développement passe par le développement RAW du boîtier** (voie B
 du §5). Conséquences :
-- en mode pellicule, la qualité doit être RAW+JPEG (à imposer au rappel d'un U, comme la
-  multi-exposition, `film-roll.ts` `filmRollRecall`). La multi-exposition enregistre bien un DNG
-  de la superposition (testé, `docs/film-mode-notes.md`, essai F1 : `.DNG` « superposition, qualité
-  de la BOX ») ;
+- **la qualité d'image n'est pas imposée** : JPEG, RAW ou RAW+JPEG reste le choix du photographe
+  (décision de l'utilisateur). Seules les vues qui ont un DNG peuvent être développées par le
+  boîtier. La multi-exposition enregistre bien un DNG de la superposition quand la BOX est en RAW
+  (testé, `docs/film-mode-notes.md`, essai F1 : `.DNG` « superposition, qualité de la BOX ») ;
+- un rouleau pris en JPEG seul a son grain dès la prise de vue (D2), mais ni diptyque, ni date au
+  tirage, ni planche contact sans décodeur JPEG (voie A du §5). Question ouverte, voir D3 ;
 - la spec suppose un négatif JPEG décodé par bandes (« Lecture du négatif et décodage JPEG par
   bandes ») : ce n'est plus le cas, le boîtier refait l'image depuis le DNG.
 
-**D2. Le grain s'applique aussi au JPEG de la prise de vue.** Le même module de grain, au point
+**D2. Le grain s'applique aussi au JPEG de la prise de vue** (validé par l'utilisateur, avec
+l'écart de performance ci-dessous). Le même module de grain, au point
 d'accroche JPEG (§2.1), traite :
 - à la prise de vue, le JPEG de chaque vue (image principale, vignette d'écran, miniature), avec le
   profil du film du rouleau et les réglages de grain de l'utilisateur ;
@@ -300,6 +303,9 @@ Conséquences :
   les diptyques, ce qui est conforme à la spec ;
 - le module doit savoir s'il traite une prise de vue ou un développement RAW (pour le diptyque et la
   date au tirage), point déjà listé dans les inconnues de la voie B.
+
+**D3 (ouverte). Que devient le développement d'un rouleau pris en JPEG seul ?** À trancher avant
+l'étape 5 (manifeste et états de la pellicule).
 
 ## 7. Mesures à prévoir (sans flash à ce stade)
 
