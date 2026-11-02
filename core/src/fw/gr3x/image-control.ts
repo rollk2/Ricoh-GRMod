@@ -449,7 +449,9 @@ export async function buildGr3xImageControls(raw: Uint8Array, options: Gr3xLookO
     const guard = installGr3xGuardR10({ code, patch, u32, sites }, { films: capacity, maxRatio: gr3xMaxId(menu.menu), ...(layout ? { hidden: layout.hidden } : {}),
       ...(features.adjSoftFocus ? { softFocusR10: true } : {}),
       // T23: the film mode's recall (Save Interim Images off, multi-exposure) after the guard's.
-      ...((menu.entries as Record<string, number>).filmRollRecall ? { recallAfter: (menu.entries as Record<string, number>).filmRollRecall } : {}) }, params.moduleSymbols.sp_before_recall);
+      // V1-RC4: with « Apply to U modes », Mode Memory first (memoryURecall ends with filmRollRecall).
+      ...((menu.entries as Record<string, number>).memoryURecall ? { recallAfter: (menu.entries as Record<string, number>).memoryURecall }
+        : (menu.entries as Record<string, number>).filmRollRecall ? { recallAfter: (menu.entries as Record<string, number>).filmRollRecall } : {}) }, params.moduleSymbols.sp_before_recall);
     const order = (layout ? layout.order.filter(id => !layout.hidden.includes(id)) : gr3xFactoryLookOrder(capacity));
     const raw = installGr3xR10Raw(r10Program, { films: capacity, order, module: params.moduleSymbols });
     const info = installGr3xR10PictureInfo(r10Program, capacity, slots[0].iconId);

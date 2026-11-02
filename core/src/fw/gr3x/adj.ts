@@ -411,7 +411,8 @@ export async function buildGr3xAdjResearch(raw: Uint8Array, ratioMenu: readonly 
     ...(features.filmRoll === 'name1' || (features.filmRoll === 'name2' || features.filmRoll === 'film') ? installGr3xFilmFileNames({ code, sites, patch }, (features.filmRoll === 'name2' || features.filmRoll === 'film'), filmCodes) : {}) } : {};
   // T24-AF1: the AF point reset with Mode Memory's Focus.
   const afResetEntries = { ...(features.afReset ? installGr3xAfReset({ code, sites, patch }) : {}),
-    ...(features.afPoint ? installGr3xAfPointMemory({ code, sites, patch, read, append }, afText, memoryU ? uText : undefined) : {}) };
+    ...(features.afPoint ? installGr3xAfPointMemory({ code, sites, patch, read, append }, afText, memoryU ? uText : undefined,
+      { film: !!roll && filmMenu, ...(roll ? { filmRecall: roll.entries.filmRollRecall } : {}), hideStillMovie: movieLines }) : {}) };
   // T23: the movie taken out (test forms vid1.. or noMovie), with or without the film mode.
   const movieEntries = {
     ...(movieTabHidden ? installGr3xHideMovieTab({ code, sites, patch }) : {}),
@@ -552,7 +553,7 @@ export async function buildGr3xAdjResearch(raw: Uint8Array, ratioMenu: readonly 
     const layout = features.lookLayout && !isGr3xFactoryLayout(features.lookLayout, 0) ? features.lookLayout : undefined;
     if (features.lookLayout) validateGr3xLookLayout(features.lookLayout, 0);
     const layoutEntries = layout ? installGr3xLookLayout({ code, append, patch, u32: word, read }, layout, 0) : {};
-    const guardOptions = { films: 0, maxRatio: gr3xMaxId(menu), ...(layout ? { hidden: layout.hidden } : {}), ...(round10 && softFocus ? { softFocusR10: true } : {}), ...(roll ? { recallAfter: roll.entries.filmRollRecall } : {}) };
+    const guardOptions = { films: 0, maxRatio: gr3xMaxId(menu), ...(layout ? { hidden: layout.hidden } : {}), ...(round10 && softFocus ? { softFocusR10: true } : {}), ...((afResetEntries as Record<string, number>).memoryURecall ? { recallAfter: (afResetEntries as Record<string, number>).memoryURecall } : roll ? { recallAfter: roll.entries.filmRollRecall } : {}) };
     return { ...out, ...layoutEntries, ...(round10 ? installGr3xGuardR10({ code, patch, u32: word, sites }, guardOptions) : installGr3xGuard({ code, patch, u32: word }, guardOptions)) };
   })() : {};
   // The film roll's Save Interim Images rides on the guard's recall hook: no guard, no build.

@@ -2528,3 +2528,27 @@ Demande de l'utilisateur : que Mode Memory puisse s'appliquer aussi aux modes U.
   aucune requête de mise à jour vers l'extérieur), firmware construit par l'application reconnu
   (recette : filmMode, noMovie, dateHidden, afPoint, memoryU). Non vérifiable ici : build Mac
   (outils externes), à valider par le workflow puis sur le Mac de l'utilisateur.
+
+### Build V1-RC4 : retours du test de l'application Mac (2026-11-02)
+
+Retours : Still/Movie visible dans Mode Memory (avec No movie) ; multi-exposition perdue après
+l'allumage en U avec « Appliquer en U » coché ; point AF recentré à l'allumage mais rechargé depuis
+la BOX au rappel par la molette.
+
+- Cause de la multi-exposition perdue (certitude forte, confirmée par l'utilisateur : case cochée,
+  constaté après allumage) : Mode Memory en U remet à l'usine les cases décochées, dont Drive
+  (`+0x472`) ; le mode pellicule ne force la multi-exposition qu'au rappel d'un U et à la ligne Film
+  Roll Mode.
+- Allumage en U (aiguillage `0x5324b154`) : Mode Memory est maintenant **appelé**
+  (`0x5324075c(UserDataModel, enregistrement)`) puis, si la BOX est en mode pellicule, Drive = 3 et
+  Save Interim Images = 0 sont remis ; sortie par une copie de l'épilogue de la fusion
+  (`sub sp,fp,#0x1c ; ldm sp,{r4-r7,fp,sp,pc}`, mots bruts 0xe24bd01c 0xe89da8f0, la fusion ne
+  sortant jamais par un `ldm ... pc` natif).
+- Rappel d'un U par la molette (décision de l'utilisateur : Mode Memory entier au rappel) : le
+  crochet de rappel du garde-fou appelle `memoryURecall` (Mode Memory sur l'enregistrement de
+  travail si `0x943` = 1, mode 1 à 6) puis le rappel du mode pellicule, qui reforce la multi-exposition.
+- Still/Movie (élément n° 8, texte 0x5f) masqué dans Mode Memory avec No movie : méthode de
+  visibilité `+0x20` vers une fonction qui renvoie 0 (même mécanisme que HDF, `0x532064b4`).
+- Contrôles : section 41 étendue (allumage : modes 0 à 8, `0x943`, enregistrement de travail ou copie,
+  BOX en mode pellicule ou non, épilogue et registres ; rappel : 36 cas ; Still/Movie), garde-fou,
+  Engine (identique), tests.

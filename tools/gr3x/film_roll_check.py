@@ -109,6 +109,7 @@ class RollProbe(Probe):
         elif self.memory_stubs and at==0x53394758:self.ui.append(('row',r(0),r(1)));ret(0x6305a000)
         elif self.memory_stubs and at==0x533a8990:self.ui.append(('tick',r(0),r(1)));ret(0)
         elif self.memory_stubs and at==0x53394610:self.ui.append(('types',r(0),bytes(cpu.mem_read(r(1),r(2))),r(3)));ret(0)
+        elif self.merge_stubs and at==0x5324075c:self.ui.append(('memory',r(0),r(1)));ret(0x7e57)
         elif self.merge_stubs and at in (0x5324b15c,0x5324b168):self.ui.append(('merge',at));cpu.emu_stop()
         elif at==LINE_VALUE_ICON:self.ui.append(('icon',r(0),r(1)));ret(0)
         elif at==TOP_SET_TITLE:self.ui.append(('title',r(0),r(1),r(2)));ret(0)
@@ -1213,6 +1214,8 @@ def verify(data,manifest,seed=3101):
         rd32=lambda a:struct.unpack('<I',bytes(cpu.mem_read(a,4)))[0]
         N=26 if MU else 25
         orig=bytes(data[ITEMS-0x53000000:ITEMS-0x53000000+24*0x28]);tab=bytes(cpu.mem_read(T,N*0x28))
+        if 'memoryHidden' in e:
+            o_=bytearray(orig);struct.pack_into('<II',o_,8*0x28+0x20,e['memoryHidden'],0);orig=bytes(o_)
         assert tab[:3*0x28]==orig[:3*0x28] and tab[4*0x28:25*0x28]==orig[3*0x28:],'items copied'
         ours=struct.unpack('<10I',tab[3*0x28:4*0x28])
         assert ours[0]==24 and ours[2]==e['afPointDraw'] and ours[4]==e['afPointToggle'] and ours[6]==e['afPointWrite'] and ours[1]>=0x200 and ours[9]==0 and ours[8]==0,ours
@@ -1232,6 +1235,11 @@ def verify(data,manifest,seed=3101):
                 return bytes(cpu.mem_read(rd32(desc+4),2*(n-1))).decode('utf-16-le')
             assert (utext(0),utext(1),utext(2),utext(19))==('Uにも適用','Apply to U modes','Appliquer en U','在U中应用'),[utext(r_) for r_ in range(21)]
             count('apply to U item')
+        if 'memoryHidden' in e:
+            sm=struct.unpack('<10I',tab[9*0x28:10*0x28])
+            assert sm[0]==8 and sm[1]==0x5f and sm[8]==e['memoryHidden'] and sm[9]==0,sm
+            p.run(e['memoryHidden'],STOP,{0:0x1234});assert cpu.reg_read(reg.UC_ARM_REG_R0)==0
+            count('still/movie hidden')
         count('AF point items')
         p.memory_stubs=True;LISTO=0x63059000
         try:cpu.mem_map(LISTO,0x2000)
@@ -1318,20 +1326,45 @@ def verify(data,manifest,seed=3101):
         if MU:
             assert rd32(0x5324b154)==(0xea000000|(((e['memoryUMerge']-0x5324b154-8)>>2)&0xffffff))
             p.merge_stubs=True;cpu.ctl_flush_tb()
+            FILMB=bool(manifest.get('filmRoll'))
+            FR=0x63059c00  # the merge's frame: fp; [fp-0x1c..] = r4, r5, r6, r7, fp, sp, pc
             for mode in range(9):
                 for v in (0,1,2):
                     for same in (True,False):
-                        cur,boxes=setup(3);cur[USET]=v;cpu.mem_write(CUR,bytes(cur))
+                        for film in (False,True):
+                            cur,boxes=setup(3);cur[USET]=v;cur[0x9b1]=(cur[0x9b1]&~1)|(1 if film else 0);cur[0x472]=0;cur[0x482]=2;cpu.mem_write(CUR,bytes(cur))
+                            rec=CUR if same else BOXES+0x1000
+                            cpu.mem_write(FR-0x1c,struct.pack('<7I',0xa4,0xa5,0xa6,0xa7,0xab,STACK,STOP))
+                            regs={4:rec,5:0x5555,6:MODEL,7:mode,0:0x1010,1:0x2020,2:0x3030,3:0x4040,11:FR}
+                            for i in range(13):cpu.reg_write(getattr(reg,'UC_ARM_REG_R'+str(i)),regs.get(i,0x1230+i))
+                            cpu.reg_write(reg.UC_ARM_REG_SP,STACK-0x100);cpu.reg_write(reg.UC_ARM_REG_LR,0xbeefcafe);cpu.reg_write(reg.UC_ARM_REG_CPSR,0x13)
+                            p.ui=[];cpu.emu_start(0x5324b154,STOP,count=80)
+                            u=1<=mode<=6 and same and v==1
+                            if mode==0 or not u:
+                                assert p.ui==[('merge',0x5324b168 if mode==0 else 0x5324b15c)],(mode,v,same,p.ui)
+                                for k,x in regs.items():assert cpu.reg_read(getattr(reg,'UC_ARM_REG_R%d'%k))==x,(k,mode)
+                                assert cpu.reg_read(reg.UC_ARM_REG_SP)==STACK-0x100 and cpu.reg_read(reg.UC_ARM_REG_LR)==0xbeefcafe
+                            else:
+                                # Mode Memory called (UserDataModel, the record), the film mode forced again, the merge's way out.
+                                assert p.ui==[('memory',MODEL,rec)],(mode,p.ui)
+                                assert cpu.reg_read(reg.UC_ARM_REG_PC)==STOP and cpu.reg_read(reg.UC_ARM_REG_SP)==STACK and cpu.reg_read(reg.UC_ARM_REG_R0)==0x7e57
+                                assert [cpu.reg_read(getattr(reg,'UC_ARM_REG_R%d'%k)) for k in (4,5,6,7,11)]==[0xa4,0xa5,0xa6,0xa7,0xab]
+                                c2=bytes(cpu.mem_read(CUR,SIZE));forced=film and FILMB
+                                assert (c2[0x472],c2[0x482])==((3,0) if forced else (0,2)),(film,c2[0x472],c2[0x482])
+                            count('apply to U merge')
+            # The recall of a U mode: Mode Memory when Apply to U modes is 1 on the record in use, then the film mode's recall.
+            for mode in range(9):
+                for v in (0,1):
+                    for same in (True,False):
+                        cur,boxes=setup(3);cur[USET]=v;cur[0x9b1]|=1;cur[0x472]=0;cur[0x482]=2;cpu.mem_write(CUR,bytes(cur))
+                        b=bytearray(boxes[1]);b[USET]=v;b[0x9b1]|=1;b[0x472]=0;b[0x482]=2;cpu.mem_write(BOXES+0x1000,bytes(b))
                         rec=CUR if same else BOXES+0x1000
-                        regs={4:rec,5:0x5555,6:MODEL,7:mode,0:0x1010,1:0x2020,2:0x3030,3:0x4040}
-                        for i in range(13):cpu.reg_write(getattr(reg,'UC_ARM_REG_R'+str(i)),regs.get(i,0x1230+i))
-                        cpu.reg_write(reg.UC_ARM_REG_SP,STACK);cpu.reg_write(reg.UC_ARM_REG_LR,0xbeefcafe);cpu.reg_write(reg.UC_ARM_REG_CPSR,0x13)
-                        p.ui=[];cpu.emu_start(0x5324b154,0,count=40)
-                        full=mode==0 or (1<=mode<=6 and same and v==1)
-                        assert p.ui==[('merge',0x5324b168 if full else 0x5324b15c)],(mode,v,same,p.ui)
-                        for k,x in regs.items():assert cpu.reg_read(getattr(reg,'UC_ARM_REG_R%d'%k))==x,(k,mode)
-                        assert cpu.reg_read(reg.UC_ARM_REG_SP)==STACK and cpu.reg_read(reg.UC_ARM_REG_LR)==0xbeefcafe
-                        count('apply to U merge')
+                        p.ui=[];regs={0:rec,1:mode,4:0x4444,5:0x5555,6:0x6666};p.run(e['memoryURecall'],STOP,regs);count('apply to U recall')
+                        call=1<=mode<=6 and same and v==1
+                        assert p.ui==([('memory',MODEL,rec)] if call else []),(mode,v,same,p.ui)
+                        for k in (4,5,6):assert cpu.reg_read(getattr(reg,'UC_ARM_REG_R%d'%k))==regs[k]
+                        r2=bytes(cpu.mem_read(rec,SIZE));forced=FILMB and 1<=mode<=6
+                        assert (r2[0x472],r2[0x482])==((3,0) if forced else (0,2)),(mode,r2[0x472],r2[0x482])
             p.merge_stubs=False;cpu.ctl_flush_tb()
     # 29. Form 'clo2': the check at a U mode's recall ends a roll whose film changed and opens the message.
     if clo2:

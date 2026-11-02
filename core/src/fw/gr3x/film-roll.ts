@@ -1312,7 +1312,9 @@ export const GR3X_MEMORY_U_NAMES: readonly string[] = [
  * use at power-on with the active mode, each stored copy with its index) chooses at 0x5324b154
  * (`cmp r7,#0`): mode 0, Mode Memory (0x5324075c, at 0x5324b168); else the BOXes' short merge
  * (0x532419cc, at 0x5324b15c). */
-const MERGE_CHOICE = 0x5324b154, MERGE_MEMORY = 0x5324b168, MERGE_BOX = 0x5324b15c;
+const MERGE_CHOICE = 0x5324b154, MERGE_MEMORY = 0x5324b168, MERGE_BOX = 0x5324b15c, MERGE_MEMORY_FN = 0x5324075c;
+/** Mode Memory's Still/Movie item (text 0x5f), hidden with the movie taken out. */
+export const GR3X_MEMORY_STILL_MOVIE_ITEM = 8;
 /** The screen's list set-up (0x532067dc, called at 0x532074e8): one view type byte per row (0x2a),
  * from a stack array of 24 bytes, given to the list 0x53394610(list, types, rows, 0x3a); an unknown type
  * (past the array: the stack guard's bytes) stops the camera on an assertion (0x533ade50). */
@@ -1326,7 +1328,8 @@ const blWord = (at: number, to: number) => (0xeb000000 | (((to - at - 8) >> 2) &
  * Focus box. With `uText` (V1-RC2), an « Apply to U modes » box last: ticked, Mode Memory also applies at
  * power-on in U1 to U3, to the record in use (the BOXes saved are never changed).
  */
-export function installGr3xAfPointMemory(p: Gr3xRollProgram & { read(at: number, n: number): Uint8Array; append(b: Uint8Array): number }, text: number, uText?: number) {
+export function installGr3xAfPointMemory(p: Gr3xRollProgram & { read(at: number, n: number): Uint8Array; append(b: Uint8Array): number }, text: number, uText?: number,
+  o: { film?: boolean; filmRecall?: number; hideStillMovie?: boolean } = {}) {
   const withU = uText !== undefined;
   for (const at of [MEMORY_COPY_LOW, MEMORY_COPY_HIGH, MEMORY_COPY_END, MEMORY_START_END, MEMORY_AFTER_FOCUS, ...(withU ? [MERGE_CHOICE] : [])])
     if (p.sites.some(s => s.address === at)) throw new FirmwareError('unexpected-instruction', 'IIIx Mode Memory boxes: already patched');
@@ -1368,6 +1371,14 @@ export function installGr3xAfPointMemory(p: Gr3xRollProgram & { read(at: number,
   const iv = new DataView(items.buffer, items.byteOffset, items.byteLength);
   for (let k = 0; k < GR3X_MEMORY_ITEM_COUNT; k++) if (iv.getUint32(k * 0x28, true) !== k) throw new FirmwareError('unexpected-layout', 'IIIx Mode Memory items');
   if (iv.getUint32(GR3X_MEMORY_FOCUS_ITEM * 0x28 + 4, true) !== 0x2a) throw new FirmwareError('unexpected-layout', 'IIIx Mode Memory Focus item');
+  // V1-RC4: with the movie taken out, Mode Memory's Still/Movie item hidden (its visibility method).
+  if (o.hideStillMovie) {
+    if (iv.getUint32(GR3X_MEMORY_STILL_MOVIE_ITEM * 0x28 + 4, true) !== 0x5f || iv.getUint32(GR3X_MEMORY_STILL_MOVIE_ITEM * 0x28 + 0x20, true) !== 0)
+      throw new FirmwareError('unexpected-layout', 'IIIx Mode Memory Still/Movie item');
+    entries.memoryHidden = p.code('mov r0,#0;bx lr;');
+    iv.setUint32(GR3X_MEMORY_STILL_MOVIE_ITEM * 0x28 + 0x20, entries.memoryHidden, true);
+    iv.setUint32(GR3X_MEMORY_STILL_MOVIE_ITEM * 0x28 + 0x24, 0, true);
+  }
   const item = (n: number, t: number, name: string) => {
     const b = new Uint8Array(0x28), v = new DataView(b.buffer);
     v.setUint32(0, n, true); v.setUint32(4, t, true);
@@ -1388,11 +1399,26 @@ export function installGr3xAfPointMemory(p: Gr3xRollProgram & { read(at: number,
     kept:b #${MEMORY_AFTER_FOCUS + 4};`);
   p.patch(MEMORY_AFTER_FOCUS, 0xe51b2030, branchWord(MEMORY_AFTER_FOCUS, entries.afPointReset), 'Mode Memory: AF Point unticked, the AF point to the centre');
   if (withU) {
+    // The film mode's drive (multi-exposure) and Save Interim Images (Off) again on the record r4 when its
+    // Film Roll Mode is on: Mode Memory may have put them back to the factory's (V1-RC4).
+    const reforce = o.film ? `ldrb ip,[r4,#${GR3X_ROLL_FLAGS}];tst ip,#${GR3X_FILM_ON};beq rf;mov ip,#0;strb ip,[r4,#${GR3X_INTERIM}];
+      mov ip,#${GR3X_DRIVE_MULTI};strb ip,[r4,#${GR3X_DRIVE}];rf:` : '';
+    // The merge's own way out (`sub sp,fp,#0x1c; ldm sp,{r4-r7,fp,sp,pc}`), as raw words (no ldm in our code).
+    entries.memoryMergeReturn = p.append(new Uint8Array(new Uint32Array([0xe24bd01c, 0xe89da8f0]).buffer));
     // The merge's choice: Mode Memory also for a U mode (1..6) when the record merged is the record in use
-    // and its « Apply to U modes » is 1; flags and r0..r3 untouched by the camera after this point.
+    // and its « Apply to U modes » is 1, called (r0 UserDataModel, r1 the record) so that the film mode is
+    // forced again after it; flags and r0..r3 untouched by the camera after this point.
     entries.memoryUMerge = p.code(`cmp r7,#0;beq mm;cmp r7,#6;bhi box;ldr ip,[r6,#4];cmp ip,r4;bne box;
       ldrb ip,[ip,#${GR3X_MEMORY_U_SETTING}];cmp ip,#1;bne box;
+      mov r0,r6;mov r1,r4;bl #${MERGE_MEMORY_FN};${reforce}b #${entries.memoryMergeReturn};
       mm:b #${MERGE_MEMORY};box:b #${MERGE_BOX};`);
+    // A U mode's recall (the settings guard's hook, after the BOX was copied into the record in use and
+    // fixed: r0 the record, r1 the mode): Mode Memory too when « Apply to U modes » is 1, then the film
+    // mode's own recall (which forces its drive again).
+    entries.memoryURecall = p.code(`push {r4,r5,r6,lr};mov r4,r0;mov r5,r1;sub r2,r1,#1;cmp r2,#5;bhi done;${ram('r4', 'done')}
+      ldrb r2,[r4,#${GR3X_MEMORY_U_SETTING}];cmp r2,#1;bne done;movw r0,#${lo(MODEL)};movt r0,#${hi(MODEL)};ldr r2,[r0,#4];cmp r2,r4;bne done;
+      mov r1,r4;bl #${MERGE_MEMORY_FN};
+      done:mov r0,r4;mov r1,r5;pop {r4,r5,r6,lr};${o.filmRecall ? `b #${o.filmRecall};` : 'bx lr;'}`);
     p.patch(MERGE_CHOICE, 0xe3570000, branchWord(MERGE_CHOICE, entries.memoryUMerge), 'Mode Memory: also in U modes at power-on when Apply to U modes is ticked');
   }
   return entries;
