@@ -59,7 +59,8 @@ def expected(manifest):
     layout=manifest.get('lookLayout')
     if layout:
         assert manifest.get('round8') and sorted(layout['order'])==sorted(order) and len(set(layout['order']))==len(order)
-        assert 11 not in layout['hidden'] and set(layout['hidden'])<=set(order)
+        # 0.9.1: Standard (11) may be hidden, as long as a look of the movie list stays shown.
+        assert any(x not in layout['hidden'] for x in MOVIE) and set(layout['hidden'])<=set(order)
         order,hidden=list(layout['order']),list(layout['hidden'])
     shown=[x for x in order if x not in hidden]
     # Round 10 (GR IV): the films are in the movie list too.

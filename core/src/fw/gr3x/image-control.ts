@@ -446,7 +446,7 @@ export async function buildGr3xImageControls(raw: Uint8Array, options: Gr3xLookO
     const hiddenMask = (layout?.hidden ?? []).filter(id => id >= GR3X_FIRST_FILM && id < GR3X_FIRST_FILM + capacity).reduce((m, id) => (m | (1 << (id - GR3X_FIRST_FILM))) >>> 0, 0);
     const tables = installGr3xR10Tables(r10Program, slots.filter(s => s.record).map(s => ({ id: s.id, record: s.record, iconId: s.iconId, print: s.print })));
     const params = installGr3xR10Parameters(r10Program, { films: capacity, prints: slots.slice(0, capacity).map(s => s.print >>> 0), hiddenMask, setterSites: GR3X_PARAMETER_SETTER_LOOKS });
-    const guard = installGr3xGuardR10({ code, patch, u32, sites }, { films: capacity, maxRatio: gr3xMaxId(menu.menu), ...(layout ? { hidden: layout.hidden } : {}),
+    const guard = installGr3xGuardR10({ code, patch, u32, sites }, { films: capacity, maxRatio: gr3xMaxId(menu.menu), ...(layout ? { hidden: layout.hidden, order: layout.order } : {}),
       ...(features.adjSoftFocus ? { softFocusR10: true } : {}),
       // T23: the film mode's recall (Save Interim Images off, multi-exposure) after the guard's.
       // V1-RC4: with « Apply to U modes », Mode Memory first (memoryURecall ends with filmRollRecall).
@@ -476,7 +476,7 @@ export async function buildGr3xImageControls(raw: Uint8Array, options: Gr3xLookO
       const layout = round8 && features.lookLayout && !isGr3xFactoryLayout(features.lookLayout, capacity) ? features.lookLayout : undefined;
       const hiddenFilms = (layout?.hidden ?? []).filter(id => id >= GR3X_FIRST_FILM && id < GR3X_FIRST_FILM + capacity).reduce((m, id) => (m | (1 << (id - GR3X_FIRST_FILM))) >>> 0, 0);
       const prints = append(wordsToBytes([...slots.slice(0, capacity).map(s => s.print >>> 0), ...(round8 ? [hiddenFilms] : [])]));
-      const guard = installGr3xGuardCode({ code, patch, u32 }, { films: capacity, maxRatio: gr3xMaxId(menu.menu), ...(layout ? { hidden: layout.hidden } : {}) });
+      const guard = installGr3xGuardCode({ code, patch, u32 }, { films: capacity, maxRatio: gr3xMaxId(menu.menu), ...(layout ? { hidden: layout.hidden, order: layout.order } : {}) });
       const load = code(`push {r4,r5,r6,lr};mov r4,r0;bl #${GR3X_LOAD_DATA};mov r5,r0;mov r0,r4;mov r1,#${capacity};${addr(2, prints)}bl #${entry('sp_after_load')};
         mov r0,r4;bl #${guard.fixAll};mov r0,r5;pop {r4,r5,r6,pc};`);
       patch(GR3X_LOAD_CALL, branchWord(GR3X_LOAD_CALL, GR3X_LOAD_DATA, 14, true), branchWord(GR3X_LOAD_CALL, load, 14, true),

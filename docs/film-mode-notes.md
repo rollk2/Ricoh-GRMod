@@ -2569,3 +2569,22 @@ ne doivent pas avoir d'effet.
 - **V1-RC5 testé sur le boîtier (2026-11-02)** : BOX pellicule intacte (film, format,
   multi-exposition) à l'allumage et au rappel avec les trois cases décochées ; P remis à l'usine
   comme prévu. Candidat retenu pour la 0.9.0.
+
+## Standard masquable (0.9.1, build V1-RC6, 2026-11-02)
+
+Demande de l'utilisateur : pouvoir masquer Standard dans l'ordre des Image Control.
+- Pourquoi c'était interdit (GR Mod) : Standard (11) est la valeur de repli du garde-fou (look
+  inconnu ou masqué en usage → 11, au démarrage, à l'extinction et au rappel) et la valeur d'usine
+  (Mode Memory, Reset Settings, BOX vide).
+- Règle 0.9.1 : tant que Standard est visible, il reste le repli (les firmwares existants se
+  reconstruisent octet pour octet ; vérifié sur V1-RC5). Standard masqué : le repli est le premier
+  look **du boîtier** visible dans l'ordre (photo) et le premier visible de la liste vidéo (vidéo) ;
+  jamais un film (le garde-fou change l'octet du look sans charger les paramètres propres d'un film).
+  Au moins un look de la liste vidéo doit rester visible (moteur et application).
+- Rappel d'un U avec Standard masqué : le garde-fou repasse après le code ajouté (Mode Memory peut
+  redonner Standard).
+- Limite connue : juste après Reset Settings dans le menu, Standard reste sélectionné jusqu'à la
+  prochaine extinction ou au prochain changement de mode (comme tout look masqué laissé en usage).
+- Contrôles : `guard_probe.py` (repli calculé depuis l'ordre), `look_layout_probe.py`,
+  `film_roll_check.py` sur un build avec Standard, Soft Monotone, Hard Monotone et Hi-Contrast B&W
+  masqués (repli Monotone) ; tests unitaires (repli, validation, build par l'Engine reconnu).

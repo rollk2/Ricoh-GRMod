@@ -553,7 +553,7 @@ export async function buildGr3xAdjResearch(raw: Uint8Array, ratioMenu: readonly 
     const layout = features.lookLayout && !isGr3xFactoryLayout(features.lookLayout, 0) ? features.lookLayout : undefined;
     if (features.lookLayout) validateGr3xLookLayout(features.lookLayout, 0);
     const layoutEntries = layout ? installGr3xLookLayout({ code, append, patch, u32: word, read }, layout, 0) : {};
-    const guardOptions = { films: 0, maxRatio: gr3xMaxId(menu), ...(layout ? { hidden: layout.hidden } : {}), ...(round10 && softFocus ? { softFocusR10: true } : {}), ...((afResetEntries as Record<string, number>).memoryURecall ? { recallAfter: (afResetEntries as Record<string, number>).memoryURecall } : roll ? { recallAfter: roll.entries.filmRollRecall } : {}) };
+    const guardOptions = { films: 0, maxRatio: gr3xMaxId(menu), ...(layout ? { hidden: layout.hidden, order: layout.order } : {}), ...(round10 && softFocus ? { softFocusR10: true } : {}), ...((afResetEntries as Record<string, number>).memoryURecall ? { recallAfter: (afResetEntries as Record<string, number>).memoryURecall } : roll ? { recallAfter: roll.entries.filmRollRecall } : {}) };
     return { ...out, ...layoutEntries, ...(round10 ? installGr3xGuardR10({ code, patch, u32: word, sites }, guardOptions) : installGr3xGuard({ code, patch, u32: word }, guardOptions)) };
   })() : {};
   // The film roll's Save Interim Images rides on the guard's recall hook: no guard, no build.

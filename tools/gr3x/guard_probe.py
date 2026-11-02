@@ -25,13 +25,20 @@ REGION=0x63000000;UD=REGION;RECS=REGION+0x1000
 
 SOFT=0x9a1;ADJ_SLOTS=(0x918,0x91a,0x91c,0x91e,0x920)
 
-def guarded(rec,films,max_ratio,hidden=(),soft_r10=False):
-    out=bytearray(rec)
+STILL_LOOKS=(11,12,13,14,15,16,22,17,18,19,20,21);MOVIE_LOOKS=(11,12,13,15,16,22,17,18,19,21)
+def fallback(hidden,order):
+    # 0.9.1: with Standard hidden, the first camera look shown in the order (photo set) / of the movie list.
+    if 11 not in hidden:return 11,11
+    first=lambda lst:next(i for i in order if i in lst and i not in hidden)
+    return first(STILL_LOOKS),first(MOVIE_LOOKS)
+def guarded(rec,films,max_ratio,hidden=(),soft_r10=False,order=()):
+    out=bytearray(rec);still,movie=fallback(hidden,order)
     for off in LOOKS:
         v=out[off]
         if not (11<=v<=22 or 64<=v<64+films):out[off]=11
-        # Round 8: a hidden look of the standard photo / movie set becomes Standard (the custom sets keep theirs).
-        if off in (0x1c2,0x57e) and out[off] in hidden:out[off]=11
+        # Round 8: a hidden look of the standard photo / movie set becomes Standard, or the fallback when
+        # Standard is hidden (the custom sets keep theirs).
+        if off in (0x1c2,0x57e) and out[off] in hidden:out[off]=movie if off==0x57e else still
     if out[RATIO]>max_ratio:out[RATIO]=0
     # Round 10: soft focus on (1..3) and on no slot as 0x09: the slots that hold 0x13 (rounds 6..9) get 0x09.
     if soft_r10 and 1<=out[SOFT]<=3 and not any(out[f]==9 for f in ADJ_SLOTS):
@@ -95,10 +102,10 @@ def entries_of(manifest):
 
 def verify(data,manifest,seed=1107,rounds=400):
     g=entries_of(manifest);films=g['films'];max_ratio=max(r['id'] for r in manifest['menu'])
-    hidden=tuple((manifest.get('lookLayout') or {}).get('hidden',()))
+    hidden=tuple((manifest.get('lookLayout') or {}).get('hidden',()));order=tuple((manifest.get('lookLayout') or {}).get('order',()))
     assert not hidden or manifest.get('round8')
     r10=bool(manifest.get('round10'));soft_r10=r10 and bool(manifest.get('adjSoftFocus'))
-    want=lambda rec,f,m:guarded(rec,f,m,hidden,soft_r10)
+    want=lambda rec,f,m:guarded(rec,f,m,hidden,soft_r10,order)
     assert max_ratio==3+sum(1 for r in manifest['menu'] if r['id']>=4)
     p=GuardProbe(data,manifest);cpu=p.uc;rng=random.Random(seed+films*31+max_ratio);calls=0;fixed=0
     # The hook sites point at the guard.
