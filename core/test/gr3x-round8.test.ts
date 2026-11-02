@@ -8,6 +8,7 @@ import { gr3xFactoryLookOrder, gr3xLookLists, isGr3xFactoryLayout, validateGr3xL
 import { encodeGr3xRatioRecipe, readGr3xBuildRecipe } from '../src/fw/gr3x/ratio-recipe';
 import { GR3X_FACTORY_LOOK_NAMES } from '../src/fw/gr3x/datestamp';
 import { openGr3xOfficial } from '../src/fw/gr3x/profile';
+import { gr3xGuardFallback } from '../src/fw/gr3x/guard';
 import { Firmware, sectionsOf } from '../src/fw/container';
 import { GR3X_CAMERA } from '../src/color/gr3x-camera';
 import { monoLook } from '../src/fw/aspect/lookstash';
@@ -32,9 +33,19 @@ describe('GR III round 8 helpers', () => {
     expect(isGr3xFactoryLayout({ order: gr3xFactoryLookOrder(3), hidden: [] }, 3)).toBe(true);
     expect(isGr3xFactoryLayout({ order: gr3xFactoryLookOrder(3), hidden: [64] }, 3)).toBe(false);
   });
+  it('falls back on the first camera look shown when Standard is hidden (0.9.1)', () => {
+    expect(gr3xGuardFallback({ hidden: [18] })).toEqual({ still: 11, movie: 11 });
+    expect(gr3xGuardFallback({ hidden: [11, 14, 15], order: [64, 14, 13, 11, 12, 15, 16, 17, 18, 19, 20, 21, 22] })).toEqual({ still: 13, movie: 13 });
+    // Soft Monotone (14) and HDR Tone (20) are not in the movie list.
+    expect(gr3xGuardFallback({ hidden: [11], order: [64, 14, 20, 13, 11, 12, 15, 16, 17, 18, 19, 21, 22] })).toEqual({ still: 14, movie: 13 });
+    expect(() => gr3xGuardFallback({ hidden: [11] })).toThrow();
+  });
   it('refuses layouts the build cannot show', () => {
     const f = gr3xFactoryLookOrder(1);
-    expect(() => validateGr3xLookLayout({ order: f, hidden: [11] }, 1)).toThrow(/Standard/);
+    // 0.9.1: Standard may be hidden, not every look of the movie list.
+    expect(() => validateGr3xLookLayout({ order: f, hidden: [11] }, 1)).not.toThrow();
+    expect(() => validateGr3xLookLayout({ order: f, hidden: [11, 12, 13, 15, 16, 22, 17, 18, 19, 21] }, 1)).toThrow(/movie list/);
+    expect(() => validateGr3xLookLayout({ order: f, hidden: [11, 12, 13, 15, 16, 22, 17, 18, 19] }, 1)).not.toThrow();
     expect(() => validateGr3xLookLayout({ order: f.slice(1), hidden: [] }, 1)).toThrow();
     expect(() => validateGr3xLookLayout({ order: [...f, 65], hidden: [] }, 1)).toThrow();
     expect(() => validateGr3xLookLayout({ order: f, hidden: [65] }, 1)).toThrow();
@@ -145,7 +156,10 @@ describe.skipIf(!input)('GR III round 8: as GR IV 0.8.4', () => {
     const same = await engine.buildFirmware([], ratios, [], { filmCount: 2, dateStamp: true, lookLayout: { order: gr3xFactoryLookOrder(2), hidden: [] } });
     const none = await engine.buildFirmware([], ratios, [], { filmCount: 2, dateStamp: true });
     expect(same.sha256).toBe(none.sha256);
-    await expect(engine.buildFirmware([], ratios, [], { filmCount: 2, lookLayout: { order, hidden: [11] } })).rejects.toThrow();
+    await expect(engine.buildFirmware([], ratios, [], { filmCount: 2, lookLayout: { order, hidden: [11, 12, 13, 15, 16, 22, 17, 18, 19, 21] } })).rejects.toThrow();
+    // 0.9.1: Standard hidden, recorded and recognised.
+    const noStd = await engine.buildFirmware([], ratios, [], { filmCount: 2, dateStamp: true, lookLayout: { order, hidden: [11, 18] } });
+    expect(await (await Engine.open(raw)).inspect(noStd.file)).toMatchObject({ verified: true, lookLayout: { hidden: [11, 18] } });
     await expect(engine.buildFirmware([], ratios, [], { filmCount: 2, gr3Round: 7, lookLayout: { order, hidden: [] } })).rejects.toThrow();
   }, 900000);
 });

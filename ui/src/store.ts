@@ -242,7 +242,7 @@ function parseFamily(doc: FamilyDoc | null): Partial<State> {
     slots, extras, activeSlot: 'CY', wall: [], ratios, activeRatio: ratios[0]?.id,
     lookOrder: normalizeLookOrder(Array.isArray(doc?.lookOrder) ? doc!.lookOrder : [], extras),
     lookHidden: normalizeLookHidden(Array.isArray(doc?.lookHidden) ? doc!.lookHidden : [], extras),
-    lookOrder3: gr3SavedKeys(doc?.lookOrder3), lookHidden3: gr3SavedKeys(doc?.lookHidden3).filter((k) => k !== 'g11'),
+    lookOrder3: gr3SavedKeys(doc?.lookOrder3), lookHidden3: gr3SavedKeys(doc?.lookHidden3),
     soft: doc?.soft === true || (!!doc?.softFocus && typeof doc.softFocus === 'object' && Object.keys(doc.softFocus).length > 0),
     dateStamp: doc?.dateStamp === true, monoUnlock: doc?.monoUnlock === true, directFlash: doc?.directFlash === true,
     filmMode: doc?.filmMode === true, noMovie: doc?.noMovie === true,
@@ -580,8 +580,12 @@ const GR3_LOOK_NAMES: Record<number, { zh: string; en: string }> = {
 const factoryLookKey = (id: number): string => `f${id}`;
 /** GR III's keys: g<look> for its own looks and its films (64..). */
 const gr3LookKey = (id: number): string => `g${id}`;
-/** Standard and the monochrome looks' Standard: what the camera falls back to for a hidden look that is selected (see guard.ts). */
-export const KEEP_VISIBLE = ['f11', 'f25', 'g11'];
+/** GR IV's Standard and the monochrome looks' Standard: what the camera falls back to for a hidden look
+ * that is selected. GR III's Standard (g11) can be hidden from 0.9.1 (guard.ts: the first camera look
+ * shown takes over), as long as one look of its movie list stays shown. */
+export const KEEP_VISIBLE = ['f11', 'f25'];
+/** GR III's movie Image Control list (camera looks only): one of them must stay shown. */
+const GR3_MOVIE_LOOK_KEYS = ['g11', 'g12', 'g13', 'g15', 'g16', 'g22', 'g17', 'g18', 'g19', 'g21'];
 /** Added slots are not built on the Monochrome camera (it has no colour looks), so they are not in the order either. */
 function lookExtras(s: State): ExtraSlot[] { return s.model === 'MONO' ? [] : s.extras; }
 /** The order and hidden looks of the open camera family: GR III / IIIx keeps its own. */
@@ -698,6 +702,7 @@ export function moveLook(key: string, delta: number): void {
 }
 export function setLookHidden(key: string, hidden: boolean): void {
   if (KEEP_VISIBLE.includes(key)) { toast(t(gr3Order(state) ? 'lookOrderKeepStandardGr3' : 'lookOrderKeepStandard'), 'info'); return; }
+  if (hidden && gr3Order(state) && GR3_MOVIE_LOOK_KEYS.every((k) => k === key || lookHiddenNow(state).includes(k))) { toast(t('lookOrderKeepOneGr3'), 'info'); return; }
   set((s) => {
     const list = lookHiddenNow(s).filter((k) => k !== key);
     if (hidden) list.push(key);

@@ -15,7 +15,7 @@ import { GR3X_PARAMETER_SETTER_LOOKS, GR3X_STANDARD_ACTIVE_CHECKS, GR3X_STANDARD
   GR3X_ZERO_FILL_END, GR3X_GAP, GR3X_HEAP_BASE, GR3X_R10_TONE_READS } from './look-addresses';
 import { GR3X_TONE_RECORD_TAIL, installGr3xR10Parameters, installGr3xR10PictureInfo, installGr3xR10Raw, installGr3xR10Tables } from './films-r10';
 import { gr3xFactoryLookOrder } from './look-layout';
-import { installGr3xGuardR10 } from './guard';
+import { installGr3xGuardR10, installGr3xGuardReset, GR3X_STANDARD_LOOK } from './guard';
 import { gr3xRawDevelopmentWordsR10 } from './datestamp';
 import { GR3X_SLOTS_NATIVE } from './slots-native';
 import { GR3X_SLOTS2_NATIVE } from './slots2-native';
@@ -446,7 +446,7 @@ export async function buildGr3xImageControls(raw: Uint8Array, options: Gr3xLookO
     const hiddenMask = (layout?.hidden ?? []).filter(id => id >= GR3X_FIRST_FILM && id < GR3X_FIRST_FILM + capacity).reduce((m, id) => (m | (1 << (id - GR3X_FIRST_FILM))) >>> 0, 0);
     const tables = installGr3xR10Tables(r10Program, slots.filter(s => s.record).map(s => ({ id: s.id, record: s.record, iconId: s.iconId, print: s.print })));
     const params = installGr3xR10Parameters(r10Program, { films: capacity, prints: slots.slice(0, capacity).map(s => s.print >>> 0), hiddenMask, setterSites: GR3X_PARAMETER_SETTER_LOOKS });
-    const guard = installGr3xGuardR10({ code, patch, u32, sites }, { films: capacity, maxRatio: gr3xMaxId(menu.menu), ...(layout ? { hidden: layout.hidden } : {}),
+    const guard = installGr3xGuardR10({ code, patch, u32, sites }, { films: capacity, maxRatio: gr3xMaxId(menu.menu), ...(layout ? { hidden: layout.hidden, order: layout.order } : {}),
       ...(features.adjSoftFocus ? { softFocusR10: true } : {}),
       // T23: the film mode's recall (Save Interim Images off, multi-exposure) after the guard's.
       // V1-RC4: with « Apply to U modes », Mode Memory first (memoryURecall ends with filmRollRecall).
@@ -476,7 +476,7 @@ export async function buildGr3xImageControls(raw: Uint8Array, options: Gr3xLookO
       const layout = round8 && features.lookLayout && !isGr3xFactoryLayout(features.lookLayout, capacity) ? features.lookLayout : undefined;
       const hiddenFilms = (layout?.hidden ?? []).filter(id => id >= GR3X_FIRST_FILM && id < GR3X_FIRST_FILM + capacity).reduce((m, id) => (m | (1 << (id - GR3X_FIRST_FILM))) >>> 0, 0);
       const prints = append(wordsToBytes([...slots.slice(0, capacity).map(s => s.print >>> 0), ...(round8 ? [hiddenFilms] : [])]));
-      const guard = installGr3xGuardCode({ code, patch, u32 }, { films: capacity, maxRatio: gr3xMaxId(menu.menu), ...(layout ? { hidden: layout.hidden } : {}) });
+      const guard = installGr3xGuardCode({ code, patch, u32 }, { films: capacity, maxRatio: gr3xMaxId(menu.menu), ...(layout ? { hidden: layout.hidden, order: layout.order } : {}) });
       const load = code(`push {r4,r5,r6,lr};mov r4,r0;bl #${GR3X_LOAD_DATA};mov r5,r0;mov r0,r4;mov r1,#${capacity};${addr(2, prints)}bl #${entry('sp_after_load')};
         mov r0,r4;bl #${guard.fixAll};mov r0,r5;pop {r4,r5,r6,pc};`);
       patch(GR3X_LOAD_CALL, branchWord(GR3X_LOAD_CALL, GR3X_LOAD_DATA, 14, true), branchWord(GR3X_LOAD_CALL, load, 14, true),
@@ -485,7 +485,9 @@ export async function buildGr3xImageControls(raw: Uint8Array, options: Gr3xLookO
       patch(GR3X_SAVE_CALL, branchWord(GR3X_SAVE_CALL, GR3X_SAVE_DATA), branchWord(GR3X_SAVE_CALL, save),
         'settings guard and own film parameters: the settings save, then the table');
       const recall = installGr3xGuardRecall({ code, patch, u32 }, guard.fix, entry('sp_before_recall'));
-      return { module: origin, moduleSha256: native.sourceSha256, styles, load, save, prints, guardFix: guard.fix, guardFixAll: guard.fixAll, guardRecall: recall, exports: { ...native.exports } };
+      // 0.9.1, Standard hidden: the guard after Reset Settings too.
+      const reset = layout?.hidden.includes(GR3X_STANDARD_LOOK) ? { guardReset: installGr3xGuardReset({ code, patch, u32 }, guard.fix) } : {};
+      return { module: origin, moduleSha256: native.sourceSha256, styles, load, save, prints, guardFix: guard.fix, guardFixAll: guard.fixAll, guardRecall: recall, ...reset, exports: { ...native.exports } };
     }
     // Round 6: the build's number of films goes with the load (slots2.c checks the sets' looks).
     const load = code(`push {r4,lr};mov r4,r0;bl #${GR3X_LOAD_DATA};mov r0,r4;${own2 ? `mov r1,#${capacity};` : ''}bl #${entry('sp_after_load')};pop {r4,pc};`);

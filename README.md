@@ -2,7 +2,11 @@
 
 GR Mod Film is a fork of [GR Mod](https://github.com/Maxwooow/Ricoh-GRMod) by Maxwooow that adds a
 **film mode** to the Ricoh GR III (firmware 2.10) and GR IIIx (firmware 1.60). Everything GR Mod
-does is kept; the GR IV part is unchanged. Not a Ricoh product, not an official GR Mod release.
+does for these cameras is kept. Not a Ricoh product, not an official GR Mod release.
+
+> **GR IV: not supported by GR Mod Film.** The GR IV is out of scope: nothing has been developed or
+> tested for it here. GR IV owners should use [GR Mod](https://github.com/Maxwooow/Ricoh-GRMod).
+> (GR Mod's GR IV code is still in this repository, untouched, because the program is shared.)
 
 Version 0.9.0. Camera-tested on a GR III 2.10. The GR IIIx 1.60 is the same program (same
 addresses, same emulator checks) but has **not been tested on a camera**.
@@ -29,6 +33,8 @@ addresses, same emulator checks) but has **not been tested on a camera**.
   U3, at power-on and when the dial recalls a U mode; the BOXes saved are never changed). In a BOX
   with Film Roll Mode on, Mode Memory never touches the roll's Image Control, Aspect Ratio and Drive.
   With No movie, Still/Movie is not in the list.
+- **Standard can be hidden** from the Image Control list (0.9.1): a hidden look in use, or Standard
+  after a reset, becomes the first camera look shown in your order. One camera look stays shown.
 - The film mode builds on GR Mod's date imprint stage; when the date imprint itself is not
   wanted, its menu line is hidden and nothing is printed on the photos.
 
@@ -46,9 +52,17 @@ is always possible.
 
 The development notes (in French) are in `CAHIER_DES_CHARGES.md` and `docs/film-mode-notes.md`.
 
+## Thanks
+
+None of this would exist without [GR Mod](https://github.com/Maxwooow/Ricoh-GRMod). Maxwooow mapped
+the GR III / IIIx firmware, found the addresses, built the tools that patch, check and emulate it,
+and wrote the whole desktop program; his first release opened the way. GR Mod Film builds on top of
+his work.
+
 ---
 
-The rest of this file is GR Mod's own documentation.
+The rest of this file is GR Mod's own documentation (it also describes the GR IV, which GR Mod Film
+does not support).
 
 # GR Mod
 

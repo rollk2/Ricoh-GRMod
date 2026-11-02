@@ -23,7 +23,8 @@
  * the count) goes to the camera's code as before. The widget allocation (0x532c2b7c) keeps its
  * largest count. A hidden look selected in the standard photo or movie set becomes Standard at
  * start, power off and mode recall (guard.ts; films: native/slots3.c -DHIDDEN_FILMS keeps its
- * values); Standard (11) cannot be hidden.
+ * values). Standard (11) can be hidden from 0.9.1: the fallback is then the first camera look shown
+ * (guard.ts, gr3xGuardFallback).
  */
 import { branchWord } from '../aspect/arm';
 import { FirmwareError } from '../types';
@@ -36,7 +37,7 @@ export const GR3X_FIRST_FILM_LOOK = 64;
 export interface Gr3xLookLayout {
   /** Looks in menu order: a permutation of the camera's twelve and the build's films (64..63 + n). */
   order: readonly number[];
-  /** Looks hidden from the lists (never Standard, 11). */
+  /** Looks hidden from the lists (Standard, 11, too from 0.9.1, as long as a look of the movie list is shown). */
   hidden: readonly number[];
 }
 
@@ -63,7 +64,9 @@ export function validateGr3xLookLayout(layout: Gr3xLookLayout, films: number): v
   if (layout.order.length !== expected.length || new Set(layout.order).size !== expected.length || layout.order.some(id => !expected.includes(id)))
     fail('bad-look-layout', `the order must hold each of ${expected.join(', ')} once`);
   if (new Set(layout.hidden).size !== layout.hidden.length || layout.hidden.some(id => !expected.includes(id))) fail('bad-look-layout', 'hidden looks');
-  if (layout.hidden.includes(11)) fail('bad-look-layout', 'Standard (11) must stay visible');
+  // 0.9.1: Standard may be hidden; the guard's fallback is then the first camera look shown, which the
+  // movie list (camera looks only) needs too.
+  if (GR3X_MOVIE_LOOKS.every(id => layout.hidden.includes(id))) fail('bad-look-layout', 'at least one look of the movie list must stay visible');
 }
 
 /** True for the camera's order with nothing hidden (such a layout changes nothing and is not built). */

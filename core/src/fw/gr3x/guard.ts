@@ -31,6 +31,7 @@ import { branchWord } from '../aspect/arm';
 import { FirmwareError } from '../types';
 import { GR3X_LOAD_CALL, GR3X_LOAD_DATA, GR3X_SAVE_CALL, GR3X_SAVE_DATA } from './look-addresses';
 import { gr3xSettingsHook, gr3xSettingsPrior } from './round10';
+import { GR3X_MOVIE_LOOKS, GR3X_STILL_LOOKS } from './look-layout';
 import type { Gr3xSite } from './round10';
 
 export const GR3X_STANDARD_LOOK = 11;
@@ -53,8 +54,12 @@ export interface Gr3xGuardOptions {
   films: number;
   /** The largest ratio identity of the build's menu (3 + added ratios). */
   maxRatio: number;
-  /** Round 8: looks hidden from the lists (never Standard). */
+  /** Round 8: looks hidden from the lists. Standard (11) may be hidden only with `order` (0.9.1). */
   hidden?: readonly number[];
+  /** The layout's order: with Standard hidden, a hidden look in use (or Standard from a factory reset)
+   * becomes the first camera look (11..22) shown in this order, in the movie set the first shown look
+   * of the movie list. */
+  order?: readonly number[];
   /** Round 10 with soft focus on function 0x09 (adj-softfocus.ts): a record whose soft focus is on
    * (byte 0x9a1 1..3) and that has it on no ADJ slot gets 0x09 on the slots holding 0x13, where
    * rounds 6..9 had it; with 0x13 on no slot either, soft focus is turned off (byte 0): the level
@@ -75,15 +80,16 @@ const bl = (at: number, target: number) => (0xeb000000 | (((target - (at + 8)) >
 export function installGr3xGuardCode(p: Gr3xGuardProgram, o: Gr3xGuardOptions) {
   if (!Number.isInteger(o.films) || o.films < 0 || o.films > 20) fail('number of films');
   if (!Number.isInteger(o.maxRatio) || o.maxRatio < 3 || o.maxRatio > 10) fail('ratio identities');
+  const fallback = gr3xGuardFallback(o);
   const lines = ['cmp r0,#0', 'bxeq lr'];
   LOOKS.forEach((off, i) => {
     lines.push(`ldrb r2,[r0,#${off}]`, `sub r3,r2,#${OWN_LOOKS[0]}`, `cmp r3,#${OWN_LOOKS[1] - OWN_LOOKS[0]}`, `bls look${i}`);
     if (o.films > 0) lines.push(`sub r3,r2,#${FIRST_FILM}`, `cmp r3,#${o.films}`, `blo look${i}`);
     lines.push(`mov r2,#${GR3X_STANDARD_LOOK}`, `strb r2,[r0,#${off}]`, `look${i}:`);
     if (CURRENT_LOOKS.includes(off) && o.hidden?.length) {
-      lines.push(`ldrb r2,[r0,#${off}]`, `mov r3,#${GR3X_STANDARD_LOOK}`);
+      lines.push(`ldrb r2,[r0,#${off}]`, `mov r3,#${off === CURRENT_LOOKS[1] ? fallback.movie : fallback.still}`);
       for (const h of o.hidden) {
-        if (h === GR3X_STANDARD_LOOK || !Number.isInteger(h) || h < 0 || h > 255) fail('a hidden look');
+        if (!Number.isInteger(h) || h < 0 || h > 255) fail('a hidden look');
         lines.push(`cmp r2,#${h}`, `strbeq r3,[r0,#${off}]`);
       }
     }
@@ -106,14 +112,40 @@ export function installGr3xGuardCode(p: Gr3xGuardProgram, o: Gr3xGuardOptions) {
   return { fix, fixAll };
 }
 
-/** The mode recall: the record just copied into use. */
-export function installGr3xGuardRecall(p: Gr3xGuardProgram, fix: number, before?: number, after?: number) {
+/** The look a hidden look in use becomes: Standard while it is shown (as before 0.9.1); with Standard
+ * hidden, the first camera look shown in the layout's order (photo set) and the first shown look of the
+ * movie list (movie set). Films are never a fallback: the guard changes the look byte without loading a
+ * film's own parameters. */
+export function gr3xGuardFallback(o: { hidden?: readonly number[]; order?: readonly number[] }): { still: number; movie: number } {
+  const hidden = o.hidden ?? [];
+  if (!hidden.includes(GR3X_STANDARD_LOOK)) return { still: GR3X_STANDARD_LOOK, movie: GR3X_STANDARD_LOOK };
+  if (!o.order) fail('Standard hidden without the layout order');
+  const first = (list: readonly number[]) => o.order!.find(id => list.includes(id) && !hidden.includes(id)) ?? fail('no camera look shown in the movie list');
+  return { still: first(GR3X_STILL_LOOKS), movie: first(GR3X_MOVIE_LOOKS) };
+}
+
+/** Reset Settings (0x5327a060): the factory values copied into the record in use (look 11 at
+ * 0x5326cf5c), then the record to the live values at 0x5327a0b4 (`bl 0x532750f8`, r5 UserDataModel). */
+export const GR3X_RESET_PUSH = 0x5327a0b0;
+const LIVE_PUSH = 0x532750f8;
+/** 0.9.1, Standard hidden: the guard on the record in use between Reset Settings and the live values,
+ * so that the camera never shows the hidden Standard. */
+export function installGr3xGuardReset(p: Gr3xGuardProgram, fix: number) {
+  if (p.u32(GR3X_RESET_PUSH) !== 0xe1a00005 || p.u32(GR3X_RESET_PUSH + 4) !== bl(GR3X_RESET_PUSH + 4, LIVE_PUSH)) fail('Reset Settings');
+  const reset = p.code(`ldr r0,[r5,#4];bl #${fix};mov r0,r5;b #${GR3X_RESET_PUSH + 4};`);
+  p.patch(GR3X_RESET_PUSH, 0xe1a00005, branchWord(GR3X_RESET_PUSH, reset), 'settings guard: after Reset Settings (Standard hidden)');
+  return reset;
+}
+
+/** The mode recall: the record just copied into use. `refix`: the guard once more after `after`
+ * (Mode Memory may give Standard back when it is hidden). */
+export function installGr3xGuardRecall(p: Gr3xGuardProgram, fix: number, before?: number, after?: number, refix = false) {
   if (p.u32(GR3X_RECALL_COPY) !== bl(GR3X_RECALL_COPY, MEMCPY) || p.u32(GR3X_RECALL_COPY - 0x18) !== 0xe5950004 || p.u32(GR3X_RECALL_COPY - 0x50) !== 0xe1a05000 ||
       p.u32(GR3X_RECALL_COPY + 0x14) !== bl(GR3X_RECALL_COPY + 0x14, 0x532750f8)) fail('mode recall');
   // `before(settings object)` (the films' own parameters, slots3.c): r5 holds the object here.
   const pre = before ? `push {r0,r1,r2,r3,r4,lr};mov r0,r5;bl #${before};pop {r0,r1,r2,r3,r4,lr};` : '';
   // `after(record, mode)`: the recall (0x53279fa8) keeps the mode recalled in r6 (0x53279fb8 to 0x5327a00c).
-  const post = after ? `mov r0,r4;mov r1,r6;bl #${after};` : '';
+  const post = after ? `mov r0,r4;mov r1,r6;bl #${after};${refix ? `mov r0,r4;bl #${fix};` : ''}` : '';
   const recall = p.code(`${pre}push {r4,lr};mov r4,r0;bl #${MEMCPY};mov r0,r4;bl #${fix};${post}mov r0,r4;pop {r4,pc};`);
   p.patch(GR3X_RECALL_COPY, bl(GR3X_RECALL_COPY, MEMCPY), bl(GR3X_RECALL_COPY, recall), 'settings guard: a recalled mode');
   return recall;
@@ -127,8 +159,9 @@ export function installGr3xGuard(p: Gr3xGuardProgram, o: Gr3xGuardOptions) {
   p.patch(GR3X_LOAD_CALL, bl(GR3X_LOAD_CALL, GR3X_LOAD_DATA), bl(GR3X_LOAD_CALL, load), 'settings guard: after the settings load');
   const save = p.code(`push {r4,lr};mov r4,r0;bl #${fixAll};mov r0,r4;pop {r4,lr};b #${GR3X_SAVE_DATA};`);
   p.patch(GR3X_SAVE_CALL, branchWord(GR3X_SAVE_CALL, GR3X_SAVE_DATA), branchWord(GR3X_SAVE_CALL, save), 'settings guard: before the settings save');
-  const recall = installGr3xGuardRecall(p, fix, undefined, o.recallAfter);
-  return { guardFix: fix, guardFixAll: fixAll, guardLoad: load, guardSave: save, guardRecall: recall };
+  const recall = installGr3xGuardRecall(p, fix, undefined, o.recallAfter, !!o.hidden?.includes(GR3X_STANDARD_LOOK));
+  const reset = o.hidden?.includes(GR3X_STANDARD_LOOK) ? { guardReset: installGr3xGuardReset(p, fix) } : {};
+  return { guardFix: fix, guardFixAll: fixAll, guardLoad: load, guardSave: save, guardRecall: recall, ...reset };
 }
 
 /**
@@ -144,6 +177,7 @@ export function installGr3xGuardR10(p: Gr3xGuardProgram & { sites: Gr3xSite[] },
   gr3xSettingsHook(p, 'load', load, 'settings guard: after the settings load');
   const save = p.code(`push {r4,lr};mov r4,r0;bl #${fixAll};mov r0,r4;pop {r4,lr};b #${priorSave};`);
   gr3xSettingsHook(p, 'save', save, 'settings guard: before the settings save');
-  const recall = installGr3xGuardRecall(p, fix, before, o.recallAfter);
-  return { guardFix: fix, guardFixAll: fixAll, guardLoad: load, guardSave: save, guardRecall: recall };
+  const recall = installGr3xGuardRecall(p, fix, before, o.recallAfter, !!o.hidden?.includes(GR3X_STANDARD_LOOK));
+  const reset = o.hidden?.includes(GR3X_STANDARD_LOOK) ? { guardReset: installGr3xGuardReset(p, fix) } : {};
+  return { guardFix: fix, guardFixAll: fixAll, guardLoad: load, guardSave: save, guardRecall: recall, ...reset };
 }

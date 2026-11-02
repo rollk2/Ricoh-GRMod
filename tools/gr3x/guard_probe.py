@@ -25,13 +25,20 @@ REGION=0x63000000;UD=REGION;RECS=REGION+0x1000
 
 SOFT=0x9a1;ADJ_SLOTS=(0x918,0x91a,0x91c,0x91e,0x920)
 
-def guarded(rec,films,max_ratio,hidden=(),soft_r10=False):
-    out=bytearray(rec)
+STILL_LOOKS=(11,12,13,14,15,16,22,17,18,19,20,21);MOVIE_LOOKS=(11,12,13,15,16,22,17,18,19,21)
+def fallback(hidden,order):
+    # 0.9.1: with Standard hidden, the first camera look shown in the order (photo set) / of the movie list.
+    if 11 not in hidden:return 11,11
+    first=lambda lst:next(i for i in order if i in lst and i not in hidden)
+    return first(STILL_LOOKS),first(MOVIE_LOOKS)
+def guarded(rec,films,max_ratio,hidden=(),soft_r10=False,order=()):
+    out=bytearray(rec);still,movie=fallback(hidden,order)
     for off in LOOKS:
         v=out[off]
         if not (11<=v<=22 or 64<=v<64+films):out[off]=11
-        # Round 8: a hidden look of the standard photo / movie set becomes Standard (the custom sets keep theirs).
-        if off in (0x1c2,0x57e) and out[off] in hidden:out[off]=11
+        # Round 8: a hidden look of the standard photo / movie set becomes Standard, or the fallback when
+        # Standard is hidden (the custom sets keep theirs).
+        if off in (0x1c2,0x57e) and out[off] in hidden:out[off]=movie if off==0x57e else still
     if out[RATIO]>max_ratio:out[RATIO]=0
     # Round 10: soft focus on (1..3) and on no slot as 0x09: the slots that hold 0x13 (rounds 6..9) get 0x09.
     if soft_r10 and 1<=out[SOFT]<=3 and not any(out[f]==9 for f in ADJ_SLOTS):
@@ -88,17 +95,17 @@ class GuardProbe(AdjProbe):
 def entries_of(manifest):
     """The guard's entries: in the adj layer (no films) or with the films' own parameters."""
     e=manifest['entries']
-    if 'guardFixAll' in e:return dict(fix=e['guardFix'],fixAll=e['guardFixAll'],recall=e['guardRecall'],films=0,own=False)
+    if 'guardFixAll' in e:return dict(fix=e['guardFix'],fixAll=e['guardFixAll'],recall=e['guardRecall'],reset=e.get('guardReset'),films=0,own=False)
     # Round 10: with the films' module (films-r10.ts).
     own=manifest['lookEntries'].get('films') or manifest['lookEntries']['ownParameters']
-    return dict(fix=own['guardFix'],fixAll=own['guardFixAll'],recall=own['guardRecall'],films=manifest['filmCount'],own=True)
+    return dict(fix=own['guardFix'],fixAll=own['guardFixAll'],recall=own['guardRecall'],reset=own.get('guardReset'),films=manifest['filmCount'],own=True)
 
 def verify(data,manifest,seed=1107,rounds=400):
     g=entries_of(manifest);films=g['films'];max_ratio=max(r['id'] for r in manifest['menu'])
-    hidden=tuple((manifest.get('lookLayout') or {}).get('hidden',()))
+    hidden=tuple((manifest.get('lookLayout') or {}).get('hidden',()));order=tuple((manifest.get('lookLayout') or {}).get('order',()))
     assert not hidden or manifest.get('round8')
     r10=bool(manifest.get('round10'));soft_r10=r10 and bool(manifest.get('adjSoftFocus'))
-    want=lambda rec,f,m:guarded(rec,f,m,hidden,soft_r10)
+    want=lambda rec,f,m:guarded(rec,f,m,hidden,soft_r10,order)
     assert max_ratio==3+sum(1 for r in manifest['menu'] if r['id']>=4)
     p=GuardProbe(data,manifest);cpu=p.uc;rng=random.Random(seed+films*31+max_ratio);calls=0;fixed=0
     # The hook sites point at the guard.
@@ -152,6 +159,19 @@ def verify(data,manifest,seed=1107,rounds=400):
         if manifest.get('filmRoll') and 1<=mode<=6 and (manifest['filmRoll'] not in ('menu','keys','fn','fn2','fn3','fn4','fn5','rt1','fn6','fn7','dir1','dir2','dir3','dg1','dg2','dg3','dir4','dir5','dir6','dir7','dir8','dir9','dir10','dir11','dir12','dir13','dir14','end1','end2','end3','clo1','clo2','clo3','clo4','msg1','rwd1','hide1','card1','card2','card3','vid1','vid2','vid3','vid4','tab1','name1','name2','film','card1','card2','card3','vid1','vid2','vid3','vid4','tab1','name1','name2','film','card2') or src[0x9b1]&1):expect[0x482]=0;expect[0x472]=3
         assert bytes(cpu.mem_read(RECS,0xb26))==bytes(expect)
         assert bytes(cpu.mem_read(RECS+(1+mode)*0x1000,SIZE))==src
+    # 2b. 0.9.1, Standard hidden: Reset Settings (0x5327a060) guards the record in use before the live values.
+    reset_checked=0
+    if 11 in hidden:
+        assert g['reset'],'Reset Settings hook'
+        w=struct.unpack('<I',bytes(cpu.mem_read(0x5327a0b0,4)))[0];assert w==(0xea000000|(((g['reset']-0x5327a0b0-8)>>2)&0xffffff))
+        for _ in range(32):
+            recs,ud=p.records(rng)
+            r0=bytearray(recs[0]);r0[0x1c2]=rng.choice([11,11,14,13,12,99]);r0[0x57e]=rng.choice([11,15,13]);cpu.mem_write(RECS,bytes(r0))
+            p.run(0x5327a0b0,0x5327a0b4,{5:UD,4:0x4444});calls+=1;reset_checked+=1
+            assert cpu.reg_read(reg.UC_ARM_REG_R0)==UD and cpu.reg_read(reg.UC_ARM_REG_R5)==UD and cpu.reg_read(reg.UC_ARM_REG_R4)==0x4444
+            assert bytes(cpu.mem_read(RECS,SIZE))==want(bytes(r0),films,max_ratio)
+            for i in range(1,8):assert bytes(cpu.mem_read(RECS+i*0x1000,SIZE))==recs[i]
+    else:assert not g['reset']
     # 3. Load and save (without films; with films slots_probe runs them with the films' table).
     load_save=False
     if not g['own']:

@@ -2569,3 +2569,31 @@ ne doivent pas avoir d'effet.
 - **V1-RC5 testé sur le boîtier (2026-11-02)** : BOX pellicule intacte (film, format,
   multi-exposition) à l'allumage et au rappel avec les trois cases décochées ; P remis à l'usine
   comme prévu. Candidat retenu pour la 0.9.0.
+
+## Standard masquable (0.9.1, build V1-RC6, 2026-11-02)
+
+Demande de l'utilisateur : pouvoir masquer Standard dans l'ordre des Image Control.
+- Pourquoi c'était interdit (GR Mod) : Standard (11) est la valeur de repli du garde-fou (look
+  inconnu ou masqué en usage → 11, au démarrage, à l'extinction et au rappel) et la valeur d'usine
+  (Mode Memory, Reset Settings, BOX vide).
+- Règle 0.9.1 : tant que Standard est visible, il reste le repli (les firmwares existants se
+  reconstruisent octet pour octet ; vérifié sur V1-RC5). Standard masqué : le repli est le premier
+  look **du boîtier** visible dans l'ordre (photo) et le premier visible de la liste vidéo (vidéo) ;
+  jamais un film (le garde-fou change l'octet du look sans charger les paramètres propres d'un film).
+  Au moins un look de la liste vidéo doit rester visible (moteur et application).
+- Rappel d'un U avec Standard masqué : le garde-fou repasse après le code ajouté (Mode Memory peut
+  redonner Standard).
+- Test V1-RC6 sur le boîtier : ordre et masquage corrects ; U (Appliquer en U, Image Control
+  décoché) retombe bien sur Monotone ; **Reset Settings en P** laissait « Standard » écrit dans le
+  menu (look 11 masqué, garde-fou pas encore passé).
+- V1-RC7 : Reset Settings (`0x5327a060`) copie les valeurs d'usine dans l'enregistrement de travail
+  (look 11 en `0x5326cf5c`) puis l'envoie aux valeurs en direct en `0x5327a0b4`
+  (`bl 0x532750f8`, r5 UserDataModel) ; quand Standard est masqué, `mov r0,r5` en `0x5327a0b0`
+  devient un saut vers le garde-fou sur l'enregistrement de travail, puis l'envoi. Vérifié par
+  `guard_probe.py` (32 cas, registres, copies stockées intactes) ; sans Standard masqué, rien
+  n'est installé (V1-RC5 reconstruit à l'identique).
+- Contrôles : `guard_probe.py` (repli calculé depuis l'ordre), `look_layout_probe.py`,
+  `film_roll_check.py` sur un build avec Standard, Soft Monotone, Hard Monotone et Hi-Contrast B&W
+  masqués (repli Monotone) ; tests unitaires (repli, validation, build par l'Engine reconnu).
+- **V1-RC7 testé sur le boîtier (2026-11-02)** : Reset Settings en P avec Standard masqué → la ligne
+  Image Control affiche Monotone tout de suite. Candidat retenu pour la 0.9.1.
