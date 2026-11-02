@@ -48,7 +48,7 @@ LOOK_CODES={11:'STD',12:'VIV',13:'MON',14:'SMO',15:'HMO',16:'HCB',17:'POS',18:'B
 
 class RollProbe(Probe):
     def __init__(self,data,manifest):
-        super().__init__(data,manifest);self.writes=[];self.box_native=0;self.next=0;self.next_calls=0;self.sfp_ret=None;self.sfp_calls=0;self.entry_sp=None;self.prints=[];self.setters=[];self.ui=[];self.real_post=False;self.fn_stubs=False;self.posters=0;self.model_no=0;self.events=[];self.qv_stubs=False;self.qv=[];self.dir_stubs=False;self.live=[];self.timer_stubs=False;self.timers=[];self.end_stubs=False;self.opens=[];self.menu_stubs=False;self.memory_stubs=False;self.merge_stubs=False
+        super().__init__(data,manifest);self.writes=[];self.box_native=0;self.next=0;self.next_calls=0;self.sfp_ret=None;self.sfp_calls=0;self.entry_sp=None;self.prints=[];self.setters=[];self.ui=[];self.real_post=False;self.fn_stubs=False;self.posters=0;self.model_no=0;self.events=[];self.qv_stubs=False;self.qv=[];self.dir_stubs=False;self.live=[];self.timer_stubs=False;self.timers=[];self.end_stubs=False;self.opens=[];self.menu_stubs=False;self.memory_stubs=False;self.merge_stubs=False;self.kept_flags=None
         for at in range(0x63040000,0x63059000,0x1000):
             try:self.uc.mem_map(at,0x1000)
             except Exception:pass
@@ -109,7 +109,7 @@ class RollProbe(Probe):
         elif self.memory_stubs and at==0x53394758:self.ui.append(('row',r(0),r(1)));ret(0x6305a000)
         elif self.memory_stubs and at==0x533a8990:self.ui.append(('tick',r(0),r(1)));ret(0)
         elif self.memory_stubs and at==0x53394610:self.ui.append(('types',r(0),bytes(cpu.mem_read(r(1),r(2))),r(3)));ret(0)
-        elif self.merge_stubs and at==0x5324075c:self.ui.append(('memory',r(0),r(1)));ret(0x7e57)
+        elif self.merge_stubs and at==0x5324075c:self.ui.append(('memory',r(0),r(1)));self.kept_flags=bytes(cpu.mem_read(r(1)+0xb04,1)+cpu.mem_read(r(1)+0xb0a,1)+cpu.mem_read(r(1)+0xb0e,1));ret(0x7e57)
         elif self.merge_stubs and at in (0x5324b15c,0x5324b168):self.ui.append(('merge',at));cpu.emu_stop()
         elif at==LINE_VALUE_ICON:self.ui.append(('icon',r(0),r(1)));ret(0)
         elif at==TOP_SET_TITLE:self.ui.append(('title',r(0),r(1),r(2)));ret(0)
@@ -1332,7 +1332,8 @@ def verify(data,manifest,seed=3101):
                 for v in (0,1,2):
                     for same in (True,False):
                         for film in (False,True):
-                            cur,boxes=setup(3);cur[USET]=v;cur[0x9b1]=(cur[0x9b1]&~1)|(1 if film else 0);cur[0x472]=0;cur[0x482]=2;cpu.mem_write(CUR,bytes(cur))
+                            cur,boxes=setup(3);cur[USET]=v;cur[0x9b1]=(cur[0x9b1]&~1)|(1 if film else 0);cur[0x472]=0;cur[0x482]=2
+                            fl=bytes([rng.randrange(2),0,rng.randrange(3)]);cur[0xb04],cur[0xb0a],cur[0xb0e]=fl;cpu.mem_write(CUR,bytes(cur))
                             rec=CUR if same else BOXES+0x1000
                             cpu.mem_write(FR-0x1c,struct.pack('<7I',0xa4,0xa5,0xa6,0xa7,0xab,STACK,STOP))
                             regs={4:rec,5:0x5555,6:MODEL,7:mode,0:0x1010,1:0x2020,2:0x3030,3:0x4040,11:FR}
@@ -1351,12 +1352,15 @@ def verify(data,manifest,seed=3101):
                                 assert [cpu.reg_read(getattr(reg,'UC_ARM_REG_R%d'%k)) for k in (4,5,6,7,11)]==[0xa4,0xa5,0xa6,0xa7,0xab]
                                 c2=bytes(cpu.mem_read(CUR,SIZE));forced=film and FILMB
                                 assert (c2[0x472],c2[0x482])==((3,0) if forced else (0,2)),(film,c2[0x472],c2[0x482])
+                                # Image Control, Aspect Ratio and Drive memorized during the call in a film BOX, then as they were.
+                                assert p.kept_flags==(b'\1\1\1' if forced else fl) and bytes([c2[0xb04],c2[0xb0a],c2[0xb0e]])==fl,(film,p.kept_flags,fl)
                             count('apply to U merge')
             # The recall of a U mode: Mode Memory when Apply to U modes is 1 on the record in use, then the film mode's recall.
             for mode in range(9):
                 for v in (0,1):
                     for same in (True,False):
                         cur,boxes=setup(3);cur[USET]=v;cur[0x9b1]|=1;cur[0x472]=0;cur[0x482]=2;cpu.mem_write(CUR,bytes(cur))
+                        fl=bytes([0,rng.randrange(2),0]);cur[0xb04],cur[0xb0a],cur[0xb0e]=fl;cpu.mem_write(CUR,bytes(cur))
                         b=bytearray(boxes[1]);b[USET]=v;b[0x9b1]|=1;b[0x472]=0;b[0x482]=2;cpu.mem_write(BOXES+0x1000,bytes(b))
                         rec=CUR if same else BOXES+0x1000
                         p.ui=[];regs={0:rec,1:mode,4:0x4444,5:0x5555,6:0x6666};p.run(e['memoryURecall'],STOP,regs);count('apply to U recall')
@@ -1365,6 +1369,7 @@ def verify(data,manifest,seed=3101):
                         for k in (4,5,6):assert cpu.reg_read(getattr(reg,'UC_ARM_REG_R%d'%k))==regs[k]
                         r2=bytes(cpu.mem_read(rec,SIZE));forced=FILMB and 1<=mode<=6
                         assert (r2[0x472],r2[0x482])==((3,0) if forced else (0,2)),(mode,r2[0x472],r2[0x482])
+                        if call:assert p.kept_flags==(b'\1\1\1' if FILMB else fl) and bytes([r2[0xb04],r2[0xb0a],r2[0xb0e]])==fl,(p.kept_flags,fl)
             p.merge_stubs=False;cpu.ctl_flush_tb()
     # 29. Form 'clo2': the check at a U mode's recall ends a roll whose film changed and opens the message.
     if clo2:

@@ -1313,6 +1313,9 @@ export const GR3X_MEMORY_U_NAMES: readonly string[] = [
  * (`cmp r7,#0`): mode 0, Mode Memory (0x5324075c, at 0x5324b168); else the BOXes' short merge
  * (0x532419cc, at 0x5324b15c). */
 const MERGE_CHOICE = 0x5324b154, MERGE_MEMORY = 0x5324b168, MERGE_BOX = 0x5324b15c, MERGE_MEMORY_FN = 0x5324075c;
+/** Mode Memory's Drive, Aspect Ratio and Image Control boxes (AfterReleaseModeMemoryDrive,
+ * ...AspectRatio, ...ImageControl: 1 memorized), left out in a film BOX (V1-RC5). */
+export const GR3X_MEMORY_FILM_KEPT = [0xb04, 0xb0a, 0xb0e] as const;
 /** Mode Memory's Still/Movie item (text 0x5f), hidden with the movie taken out. */
 export const GR3X_MEMORY_STILL_MOVIE_ITEM = 8;
 /** The screen's list set-up (0x532067dc, called at 0x532074e8): one view type byte per row (0x2a),
@@ -1403,6 +1406,14 @@ export function installGr3xAfPointMemory(p: Gr3xRollProgram & { read(at: number,
     // Film Roll Mode is on: Mode Memory may have put them back to the factory's (V1-RC4).
     const reforce = o.film ? `ldrb ip,[r4,#${GR3X_ROLL_FLAGS}];tst ip,#${GR3X_FILM_ON};beq rf;mov ip,#0;strb ip,[r4,#${GR3X_INTERIM}];
       mov ip,#${GR3X_DRIVE_MULTI};strb ip,[r4,#${GR3X_DRIVE}];rf:` : '';
+    // V1-RC5: in a BOX with Film Roll Mode on, Mode Memory leaves the roll's film, format and drive alone:
+    // its Image Control, Aspect Ratio and Drive boxes (flags of the record in use r4) ticked during the call,
+    // then put back (kept in register `k`, bit 24 set when saved).
+    const keep = (k: string, t: string) => o.film ? `mov ${k},#0;ldrb ip,[r4,#${GR3X_ROLL_FLAGS}];tst ip,#${GR3X_FILM_ON};beq k${t};
+      ldrb ${k},[r4,#${GR3X_MEMORY_FILM_KEPT[0]}];ldrb ip,[r4,#${GR3X_MEMORY_FILM_KEPT[1]}];orr ${k},${k},ip,lsl #8;ldrb ip,[r4,#${GR3X_MEMORY_FILM_KEPT[2]}];orr ${k},${k},ip,lsl #16;orr ${k},${k},#0x1000000;
+      mov ip,#1;strb ip,[r4,#${GR3X_MEMORY_FILM_KEPT[0]}];strb ip,[r4,#${GR3X_MEMORY_FILM_KEPT[1]}];strb ip,[r4,#${GR3X_MEMORY_FILM_KEPT[2]}];k${t}:` : '';
+    const back = (k: string, t: string) => o.film ? `tst ${k},#0x1000000;beq b${t};strb ${k},[r4,#${GR3X_MEMORY_FILM_KEPT[0]}];mov ip,${k},lsr #8;strb ip,[r4,#${GR3X_MEMORY_FILM_KEPT[1]}];
+      mov ip,${k},lsr #16;strb ip,[r4,#${GR3X_MEMORY_FILM_KEPT[2]}];b${t}:` : '';
     // The merge's own way out (`sub sp,fp,#0x1c; ldm sp,{r4-r7,fp,sp,pc}`), as raw words (no ldm in our code).
     entries.memoryMergeReturn = p.append(new Uint8Array(new Uint32Array([0xe24bd01c, 0xe89da8f0]).buffer));
     // The merge's choice: Mode Memory also for a U mode (1..6) when the record merged is the record in use
@@ -1410,14 +1421,14 @@ export function installGr3xAfPointMemory(p: Gr3xRollProgram & { read(at: number,
     // forced again after it; flags and r0..r3 untouched by the camera after this point.
     entries.memoryUMerge = p.code(`cmp r7,#0;beq mm;cmp r7,#6;bhi box;ldr ip,[r6,#4];cmp ip,r4;bne box;
       ldrb ip,[ip,#${GR3X_MEMORY_U_SETTING}];cmp ip,#1;bne box;
-      mov r0,r6;mov r1,r4;bl #${MERGE_MEMORY_FN};${reforce}b #${entries.memoryMergeReturn};
+      ${keep('r5', 'p')}mov r0,r6;mov r1,r4;bl #${MERGE_MEMORY_FN};${back('r5', 'p')}${reforce}b #${entries.memoryMergeReturn};
       mm:b #${MERGE_MEMORY};box:b #${MERGE_BOX};`);
     // A U mode's recall (the settings guard's hook, after the BOX was copied into the record in use and
     // fixed: r0 the record, r1 the mode): Mode Memory too when « Apply to U modes » is 1, then the film
     // mode's own recall (which forces its drive again).
     entries.memoryURecall = p.code(`push {r4,r5,r6,lr};mov r4,r0;mov r5,r1;sub r2,r1,#1;cmp r2,#5;bhi done;${ram('r4', 'done')}
       ldrb r2,[r4,#${GR3X_MEMORY_U_SETTING}];cmp r2,#1;bne done;movw r0,#${lo(MODEL)};movt r0,#${hi(MODEL)};ldr r2,[r0,#4];cmp r2,r4;bne done;
-      mov r1,r4;bl #${MERGE_MEMORY_FN};
+      ${keep('r6', 'r')}movw r0,#${lo(MODEL)};movt r0,#${hi(MODEL)};mov r1,r4;bl #${MERGE_MEMORY_FN};${back('r6', 'r')}
       done:mov r0,r4;mov r1,r5;pop {r4,r5,r6,lr};${o.filmRecall ? `b #${o.filmRecall};` : 'bx lr;'}`);
     p.patch(MERGE_CHOICE, 0xe3570000, branchWord(MERGE_CHOICE, entries.memoryUMerge), 'Mode Memory: also in U modes at power-on when Apply to U modes is ticked');
   }

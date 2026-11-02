@@ -2552,3 +2552,17 @@ la BOX au rappel par la molette.
 - Contrôles : section 41 étendue (allumage : modes 0 à 8, `0x943`, enregistrement de travail ou copie,
   BOX en mode pellicule ou non, épilogue et registres ; rappel : 36 cas ; Still/Movie), garde-fou,
   Engine (identique), tests.
+- **V1-RC4 testé sur le boîtier (2026-11-02)** : Still/Movie absent de Mode Memory ; à l'allumage
+  en U, multi-exposition active et point AF au centre ; U3 → U2 → U3, idem.
+
+### Build V1-RC5 : Mode Memory n'agit pas sur le film, le format et Drive d'une BOX pellicule
+
+Demande de l'utilisateur : en mode pellicule, Image Control, Drive et Aspect Ratio de Mode Memory
+ne doivent pas avoir d'effet.
+- Cases de Mode Memory (lues dans l'enregistrement de travail) : Drive `+0xb04`, Aspect Ratio
+  `+0xb0a`, Image Control `+0xb0e` (1 = mémorisé ; noms `AfterReleaseModeMemory…`, n° 1026, 1029, 1031).
+- Dans les deux appels de Mode Memory en U (allumage, rappel), si la BOX a Film Roll Mode sur On :
+  les trois cases sont mises à 1 le temps de l'appel puis remises (valeurs gardées dans un registre).
+  Crop n'est pas concerné (non demandé).
+- Contrôles : section 41 (cases à 1 pendant l'appel pour une BOX pellicule, inchangées sinon,
+  rendues après), garde-fou, Engine (identique), tests.
