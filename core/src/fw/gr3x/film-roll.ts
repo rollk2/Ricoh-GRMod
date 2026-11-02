@@ -350,7 +350,7 @@ function installFolders(p: Gr3xRollProgram, free: (at: number) => void, entries:
   const lentry = lost === 'probe' ? `${lat}mov lr,#0;cmp r1,#0;beq lnull;${ram('r1', 'lnull')}ldrb lr,[r1,#0xe];add lr,lr,#1;cmp lr,#255;movhi lr,#255;lnull:strb lr,[ip,#2];` : '';
   // pFolder (T22-NAME2): the free modes' pictures (P, Av, Tv, M, a U mode out of film mode) all go to
   // one folder, remembered at GR3X_FREE_FOLDER (a halfword of every record: the record in use and the
-  // eight stored ones): used while it is on the card and no started roll's folder; else the highest
+  // seven stored ones, not the factory record at index 7): used while it is on the card and no started roll's folder; else the highest
   // folder if it is no roll's, else the next new folder, and that one is remembered. r0 the folder
   // table, r2 the candidate; r1, r3, ip, lr free (pushed or rebuilt).
   const usable = (tag: string, ok: string, bad: string) => `sub r1,r2,#100;cmp r1,#900;bhs ${bad};ldr r1,[r0,r1,lsl #2];cmp r1,#0;beq ${bad};mov r1,#1;
@@ -364,7 +364,7 @@ function installFolders(p: Gr3xRollProgram, free: (at: number) => void, entries:
     pnew:ldr r0,[r5,#8];bl #${GR3X_NEXT_FOLDER};movs r2,r0;beq native;
     pkeep:movw r3,#${lo(POINTER)};movt r3,#${hi(POINTER)};ldr r3,[r3];${ram('r3', 'pstored')}add r3,r3,#${GR3X_FREE_FOLDER & 0xf00};strh r2,[r3,#${GR3X_FREE_FOLDER & 0xff}];
     pstored:mov r1,#0;pl:movw ip,#${lo(STORED)};movt ip,#${hi(STORED)};ldr ip,[ip,r1,lsl #2];${ram('ip', 'pn')}add ip,ip,#${GR3X_FREE_FOLDER & 0xf00};strh r2,[ip,#${GR3X_FREE_FOLDER & 0xff}];
-    pn:add r1,r1,#1;cmp r1,#7;bls pl;
+    pn:add r1,r1,#1;cmp r1,#6;bls pl;
     puse:strh r2,[r4,#4];b native;`;
   entries.filmRollFolder = p.code(`push {r0,r1,r2,r3,r4,r5,r6,lr};mov r4,r2;mov r5,r0;${enter}${lenter}
     ldrh r0,[r4,#4];cmp r0,#0;bne given;
@@ -1286,7 +1286,7 @@ const LIST_ROW = 0x53394758, ROW_ICON = 0x533a8990, TICK_ON = 0x10f, TICK_OFF = 
  * r3 the factory record, r4 the record loaded). */
 const MEMORY_AFTER_FOCUS = 0x53240874;
 /** T24-AF2: the AF Point box's setting: padding byte 0x905 of every record (0 kept, the default;
- * 1 the AF point back to the centre at power-on), and its state while the screen is open (a RAM byte,
+ * 1 the AF point back to the centre at power-on; the record in use and the seven stored ones), and its state while the screen is open (a RAM byte,
  * zero at start-up, the key probe's area; 1 ticked). */
 export const GR3X_AF_POINT_SETTING = 0x905;
 const AF_POINT_STATE = KEY_LAST + 0x2c, AF_POINT_ITEM = 24;
@@ -1318,7 +1318,7 @@ export function installGr3xAfPointMemory(p: Gr3xRollProgram & { read(at: number,
   entries.afPointWrite = p.code(`${st}ldrb r1,[ip];eor r1,r1,#1;and r1,r1,#1;
     movw r2,#${lo(POINTER)};movt r2,#${hi(POINTER)};ldr r3,[r2];${rec('r3', 'w0')}
     mov r0,#0;wl:movw r2,#${lo(STORED)};movt r2,#${hi(STORED)};ldr r3,[r2,r0,lsl #2];${ram('r3', 'wn')}strb r1,[r3,#${GR3X_AF_POINT_SETTING}];
-    wn:add r0,r0,#1;cmp r0,#7;bls wl;bx lr;`);
+    wn:add r0,r0,#1;cmp r0,#6;bls wl;bx lr;`);
   // The screen's start: the box's state from the record in use (ticked unless 1).
   entries.afPointRead = p.code(`movw r2,#${lo(POINTER)};movt r2,#${hi(POINTER)};ldr r3,[r2];mov r1,#1;${ram('r3', 'rd')}
     ldrb r2,[r3,#${GR3X_AF_POINT_SETTING}];cmp r2,#1;moveq r1,#0;rd:${st}strb r1,[ip];b #${MEMORY_FILL};`);

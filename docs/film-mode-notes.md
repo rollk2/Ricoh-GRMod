@@ -2210,7 +2210,7 @@ Certitude : lu dans le code et émulé.
 - Dossier des modes libres : demi-mot `0x906` (octets `0x906`, `0x907` : bourrage, profil identique
   à `0x9c2`/`0x9c3` d'après `settings_layout_probe.py` : aucun accès exact par un pointeur
   d'enregistrement, lecture de mot à `+0x904` par un dump, recopiés au rappel), écrit dans
-  l'enregistrement en cours et les huit enregistrements stockés. Au choix du dossier d'une photo en
+  l'enregistrement en cours et les sept enregistrements stockés. Au choix du dossier d'une photo en
   mode libre (chemin `free` du crochet de SetFilePath) : le dossier mémorisé s'il est sur la carte et
   n'est pas celui d'un rouleau entamé ; sinon le plus grand s'il n'est pas un rouleau, sinon le
   prochain nouveau dossier ; celui-ci est mémorisé. Certitude des octets : supposé (même méthode
@@ -2367,7 +2367,7 @@ Certitude : lu dans le code ; correspondance noms / champs : la liste de 1043 no
 - Nom de la case dans les 21 langues : la partie « point AF » du texte natif 0x211 (« AF Point+Focus »,
   « Point AF+mise au pt », 測距点, 对焦点 …) : tous les caractères existent.
 - Réglage : octet `0x905` (bourrage, même profil que `0x906` / `0x907` validés), 0 = gardé (défaut),
-  1 = centrer ; écrit dans l'enregistrement en cours et les huit stockés.
+  1 = centrer ; écrit dans l'enregistrement en cours et les sept stockés.
 
 Plan T24-AF2 :
 1. Table recopiée à 25 éléments, le nouveau (numéro 24, texte « Point AF ») inséré après Focus ;
@@ -2389,7 +2389,7 @@ la place de `afReset`). Certitude : vérifié en émulation, à confirmer sur le
   `+0x905` de l'enregistrement en cours vaut 1).
 - fn1 dessine la coche (0x10f / 0x10e) ; fn2 bascule l'octet, retrouve la ligne n° 24 dans le
   vecteur `+0x168` / `+0x16c` et la redessine (`0x53394758` puis `0x533a8990`) ; fn3 écrit
-  `état ^ 1` dans `+0x905` de l'enregistrement en cours et des huit enregistrements stockés.
+  `état ^ 1` dans `+0x905` de l'enregistrement en cours et des sept enregistrements stockés.
 - Allumage : `0x53240874` (`ldr r2,[fp,#-0x30]`, atteint que la case Focus soit cochée ou non)
   devient un saut vers : la même lecture, puis si `+0x905` vaut 1, copie des 8 octets d'usine de
   `+0x120` (r3) vers l'enregistrement chargé (r4) ; retour en `0x53240878`. r0, r1, ip sont libres
@@ -2451,3 +2451,10 @@ Pistes :
 - Décision de l'utilisateur (2026-11-02) : la voie B (fonction Fn « BOX suivante », plan T25-BOX1)
   est retenue mais **mise en attente** ; priorité aux réglages ADJ. La correction des boucles 0..7
   reste à faire au prochain build.
+
+### Build V1-RC1 : correction des boucles 0..7 (2026-11-02)
+
+- Dossier des photos P (`0x906`) et case Point AF (`0x905`) : écriture dans l'enregistrement en
+  cours et les sept copies stockées (index 0 à 6) ; l'enregistrement d'usine (index 7, `+0x24`)
+  n'est plus touché. L'émulateur le vérifie désormais (il échoue sur T24-AF2, passe sur V1-RC1).
+- Build V1-RC1 = T24-AF2 corrigé, candidat à la v1 « GR Mod Film ». À tester sur le boîtier.

@@ -302,7 +302,8 @@ def verify(data,manifest,seed=3101):
             if usable(r_):return r_,want_c,want_b
             n=highest if usable(highest) else nxt
             if n:
-                for b in [want_c]+want_b:struct.pack_into('<H',b,PF,n)
+                # The record in use and the seven stored ones (0..6); the factory record (index 7) untouched.
+                for b in [want_c]+want_b[:7]:struct.pack_into('<H',b,PF,n)
             return n,want_c,want_b
         def run(given):
             path=bytearray(rng.randrange(256) for _ in range(16));path[4:6]=struct.pack('<H',given);cpu.mem_write(PATH,bytes(path))
@@ -1244,7 +1245,7 @@ def verify(data,manifest,seed=3101):
                 regs={4:0x4444,5:0x5555};p.run(e['afPointWrite'],STOP,regs);count('AF point write')
                 c2,b2=state();want_c=bytearray(cur);want_b=[bytearray(b) for b in boxes]
                 if pointer:want_c[SET]=st^1
-                for b in want_b:b[SET]=st^1
+                for b in want_b[:7]:b[SET]=st^1
                 assert c2==bytes(want_c) and b2==[bytes(b) for b in want_b],(st,pointer)
                 for k in (4,5):assert cpu.reg_read(getattr(reg,'UC_ARM_REG_R%d'%k))==regs[k]
         assert rd32(0x532071f8)==(0xea000000|(((e['afPointRead']-0x532071f8-8)>>2)&0xffffff))
