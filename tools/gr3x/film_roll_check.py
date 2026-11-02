@@ -108,6 +108,7 @@ class RollProbe(Probe):
             assert r(0)==0xc0c0;ret(self.model_no)
         elif self.memory_stubs and at==0x53394758:self.ui.append(('row',r(0),r(1)));ret(0x6305a000)
         elif self.memory_stubs and at==0x533a8990:self.ui.append(('tick',r(0),r(1)));ret(0)
+        elif self.memory_stubs and at==0x53394610:self.ui.append(('types',r(0),bytes(cpu.mem_read(r(1),r(2))),r(3)));ret(0)
         elif self.merge_stubs and at in (0x5324b15c,0x5324b168):self.ui.append(('merge',at));cpu.emu_stop()
         elif at==LINE_VALUE_ICON:self.ui.append(('icon',r(0),r(1)));ret(0)
         elif at==TOP_SET_TITLE:self.ui.append(('title',r(0),r(1),r(2)));ret(0)
@@ -1233,6 +1234,14 @@ def verify(data,manifest,seed=3101):
             count('apply to U item')
         count('AF point items')
         p.memory_stubs=True;LISTO=0x63059000
+        try:cpu.mem_map(LISTO,0x2000)
+        except Exception:pass
+        assert rd32(0x532074e8)==(0xeb000000|(((e['memoryListSetup']-0x532074e8-8)>>2)&0xffffff)),'list set-up call'
+        for n in (0,1,24,25,26,32,40):
+            cpu.mem_write(LISTO+0x164,struct.pack('<III',0xb0b0,LISTO+0x400,LISTO+0x400+n*0x28));cpu.ctl_flush_tb();p.ui=[]
+            regs={0:LISTO,4:0x4444,5:0x5555};p.run(e['memoryListSetup'],STOP,regs);count('list set-up')
+            m=min(n,32);assert p.ui==[('types',0xb0b0,b'\x2a'*m,0x3a)],(n,p.ui)
+            for k in (4,5):assert cpu.reg_read(getattr(reg,'UC_ARM_REG_R%d'%k))==regs[k]
         try:cpu.mem_map(LISTO,0x2000)
         except Exception:pass
         for st in (0,1,5):

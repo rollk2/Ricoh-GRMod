@@ -1313,6 +1313,11 @@ export const GR3X_MEMORY_U_NAMES: readonly string[] = [
  * (`cmp r7,#0`): mode 0, Mode Memory (0x5324075c, at 0x5324b168); else the BOXes' short merge
  * (0x532419cc, at 0x5324b15c). */
 const MERGE_CHOICE = 0x5324b154, MERGE_MEMORY = 0x5324b168, MERGE_BOX = 0x5324b15c;
+/** The screen's list set-up (0x532067dc, called at 0x532074e8): one view type byte per row (0x2a),
+ * from a stack array of 24 bytes, given to the list 0x53394610(list, types, rows, 0x3a); an unknown type
+ * (past the array: the stack guard's bytes) stops the camera on an assertion (0x533ade50). */
+const MEMORY_LIST_CALL = 0x532074e8, MEMORY_LIST_SETUP = 0x532067dc, LIST_TYPES = 0x53394610, MEMORY_ROWS_MAX = 32;
+const blWord = (at: number, to: number) => (0xeb000000 | (((to - at - 8) >> 2) & 0xffffff)) >>> 0;
 
 /**
  * T24-AF2: an « AF Point » box in Mode Memory, after Focus. Ticked (the default), the AF point is kept
@@ -1325,7 +1330,15 @@ export function installGr3xAfPointMemory(p: Gr3xRollProgram & { read(at: number,
   const withU = uText !== undefined;
   for (const at of [MEMORY_COPY_LOW, MEMORY_COPY_HIGH, MEMORY_COPY_END, MEMORY_START_END, MEMORY_AFTER_FOCUS, ...(withU ? [MERGE_CHOICE] : [])])
     if (p.sites.some(s => s.address === at)) throw new FirmwareError('unexpected-instruction', 'IIIx Mode Memory boxes: already patched');
+  if (p.sites.some(s => s.address === MEMORY_LIST_CALL)) throw new FirmwareError('unexpected-instruction', 'IIIx Mode Memory list: already patched');
   const entries: Record<string, number> = {};
+  // The list's set-up with a view type (0x2a) for every row, up to 32 (the camera's array has 24).
+  entries.memoryListSetup = p.code(`push {r4,lr};sub sp,sp,#${MEMORY_ROWS_MAX};mov r2,#0x2a;mov r3,#0;
+    fill:strb r2,[sp,r3];add r3,r3,#1;cmp r3,#${MEMORY_ROWS_MAX};blo fill;
+    ldr r3,[r0,#0x16c];ldr r2,[r0,#0x168];sub r2,r3,r2;mov r2,r2,asr #3;movw ip,#0xcccd;movt ip,#0xcccc;mul r2,ip,r2;
+    and r2,r2,#0xff;cmp r2,#${MEMORY_ROWS_MAX};movhi r2,#${MEMORY_ROWS_MAX};
+    ldr r0,[r0,#0x164];mov r1,sp;mov r3,#0x3a;bl #${LIST_TYPES};add sp,sp,#${MEMORY_ROWS_MAX};pop {r4,pc};`);
+  p.patch(MEMORY_LIST_CALL, blWord(MEMORY_LIST_CALL, MEMORY_LIST_SETUP), blWord(MEMORY_LIST_CALL, entries.memoryListSetup), 'Mode Memory: a view type for every row (the camera\'s array has 24)');
   // One box: its state byte (1 ticked), its item number, its setting; `inverted`: ticked is setting 0.
   const box = (name: string, state: number, item: number, setting: number, inverted: boolean) => {
     const st = `movw ip,#${lo(state)};movt ip,#${hi(state)};`;

@@ -479,7 +479,7 @@ describe.skipIf(!input)('GR III film roll (film mode phase 3.1)', () => {
     const base = await buildGr3xAdjResearch(raw, menu, { ...r10 });
     const af = await buildGr3xAdjResearch(raw, menu, { ...r10, afPoint: true });
     expect(af.sites.map(s => s.address).filter(a => !base.sites.some(s => s.address === a)).sort((a, b) => a - b))
-      .toEqual([0x532071f8, 0x53207350, 0x53207354, 0x53207364, 0x53240874]);
+      .toEqual([0x532071f8, 0x53207350, 0x53207354, 0x53207364, 0x532074e8, 0x53240874]);
     const e = af.entries as Record<string, number>;
     for (const k of ['afPointDraw', 'afPointToggle', 'afPointWrite', 'afPointRead', 'afPointReset', 'afPointItems']) expect(e[k]).toBeGreaterThan(0x53000000);
     expect(GR3X_AF_POINT_NAMES).toHaveLength(21);

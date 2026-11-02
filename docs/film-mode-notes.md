@@ -2485,3 +2485,18 @@ Demande de l'utilisateur : que Mode Memory puisse s'appliquer aussi aux modes U.
 - Contrôles : `film_roll_check.py` section 41 étendue (table de 26, textes, dessin, bascule,
   écriture, lecture des deux cases, aiguillage pour les modes 0 à 8, 0x943 = 0 / 1 / 2,
   enregistrement de travail ou copie, registres conservés), garde-fou, Engine (identique), tests.
+- **V1-RC2 testé sur le boîtier : ouvrir Mode Memory éteint le GR III.** Cause (lu dans le code,
+  certitude forte) : la préparation de la liste `0x532067dc` (appelée en `0x532074e8`) remplit un
+  tableau de **24 octets** sur la pile (type de vue 0x2a par ligne) et le passe à `0x53394610(liste,
+  types, nombre de lignes, 0x3a)`, qui crée une vue par octet (`0x533ad7f0`, types 0 à 0x31 ; un autre
+  type part sur une assertion `0x533ade50`, le boîtier s'éteint). Au-delà de 24 lignes, les types
+  sont lus dans la valeur de protection de la pile : avec 25 (T24-AF2, V1-RC1), un octet, sans doute
+  0 (type valide, d'où aucun symptôme) ; avec 26, un octet quelconque, d'où l'arrêt.
+
+### Build V1-RC3 : la liste de Mode Memory au-delà de 24 lignes (2026-11-02)
+
+- L'appel `bl 0x532067dc` en `0x532074e8` est remplacé par le nôtre : tableau de 32 types 0x2a
+  sur la pile, nombre de lignes plafonné à 32, même appel `0x53394610`. Corrige aussi la 25e ligne
+  de T24-AF2 et V1-RC1.
+- Contrôle d'émulation : appel patché, types transmis pour 0, 1, 24, 25, 26, 32 et 40 lignes,
+  registres conservés. Garde-fou, Engine (identique), tests.
