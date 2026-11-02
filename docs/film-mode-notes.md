@@ -2566,3 +2566,6 @@ ne doivent pas avoir d'effet.
   Crop n'est pas concerné (non demandé).
 - Contrôles : section 41 (cases à 1 pendant l'appel pour une BOX pellicule, inchangées sinon,
   rendues après), garde-fou, Engine (identique), tests.
+- **V1-RC5 testé sur le boîtier (2026-11-02)** : BOX pellicule intacte (film, format,
+  multi-exposition) à l'allumage et au rappel avec les trois cases décochées ; P remis à l'usine
+  comme prévu. Candidat retenu pour la 0.9.0.

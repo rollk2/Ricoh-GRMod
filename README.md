@@ -25,8 +25,10 @@ addresses, same emulator checks) but has **not been tested on a camera**.
   functions are taken out; the side button is called « Wireless Button ». Its tab becomes the
   « Film Mode » tab, shown in U modes only.
 - **Mode Memory**, two more boxes: **AF Point** (after Focus; unticked, the AF point goes back to
-  the centre at power-on) and **Apply to U modes** (last; ticked, Mode Memory also applies at
-  power-on in U1 to U3; the BOXes saved are never changed).
+  the centre at power-on) and **Apply to U modes** (last; ticked, Mode Memory also applies in U1 to
+  U3, at power-on and when the dial recalls a U mode; the BOXes saved are never changed). In a BOX
+  with Film Roll Mode on, Mode Memory never touches the roll's Image Control, Aspect Ratio and Drive.
+  With No movie, Still/Movie is not in the list.
 - The film mode builds on GR Mod's date imprint stage; when the date imprint itself is not
   wanted, its menu line is hidden and nothing is printed on the photos.
 
