@@ -124,6 +124,19 @@ export function gr3xGuardFallback(o: { hidden?: readonly number[]; order?: reado
   return { still: first(GR3X_STILL_LOOKS), movie: first(GR3X_MOVIE_LOOKS) };
 }
 
+/** Reset Settings (0x5327a060): the factory values copied into the record in use (look 11 at
+ * 0x5326cf5c), then the record to the live values at 0x5327a0b4 (`bl 0x532750f8`, r5 UserDataModel). */
+export const GR3X_RESET_PUSH = 0x5327a0b0;
+const LIVE_PUSH = 0x532750f8;
+/** 0.9.1, Standard hidden: the guard on the record in use between Reset Settings and the live values,
+ * so that the camera never shows the hidden Standard. */
+export function installGr3xGuardReset(p: Gr3xGuardProgram, fix: number) {
+  if (p.u32(GR3X_RESET_PUSH) !== 0xe1a00005 || p.u32(GR3X_RESET_PUSH + 4) !== bl(GR3X_RESET_PUSH + 4, LIVE_PUSH)) fail('Reset Settings');
+  const reset = p.code(`ldr r0,[r5,#4];bl #${fix};mov r0,r5;b #${GR3X_RESET_PUSH + 4};`);
+  p.patch(GR3X_RESET_PUSH, 0xe1a00005, branchWord(GR3X_RESET_PUSH, reset), 'settings guard: after Reset Settings (Standard hidden)');
+  return reset;
+}
+
 /** The mode recall: the record just copied into use. `refix`: the guard once more after `after`
  * (Mode Memory may give Standard back when it is hidden). */
 export function installGr3xGuardRecall(p: Gr3xGuardProgram, fix: number, before?: number, after?: number, refix = false) {
@@ -147,7 +160,8 @@ export function installGr3xGuard(p: Gr3xGuardProgram, o: Gr3xGuardOptions) {
   const save = p.code(`push {r4,lr};mov r4,r0;bl #${fixAll};mov r0,r4;pop {r4,lr};b #${GR3X_SAVE_DATA};`);
   p.patch(GR3X_SAVE_CALL, branchWord(GR3X_SAVE_CALL, GR3X_SAVE_DATA), branchWord(GR3X_SAVE_CALL, save), 'settings guard: before the settings save');
   const recall = installGr3xGuardRecall(p, fix, undefined, o.recallAfter, !!o.hidden?.includes(GR3X_STANDARD_LOOK));
-  return { guardFix: fix, guardFixAll: fixAll, guardLoad: load, guardSave: save, guardRecall: recall };
+  const reset = o.hidden?.includes(GR3X_STANDARD_LOOK) ? { guardReset: installGr3xGuardReset(p, fix) } : {};
+  return { guardFix: fix, guardFixAll: fixAll, guardLoad: load, guardSave: save, guardRecall: recall, ...reset };
 }
 
 /**
@@ -164,5 +178,6 @@ export function installGr3xGuardR10(p: Gr3xGuardProgram & { sites: Gr3xSite[] },
   const save = p.code(`push {r4,lr};mov r4,r0;bl #${fixAll};mov r0,r4;pop {r4,lr};b #${priorSave};`);
   gr3xSettingsHook(p, 'save', save, 'settings guard: before the settings save');
   const recall = installGr3xGuardRecall(p, fix, before, o.recallAfter, !!o.hidden?.includes(GR3X_STANDARD_LOOK));
-  return { guardFix: fix, guardFixAll: fixAll, guardLoad: load, guardSave: save, guardRecall: recall };
+  const reset = o.hidden?.includes(GR3X_STANDARD_LOOK) ? { guardReset: installGr3xGuardReset(p, fix) } : {};
+  return { guardFix: fix, guardFixAll: fixAll, guardLoad: load, guardSave: save, guardRecall: recall, ...reset };
 }

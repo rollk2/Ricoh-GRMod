@@ -2583,8 +2583,15 @@ Demande de l'utilisateur : pouvoir masquer Standard dans l'ordre des Image Contr
   Au moins un look de la liste vidéo doit rester visible (moteur et application).
 - Rappel d'un U avec Standard masqué : le garde-fou repasse après le code ajouté (Mode Memory peut
   redonner Standard).
-- Limite connue : juste après Reset Settings dans le menu, Standard reste sélectionné jusqu'à la
-  prochaine extinction ou au prochain changement de mode (comme tout look masqué laissé en usage).
+- Test V1-RC6 sur le boîtier : ordre et masquage corrects ; U (Appliquer en U, Image Control
+  décoché) retombe bien sur Monotone ; **Reset Settings en P** laissait « Standard » écrit dans le
+  menu (look 11 masqué, garde-fou pas encore passé).
+- V1-RC7 : Reset Settings (`0x5327a060`) copie les valeurs d'usine dans l'enregistrement de travail
+  (look 11 en `0x5326cf5c`) puis l'envoie aux valeurs en direct en `0x5327a0b4`
+  (`bl 0x532750f8`, r5 UserDataModel) ; quand Standard est masqué, `mov r0,r5` en `0x5327a0b0`
+  devient un saut vers le garde-fou sur l'enregistrement de travail, puis l'envoi. Vérifié par
+  `guard_probe.py` (32 cas, registres, copies stockées intactes) ; sans Standard masqué, rien
+  n'est installé (V1-RC5 reconstruit à l'identique).
 - Contrôles : `guard_probe.py` (repli calculé depuis l'ordre), `look_layout_probe.py`,
   `film_roll_check.py` sur un build avec Standard, Soft Monotone, Hard Monotone et Hi-Contrast B&W
   masqués (repli Monotone) ; tests unitaires (repli, validation, build par l'Engine reconnu).
