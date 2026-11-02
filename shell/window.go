@@ -2,7 +2,7 @@ package main
 
 // Design sizes of the window, in device-independent pixels (96 per inch).
 const (
-	windowTitle     = "GR Mod"
+	windowTitle     = "GR Mod Film"
 	windowWidth     = 1180
 	windowHeight    = 800
 	windowMinWidth  = 980

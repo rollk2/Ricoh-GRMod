@@ -302,7 +302,7 @@ func TestHeartbeatRuleConstants(t *testing.T) {
 	if heartbeatIdle != 15*time.Second || heartbeatNever != 60*time.Second {
 		t.Errorf("heartbeat rule = %v / %v, want 15 s / 60 s", heartbeatIdle, heartbeatNever)
 	}
-	if windowTitle != "GR Mod" || windowWidth != 1180 || windowHeight != 800 || windowMinWidth != 980 || windowMinHeight != 640 {
+	if windowTitle != "GR Mod Film" || windowWidth != 1180 || windowHeight != 800 || windowMinWidth != 980 || windowMinHeight != 640 {
 		t.Error("window constants differ from the specification")
 	}
 }

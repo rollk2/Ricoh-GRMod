@@ -85,8 +85,12 @@ func experimental() bool { return strings.Contains(version, "exp") }
 // GR III test builds' folder; a release takes their GR III work over once, migrate.go).
 const experimentalDataSuffix = gr3TestDataSuffix
 
+// filmEdition: GR Mod Film never updates itself (its releases are downloaded from its own page:
+// GR Mod's update channel would replace it with GR Mod).
+const filmEdition = true
+
 func updateOptions(target update.Target) *server.UpdateOptions {
-	if experimental() {
+	if experimental() || filmEdition {
 		return nil
 	}
 	key, err := base64.StdEncoding.DecodeString(updatePublicKey)

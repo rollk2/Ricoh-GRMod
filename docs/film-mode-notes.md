@@ -2504,3 +2504,27 @@ Demande de l'utilisateur : que Mode Memory puisse s'appliquer aussi aux modes U.
   ligne, décochée ; décochée, U garde son point AF ; cochée (Point AF décoché), U revient au centre à
   l'allumage ; rappel de la BOX par la molette intact ; mode pellicule intact. Candidat retenu pour
   la v1 « GR Mod Film ».
+
+## Liste v2 (après la 0.9.0)
+
+- **Memory for U** : une deuxième ligne de menu ouvrant Mode Memory avec un jeu de cases propre aux
+  modes U (bits dans des octets libres à vérifier, `0x806`, `0x84a`, `0x88e`, `0x943` ; écran réutilisé
+  avec un octet de mode ; fusion en U avec échange temporaire des 24 octets de cases). 3 à 5 builds.
+- **BOX suivante** (fonction Fn, plan T25-BOX1).
+- Réglages ADJ supplémentaires, Image Control custom supplémentaires, palier de crop 40 mm.
+
+## Publication GR Mod Film 0.9.0 (2026-11-02)
+
+- Nom « GR Mod Film » : fenêtre, messages, `GR Mod Film.app` (identifiant
+  `io.github.rollk2.grmodfilm`), `GRModFilm.exe`, `grmod-film` (Linux), page d'accueil avec la mention
+  « based on GR Mod by Maxwooow (GPL-2.0) ». Dossier de données propre (`GRModFilm`, `grmod-film`) :
+  cohabite avec GR Mod. Version 0.9.0.
+- Mises à jour coupées (`filmEdition` dans `shell/updates.go`) ; le menu « ? » ouvre la page des
+  releases de rollk2/Ricoh-GRMod à la place de « Check for updates ».
+- README : section GR Mod Film en tête. Workflow `.github/workflows/release.yml` : un tag `vX.Y.Z`
+  (égal à la version de package.json) lance les tests Go, construit l'interface, les programmes
+  Linux, Windows et Mac (signé ad hoc par rcodesign), et publie la release.
+- Vérifié ici : tests Go, typage, builds Linux et Windows, application lancée (titre, accueil, menu,
+  aucune requête de mise à jour vers l'extérieur), firmware construit par l'application reconnu
+  (recette : filmMode, noMovie, dateHidden, afPoint, memoryU). Non vérifiable ici : build Mac
+  (outils externes), à valider par le workflow puis sur le Mac de l'utilisateur.

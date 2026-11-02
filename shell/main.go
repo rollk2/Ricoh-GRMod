@@ -113,7 +113,7 @@ func run(args []string) int {
 	afterUpdate(cfg.afterUpdate, target)
 	a, err := newApp(cfg)
 	if err != nil {
-		fatalMessage("GR Mod cannot start: " + err.Error())
+		fatalMessage("GR Mod Film cannot start: " + err.Error())
 		return 1
 	}
 	defer a.close()
@@ -124,7 +124,7 @@ func run(args []string) int {
 		next := relaunchArgs(os.Args[1:], os.Getpid(), version)
 		if err := target.Relaunch(next); err != nil {
 			a.log.Printf("update: cannot start the new program: %v", err)
-			fatalMessage("GR Mod has been updated, but the new version could not be started: " + err.Error() + "\n\nPlease start GR Mod again.")
+			fatalMessage("GR Mod Film has been updated, but the new version could not be started: " + err.Error() + "\n\nPlease start GR Mod Film again.")
 			return 1
 		}
 		a.log.Printf("update: started the new program")
