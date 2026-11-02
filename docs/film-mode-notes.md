@@ -2304,3 +2304,8 @@ Certitude : lu dans le code.
   passage à Gold puis Film 3 : message de nouvelle pellicule à chaque fois, compteur à 1 ; photo P
   sans erreur ; en 简体中文, 底片模式 s'affiche entier (**le nom chinois n'a pas besoin de correction** :
   la police a le glyphe 底). Noms de dossiers et de fichiers : capture de l'utilisateur attendue.
+- Résultats T23b, suite (capture de l'utilisateur) : `174POR12/PORT7175.JPG` (Portra),
+  `175GOL12/GOLD7176.JPG` (Gold), `176FLM12/FILM7177.JPG` (Film 3, sans code), photo P
+  `173RICOH/R0017178.JPG`, dans le dossier P d'avant le flash (dossier mémorisé conservé) ;
+  numérotation continue. **Intégration à GR Mod (moteur, codes des films, retrait de la vidéo,
+  Date Imprint masqué) : validée sur le boîtier.**
