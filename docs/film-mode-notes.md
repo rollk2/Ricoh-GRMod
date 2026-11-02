@@ -2500,3 +2500,7 @@ Demande de l'utilisateur : que Mode Memory puisse s'appliquer aussi aux modes U.
   de T24-AF2 et V1-RC1.
 - Contrôle d'émulation : appel patché, types transmis pour 0, 1, 24, 25, 26, 32 et 40 lignes,
   registres conservés. Garde-fou, Engine (identique), tests.
+- **V1-RC3 testé sur le boîtier (2026-11-02)** : Mode Memory s'ouvre, « Appliquer en U » en dernière
+  ligne, décochée ; décochée, U garde son point AF ; cochée (Point AF décoché), U revient au centre à
+  l'allumage ; rappel de la BOX par la molette intact ; mode pellicule intact. Candidat retenu pour
+  la v1 « GR Mod Film ».
