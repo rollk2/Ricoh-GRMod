@@ -2294,3 +2294,8 @@ Certitude : lu dans le code.
 - À vérifier sur le boîtier : films de GR Mod et mode pellicule ensemble (dossier `xxxPOR..`,
   fichiers `PORTnnnn.JPG`), onglet Mode pellicule, vidéo retirée, nom chinois 底片模式 (langue
   简体中文).
+- T23b (2026-11-02) : demande de l'utilisateur : pouvoir couper Date Imprint depuis GR Mod tout en
+  gardant le mode pellicule. Avec `filmMode` sans `dateStamp`, l'Engine construit l'étage Date Imprint
+  (nécessaire au rouleau) avec `dateHidden` : la ligne Date Imprint (`0x020001a0`) est masquée par
+  identifiant (impression toujours sur Off, invisible). Inscrit dans la recette. Vérifié en émulation
+  (constructeur réel : ligne absente avec `dateHidden`, présente sans) ; garde-fou ; tests.

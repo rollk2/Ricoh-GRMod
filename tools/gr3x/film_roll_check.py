@@ -1089,6 +1089,9 @@ def verify(data,manifest,seed=3101):
         allids=[i for t in range(5) for i in got[(3,True)][t][3]]
         for hid in (0x0200006e,0x04000033):assert (hid in allids)==(not vid3),(hex(hid),vid3)
         if vid3:count('lines hidden')
+        # T23b: the Date Imprint line (0x020001a0) hidden when the stage is there for the film mode only.
+        assert (0x020001a0 in allids)==(not manifest.get('dateHidden')),('date line',manifest.get('dateHidden'))
+        if manifest.get('dateHidden'):count('date line hidden')
         setup(0,film=True)
         # The places in P (C tab: pages from 0, 4, 13; 22 lines): within → kept; else the page's first line.
         for page,pos,line,want in ((0,0x30,3,(0,0x30,3)),(0,0x50,5,(0,0,0)),(1,0x40,12,(1,0x40,12)),(1,0x40,13,(1,0,4)),

@@ -1184,11 +1184,12 @@ export const GR3X_FN_FILTER = 0x531b9410, GR3X_FN_STILL_MOVIE = 17;
 
 /** T20-VID3: lines hidden by id (whatever the tab), and Fn functions taken out of the button lists. */
 export function installGr3xHideLines(p: Gr3xRollProgram, ids: readonly number[], functions: readonly number[]) {
-  if (p.sites.some(s => s.address === GR3X_LINE_VISIBLE_CALL || s.address === GR3X_FN_FILTER)) throw new FirmwareError('unexpected-instruction', 'IIIx hidden lines: already patched');
+  if (p.sites.some(s => s.address === GR3X_LINE_VISIBLE_CALL || (functions.length && s.address === GR3X_FN_FILTER))) throw new FirmwareError('unexpected-instruction', 'IIIx hidden lines: already patched');
   const entries: Record<string, number> = {};
   entries.linesHidden = p.code(`ldr ip,[sl];${ids.map(id => `movw r3,#${lo(id)};movt r3,#${hi(id)};cmp ip,r3;beq hidden;`).join('')}
     b #${GR3X_LINE_VISIBLE};hidden:mov r0,#0;bx lr;`);
   p.patch(GR3X_LINE_VISIBLE_CALL, bl(GR3X_LINE_VISIBLE_CALL, GR3X_LINE_VISIBLE), bl(GR3X_LINE_VISIBLE_CALL, entries.linesHidden), 'menu: lines hidden by id');
+  if (!functions.length) return entries;
   entries.fnHidden = p.code(`${functions.map(f => `cmp r0,#${f};moveq r0,#0;bxeq lr;`).join('')}cmp r0,#0x16;b #${GR3X_FN_FILTER + 4};`);
   p.patch(GR3X_FN_FILTER, 0xe3500016, branchWord(GR3X_FN_FILTER, entries.fnHidden), 'Fn: functions taken out of the button lists');
   return entries;
