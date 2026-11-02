@@ -1,4 +1,5 @@
 # GR Mod Film: a tag vX.Y.Z builds the program for Windows, macOS and Linux and publishes a release.
+# A pull request to main builds the same programs as downloadable artifacts (no release), to test them.
 #
 # The tag must match the version in package.json. The firmware tests that need Ricoh's official files
 # cannot run here (the files are not in the repository): they are run on a developer's machine before
@@ -8,6 +9,8 @@ name: release
 on:
   push:
     tags: ['v*']
+  pull_request:
+    branches: [main]
 
 permissions:
   contents: write
@@ -18,15 +21,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Version from the tag
+      - name: Version (from the tag, which must match package.json)
         id: version
         run: |
-          tag="${GITHUB_REF_NAME#v}"
           pkg="$(node -p "require('./package.json').version")"
-          if [ "$tag" != "$pkg" ]; then
-            echo "tag v$tag does not match package.json $pkg" >&2; exit 1
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            tag="${GITHUB_REF_NAME#v}"
+            if [ "$tag" != "$pkg" ]; then
+              echo "tag v$tag does not match package.json $pkg" >&2; exit 1
+            fi
           fi
-          echo "version=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$pkg" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-node@v4
         with:
@@ -75,7 +80,15 @@ jobs:
           cp dist/grmod-film "dist/release/grmod-film-$v-linux"
           (cd dist/release && sha256sum * > SHA256SUMS.txt)
 
+      - name: Programs as artifacts (pull requests)
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: GRModFilm-${{ steps.version.outputs.version }}-test
+          path: shell/dist/release/*
+
       - name: Release
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           name: GR Mod Film ${{ steps.version.outputs.version }}
