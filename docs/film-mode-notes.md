@@ -2340,3 +2340,18 @@ Certitude : lu dans le code ; correspondance noms / champs : la liste de 1043 no
   devient un saut vers : la même écriture, puis copie des 8 octets d'usine de `+0x120` (r3) vers
   l'enregistrement chargé (r4), retour en `0x53240874`. Vérifié en émulation (écriture d'origine,
   copie du point, registres conservés), garde-fou, inspection par l'Engine ; build = T23b + afReset.
+- **Correction de l'utilisateur (2026-11-02)** : il ne veut pas lier le point AF à la case Focus
+  (pas de retour du mode de mise au point à l'usine), mais **une case à part dans Mode Memory, entre
+  Focus et Focus Peaking**, dont le nom dit la remise au centre. T24-AF1 abandonné (l'option
+  `afReset` reste dans le moteur, l'application ne l'active plus).
+
+### Écran Mode Memory : analyse statique (en cours)
+
+- Ligne « Memory » du menu C : identifiant `0x0200009b`, écran `ModeMemoryController` (table de
+  méthodes `0x53b4d930`, démarrage `0x532070a8`).
+- Au démarrage, 24 cases lues une par une (fonctions `0x53206da8` à `0x53207088`, getters des champs
+  `+0xaee…` de UserDataModel) dans les octets `+0x174` à `+0x18b` de l'écran, puis `0x53206a30`
+  remplit la liste affichée (`+0x164` le widget, vecteur d'éléments de 0x28 octets en `+0x168` /
+  `+0x16c`, chacun avec ses pointeurs de méthode de dessin et d'action).
+- À poursuivre : construction des éléments (ordre, textes), bascule d'une case, écriture des cases
+  à la sortie ; un octet de réglage libre pour la nouvelle case (candidat `0x905`, à vérifier).
