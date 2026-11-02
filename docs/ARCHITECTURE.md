@@ -277,7 +277,7 @@ du §5). Conséquences :
   boîtier. La multi-exposition enregistre bien un DNG de la superposition quand la BOX est en RAW
   (testé, `docs/film-mode-notes.md`, essai F1 : `.DNG` « superposition, qualité de la BOX ») ;
 - un rouleau pris en JPEG seul a son grain dès la prise de vue (D2), mais ni diptyque, ni date au
-  tirage, ni planche contact sans décodeur JPEG (voie A du §5). Question ouverte, voir D3 ;
+  tirage, ni planche contact sans décodeur JPEG (voie A du §5), voir D3 ;
 - la spec suppose un négatif JPEG décodé par bandes (« Lecture du négatif et décodage JPEG par
   bandes ») : ce n'est plus le cas, le boîtier refait l'image depuis le DNG.
 
@@ -304,8 +304,11 @@ Conséquences :
 - le module doit savoir s'il traite une prise de vue ou un développement RAW (pour le diptyque et la
   date au tirage), point déjà listé dans les inconnues de la voie B.
 
-**D3 (ouverte). Que devient le développement d'un rouleau pris en JPEG seul ?** À trancher avant
-l'étape 5 (manifeste et états de la pellicule).
+**D3. Rouleau pris en JPEG seul** (décision de l'utilisateur) : en V1, pas de développement. Le
+rouleau a son grain dès la prise de vue (D2) ; diptyque, date au tirage et planche contact sont
+réservés aux vues avec DNG. En V2, un décodeur et un encodeur JPEG embarqués (voie A du §5)
+permettront de développer aussi ces rouleaux. Le moteur de grain et l'assemblage du diptyque
+doivent donc rester indépendants de la source (DNG développé par le boîtier ou JPEG décodé).
 
 ## 7. Mesures à prévoir (sans flash à ce stade)
 
