@@ -26,7 +26,7 @@ This does not establish the camera's storage, menus or pictures.
 """
 import argparse,hashlib,json,random,struct
 from pathlib import Path
-from unicorn import arm_const as reg
+from unicorn import arm_const as reg,UC_HOOK_CODE
 from film_probe_check import Probe,TIME,UDM
 from guard_probe import RECALL_FROM,RECALL_TO,UD,RECS,SIZE
 from native_probe import STOP,STACK
@@ -498,7 +498,7 @@ def verify(data,manifest,seed=3101):
         cpu.mem_write(K,bytes([60,1,0x1a4&255,0x1a4>>8])+bytes(13));assert clock()==date(60,1,1,0x1a4)
     # 10. Form 'fn': Film Advance (function 42) in Fn Button Settings.
     if fn_form:
-        TABLE_OFF=bytes(cpu.mem_read(0x53b4eb7c,36));tbl=e['filmFnTable'];ADDED=bytes([42,43] if fn4 and not fn7 else [42])
+        TABLE_OFF=bytes(cpu.mem_read(0x53b4eb7c,36));tbl=e['filmFnTable'];wb=manifest.get('wbButton')==True;mb=manifest.get('macroButton')==True;ADDED=bytes([42,43] if fn4 and not fn7 else [42,44,45] if mb else [42,44] if wb else [42])
         assert bytes(cpu.mem_read(tbl,36+len(ADDED)))==TABLE_OFF+ADDED
         p.stubs_on=True;p.fn_stubs=True
         # The lists' constructor (native loop, table and count patched): the vector it fills.
@@ -511,7 +511,9 @@ def verify(data,manifest,seed=3101):
             want=bytes(f for f in TABLE_OFF+ADDED if not (model!=0 and f==0x16) and not (model!=1 and f==0x28) and not (vid3 and f==17) and not (vid4 and f==16))
             assert got==want,(model,got.hex(),want.hex())
         # Text and icon: 42 ours, the others the camera's.
-        for fn,text0 in ((0,2),(42,None))+(((43,2),(200,2)) if fn7 else ((43,0x2b5),) if fn4 else ()):
+        # WB button (wb-button.ts): White Balance (44) with the camera's text 0x94 and icon 213, Macro Mode (45)
+        # with 0xac and 381 (macroButton); 43 and the numbers above them Off.
+        for fn,text0 in ((0,2),(42,None))+(((43,2),(200,2)) if fn7 else ((43,0x2b5),) if fn4 else ())+(((44,0x94),(45,0xac),(46,2)) if mb else ((44,0x94),(45,2)) if wb else ()):
             p.call(0x53292ed0,0x1234,fn);t=cpu.reg_read(reg.UC_ARM_REG_R0)
             if fn==42:assert 786<=t<1000,t
             else:assert t==text0
@@ -519,7 +521,7 @@ def verify(data,manifest,seed=3101):
         # T21-TAB1: Film Advance's own icon, the one after the Film Mode tab's three (header + 0xa: the white one).
         fa_icon=e['filmIconBase']+3 if 'filmIconBase' in e else 0x121
         if tab1:assert struct.unpack('<H',bytes(cpu.mem_read(e['filmTab']+0xa,2)))[0]==e['filmIconBase']
-        for fn,icon in ((0,0x113),(23,0x121),(24,0x120),(42,fa_icon))+(((43,0x113),(200,0x113)) if fn7 else ((43,0x121),) if fn4 else ()):
+        for fn,icon in ((0,0x113),(23,0x121),(24,0x120),(42,fa_icon))+(((43,0x113),(200,0x113)) if fn7 else ((43,0x121),) if fn4 else ())+(((44,213),(45,381),(46,0x113)) if mb else ((44,213),(45,0x113)) if wb else ()):
             p.call(0x53293e6c,0x1234,fn);assert cpu.reg_read(reg.UC_ARM_REG_R0)==icon,(fn,hex(cpu.reg_read(reg.UC_ARM_REG_R0)));count('fn icon')
         # Pressed (Fn, ISO, Drive): GetEventCustomize's entry.
         FNS=(0,23,41,42,43) if fn4 else (0,23,41,42)
@@ -1098,6 +1100,29 @@ def verify(data,manifest,seed=3101):
         # T23b: the Date Imprint line (0x020001a0) hidden when the stage is there for the film mode only.
         assert (0x020001a0 in allids)==(not manifest.get('dateHidden')),('date line',manifest.get('dateHidden'))
         if manifest.get('dateHidden'):count('date line hidden')
+        # 0.9.2: with the date imprint not offered (dateHidden) the module must print nothing, even
+        # when a date was turned on before (setting byte 0x9a2 kept in the record): its context
+        # holds the offset 0xffff and it returns before its first call (the platform's). Reference:
+        # the same context with 0x9a2 does reach that call.
+        ctx=e['dateContext'];off=struct.unpack('<I',bytes(cpu.mem_read(ctx+24,4)))[0]
+        assert off==(0xffff if manifest.get('dateHidden') else 0x9a2),hex(off)
+        cache=struct.unpack('<I',bytes(cpu.mem_read(ctx+12,4)))[0];reached=[]
+        def at_cache(u,a,sz,d):reached.append(a);u.emu_stop()
+        hk=cpu.hook_add(UC_HOOK_CODE,at_cache,begin=cache,end=cache)
+        CONFIG=0x63057000
+        for offset in ((0xffff,0x9a2) if manifest.get('dateHidden') else (0x9a2,)):
+            for setting in (1,3,7):
+                rec=bytearray(SIZE);rec[0x9a2]=setting;cpu.mem_write(RECS,bytes(rec));cpu.mem_write(POINTER,struct.pack('<I',RECS))
+                cpu.mem_write(ctx+24,struct.pack('<I',offset));cpu.mem_write(CONFIG,bytes(0x100));reached.clear()
+                regs={0:ctx,1:CONFIG}
+                for i in range(13):cpu.reg_write(getattr(reg,'UC_ARM_REG_R'+str(i)),regs.get(i,0x1230+i))
+                cpu.reg_write(reg.UC_ARM_REG_SP,STACK);cpu.reg_write(reg.UC_ARM_REG_LR,STOP);cpu.reg_write(reg.UC_ARM_REG_CPSR,0x13)
+                cpu.emu_start(e['dateModule'],STOP,count=200000)
+                if offset==0xffff:
+                    assert not reached and cpu.reg_read(reg.UC_ARM_REG_PC)==STOP and cpu.reg_read(reg.UC_ARM_REG_SP)==STACK,('date printed though hidden',setting)
+                    count('date off when hidden')
+                else:assert reached==[cache],('reference run',setting)
+        cpu.mem_write(ctx+24,struct.pack('<I',off));cpu.hook_del(hk)
         setup(0,film=True)
         # The places in P (C tab: pages from 0, 4, 13; 22 lines): within → kept; else the page's first line.
         for page,pos,line,want in ((0,0x30,3,(0,0x30,3)),(0,0x50,5,(0,0,0)),(1,0x40,12,(1,0x40,12)),(1,0x40,13,(1,0,4)),

@@ -281,6 +281,10 @@ export interface BuildOptions {
   afPoint?: boolean;
   /** GR III / IIIx (round 10, with `afPoint`): an « Apply to U modes » box in Mode Memory. */
   memoryU?: boolean;
+  /** GR III / IIIx (with `filmMode`): a WB Button line in Fn Button Settings, White Balance among the buttons' functions. */
+  wbButton?: boolean;
+  /** GR III / IIIx (with `wbButton`): the same for the Macro button (Macro Button line, Macro Mode among the functions). */
+  macroButton?: boolean;
 }
 
 export interface ShutdownImage {
@@ -365,10 +369,10 @@ export class Engine {
   private gr3xCandidates = new Map<string, Promise<FirmwareBuild>>();
 
   private fixedGr3x(softFocus: readonly SoftFocusRequest[] = [], looks?: Gr3xLookOptions, menu: readonly Gr3xMenuRatio[] = GR3X_T4_MENU, adjSoftFocus = false, dateImprint = false, pictures: readonly Gr3xPictureSpec[] = [], dateMenu: 'list' | 'submenu' = 'submenu', pictureMenu: 'list' | 'submenu' = 'submenu',
-    round: { round7?: boolean; round8?: boolean; round9?: boolean; round10?: boolean; lookLayout?: Gr3xLookLayout; filmMode?: { codes: Record<number, string> }; noMovie?: boolean; dateHidden?: boolean; afReset?: boolean; afPoint?: boolean; memoryU?: boolean } = {}): Promise<FirmwareBuild> {
+    round: { round7?: boolean; round8?: boolean; round9?: boolean; round10?: boolean; lookLayout?: Gr3xLookLayout; filmMode?: { codes: Record<number, string> }; noMovie?: boolean; dateHidden?: boolean; afReset?: boolean; afPoint?: boolean; memoryU?: boolean; wbButton?: boolean; macroButton?: boolean } = {}): Promise<FirmwareBuild> {
     const requests = [...softFocus].sort((a, b) => a.level - b.level);
     const round7 = round.round7 === true, round8 = round7 && round.round8 === true, round9 = round8 && round.round9 === true, round10 = round9 && round.round10 === true, lookLayout = round8 ? round.lookLayout : undefined;
-    const film = { ...(round.filmMode ? { filmMode: round.filmMode } : {}), ...(round.noMovie ? { noMovie: true } : {}), ...(round.dateHidden ? { dateHidden: true } : {}), ...(round.afReset ? { afReset: true } : {}), ...(round.afPoint ? { afPoint: true } : {}), ...(round.afPoint && round.memoryU ? { memoryU: true } : {}) };
+    const film = { ...(round.filmMode ? { filmMode: round.filmMode } : {}), ...(round.noMovie ? { noMovie: true } : {}), ...(round.dateHidden ? { dateHidden: true } : {}), ...(round.afReset ? { afReset: true } : {}), ...(round.afPoint ? { afPoint: true } : {}), ...(round.afPoint && round.memoryU ? { memoryU: true } : {}), ...(round.filmMode && round.wbButton ? { wbButton: true } : {}), ...(round.filmMode && round.wbButton && round.macroButton ? { macroButton: true } : {}) };
     const key = JSON.stringify({ requests, looks, menu, adjSoftFocus, dateImprint, dateMenu, pictureMenu, round7, round8, round9, round10, lookLayout, film, pictures: pictures.map(p => ({ id: p.id, name: p.name, jpeg: Array.from(p.jpeg) })) });
     let candidate = this.gr3xCandidates.get(key);
     if (candidate) return candidate;
@@ -540,7 +544,7 @@ export class Engine {
         const decoded = new Firmware(raw).decoded;
         const rtos = sectionsOf(decoded).find(s => s.name === 'RTOS');
         let menu: Gr3xMenuRatio[] = [...GR3X_T4_MENU];
-        let film: { filmMode?: { codes: Record<number, string> }; noMovie?: boolean; dateHidden?: boolean; afReset?: boolean; afPoint?: boolean; memoryU?: boolean } = {};
+        let film: { filmMode?: { codes: Record<number, string> }; noMovie?: boolean; dateHidden?: boolean; afReset?: boolean; afPoint?: boolean; memoryU?: boolean; wbButton?: boolean; macroButton?: boolean } = {};
         if (rtos && rtos.offset === GR3X_160.rtosOffset && rtos.size > GR3X_160.rtosLength) {
           const appended = decoded.subarray(rtos.offset + GR3X_160.rtosLength, rtos.offset + rtos.size);
           looks = readGr3xLookRecipe(appended);
@@ -548,7 +552,7 @@ export class Engine {
           if (build) {
             menu = planGr3xMenu(build.ratios); adjSoftFocus = build.adjSoftFocus; dateImprint = build.dateImprint; dateMenu = build.dateMenu; pictureMenu = build.pictureMenu; round7 = build.round7;
             round8 = build.round8; round9 = build.round9; round10 = build.round10; lookLayout = build.lookLayout;
-            film = { ...(build.filmMode ? { filmMode: build.filmMode } : {}), ...(build.noMovie ? { noMovie: true } : {}), ...(build.dateHidden ? { dateHidden: true } : {}), ...(build.afReset ? { afReset: true } : {}), ...(build.afPoint ? { afPoint: true } : {}), ...(build.memoryU ? { memoryU: true } : {}) };
+            film = { ...(build.filmMode ? { filmMode: build.filmMode } : {}), ...(build.noMovie ? { noMovie: true } : {}), ...(build.dateHidden ? { dateHidden: true } : {}), ...(build.afReset ? { afReset: true } : {}), ...(build.afPoint ? { afPoint: true } : {}), ...(build.memoryU ? { memoryU: true } : {}), ...(build.wbButton ? { wbButton: true } : {}), ...(build.macroButton ? { macroButton: true } : {}) };
             // Power-off pictures: the names from the recipe, the JPEGs from the file's own RES section.
             if (build.pictures.length) {
               if (build.pictures.length > GR3X_MAX_PICTURES) throw new FirmwareError('bad-edit', 'IIIx picture recipe');
@@ -889,7 +893,7 @@ export class Engine {
   /** Build a firmware file. The result has passed the built-in self-check (otherwise this throws). */
   async buildFirmware(requests: SlotRequest[], ratios: readonly RatioSpec[] = [], softFocus: readonly SoftFocusRequest[] = [], options: BuildOptions = {}): Promise<FirmwareBuild> {
     if (this.info.family === 'gr3x') {
-      if (Object.entries(options).some(([k, v]) => k !== 'monoUnlock' && k !== 'adjSoftFocus' && k !== 'dateStamp' && k !== 'shutdownPictures' && k !== 'filmCount' && k !== 'guard' && k !== 'lookLayout' && k !== 'gr3Round' && k !== 'filmMode' && k !== 'noMovie' && k !== 'afReset' && k !== 'afPoint' && k !== 'memoryU' && v !== undefined && v !== false && !(Array.isArray(v) && !v.length)))
+      if (Object.entries(options).some(([k, v]) => k !== 'monoUnlock' && k !== 'adjSoftFocus' && k !== 'dateStamp' && k !== 'shutdownPictures' && k !== 'filmCount' && k !== 'guard' && k !== 'lookLayout' && k !== 'gr3Round' && k !== 'filmMode' && k !== 'noMovie' && k !== 'afReset' && k !== 'afPoint' && k !== 'memoryU' && k !== 'wbButton' && k !== 'macroButton' && v !== undefined && v !== false && !(Array.isArray(v) && !v.length)))
         throw new FirmwareError('gr3x-unsupported', 'added Image Control slots and the test settings of the date imprint are not ported to GR III / IIIx');
       if (options.shutdownPictures?.length && !this.info.capabilities.menuPictures)
         throw new FirmwareError('gr3x-unsupported', 'this GR III / IIIx file has no End Screen pictures');
@@ -945,6 +949,8 @@ export class Engine {
       // The film mode (T23): round 10 with the date imprint stage; each film's code at its look (64 + slot).
       if ((options.filmMode || options.noMovie || options.afReset || options.afPoint || options.memoryU) && (!round10 || !this.info.features.dateStamp))
         throw new FirmwareError('gr3x-unsupported', 'the film mode and the movie removal need a full round 10 GR III / IIIx build');
+      if (options.wbButton && !options.filmMode) throw new FirmwareError('gr3x-unsupported', 'the WB button needs the film mode');
+      if (options.macroButton && !options.wbButton) throw new FirmwareError('gr3x-unsupported', 'the Macro button needs the WB button');
       const filmCodes: Record<number, string> = {};
       for (const [slot, c] of Object.entries(options.filmMode?.codes ?? {})) {
         if (c === undefined || c === '') continue;
@@ -952,7 +958,7 @@ export class Engine {
         if (k < 0 || k >= (filmCount ?? 0) || !/^[A-Z0-9]{4}$/.test(c)) throw new FirmwareError('bad-edit', `film code of ${slot}: 4 characters A-Z or 0-9`);
         filmCodes[GR3X_FIRST_FILM + k] = c;
       }
-      const film = { ...(options.filmMode ? { filmMode: { codes: filmCodes } } : {}), ...(options.noMovie ? { noMovie: true } : {}), ...(options.filmMode && !options.dateStamp ? { dateHidden: true } : {}), ...(options.afReset ? { afReset: true } : {}), ...(options.afPoint ? { afPoint: true } : {}), ...(options.afPoint && options.memoryU ? { memoryU: true } : {}) };
+      const film = { ...(options.filmMode ? { filmMode: { codes: filmCodes } } : {}), ...(options.noMovie ? { noMovie: true } : {}), ...(options.filmMode && !options.dateStamp ? { dateHidden: true } : {}), ...(options.afReset ? { afReset: true } : {}), ...(options.afPoint ? { afPoint: true } : {}), ...(options.afPoint && options.memoryU ? { memoryU: true } : {}), ...(options.filmMode && options.wbButton ? { wbButton: true } : {}), ...(options.filmMode && options.wbButton && options.macroButton ? { macroButton: true } : {}) };
       const r = await this.fixedGr3x(softFocus, looks, menu, !!options.adjSoftFocus, !!options.dateStamp || !!options.filmMode,
         (options.shutdownPictures ?? []).map(p => ({ id: p.id, name: p.name, jpeg: p.jpeg })), 'submenu', 'submenu',
         { round7, round8, round9, round10, ...(lookLayout ? { lookLayout } : {}), ...film });

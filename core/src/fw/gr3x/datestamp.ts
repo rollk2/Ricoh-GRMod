@@ -73,6 +73,8 @@ import type { Gr3xPictureIds } from './shutdown';
 
 export const GR3X_DATE_SETTINGS_POINTER = 0x55063f34;
 export const GR3X_DATE_OFFSET = 0x9a2;
+/** The context's offset when the date imprint is not offered (dateHidden): 0x1000 or more, the module prints nothing. */
+export const GR3X_DATE_OFF = 0xffff;
 export const GR3X_DATE_MENU_ID = 0x020001a0;
 /** Film mode phase 4 (film-roll.ts): the Film Roll Mode line and list (unused id; GR III's end at 0x02000140). */
 export const GR3X_FILM_MENU_ID = 0x020001b0;
@@ -310,8 +312,11 @@ export function gr3xMonoTable(monoFilms: readonly boolean[]): Uint8Array {
 /** The picture side: the module behind a stub at the start of Execute. Returns the stub, which
  * ends by carrying on with Execute; the halation (jpeg-stage.ts) goes in front of it. `getTime`:
  * the clock the module reads (the film probe's counters in its test builds, film-probe.ts);
- * `exposurePrefix`: code run first at each exposure (the film probe's exposure count). */
-export function installGr3xDateImprintStage(p: Gr3xDateProgram, look?: Gr3xDateLook, getTime = GET_TIME, exposurePrefix = '') {
+ * `exposurePrefix`: code run first at each exposure (the film probe's exposure count);
+ * `off`: the date imprint is not offered (dateHidden: its menu line is hidden, the stage is only
+ * there for the film roll's exposure hook). The context then holds an offset of 0xffff, which the
+ * module takes as "no setting" and returns at once: a date turned on before can no longer print. */
+export function installGr3xDateImprintStage(p: Gr3xDateProgram, look?: Gr3xDateLook, getTime = GET_TIME, exposurePrefix = '', off = false) {
   const guards: readonly (readonly [number, number])[] = [
     [GR3X_JPEG_EXECUTE, 0xe1a0c00d], [GR3X_JPEG_EXECUTE + 4, 0xe92ddff0], [GR3X_JPEG_EXECUTE + 0x18, 0xe5914008],
     [CACHE, 0xe30d01b4], [CACHE_FLUSH_FOR_READ, 0xe1a0c00d], [CACHE_CLEAN, 0xe1a00001], [PLATFORM, 0xe1a0c00d], [GET_TIME, 0xe5d0300c],
@@ -324,7 +329,7 @@ export function installGr3xDateImprintStage(p: Gr3xDateProgram, look?: Gr3xDateL
   const lookWords = look ? [look.stash, p.append(gr3xMonoTable(look.monoFilms)), p.code('mov r0,#0;bx lr;')] : [];
   const r10 = !!look?.r10;
   const r8Words = round8 ? [r10 ? GR3X_R10.orientWord : GR3X_ORIENT_BYTE, r10 ? GR3X_R10.frameLook : GR3X_FRAME_LOOK, gr3xLookNameTable(p, look!.names!)] : [];
-  const ctx = p.append(u32([CACHE, CACHE_FLUSH_FOR_READ, CACHE_CLEAN, PLATFORM, getTime, GR3X_DATE_SETTINGS_POINTER, GR3X_DATE_OFFSET, ...lookWords, ...r8Words]));
+  const ctx = p.append(u32([CACHE, CACHE_FLUSH_FOR_READ, CACHE_CLEAN, PLATFORM, getTime, GR3X_DATE_SETTINGS_POINTER, off ? GR3X_DATE_OFF : GR3X_DATE_OFFSET, ...lookWords, ...r8Words]));
   if (r10 && !round8) fail('IIIx date imprint: round 10 builds on round 8');
   const exposure = round8 ? installGr3xExposureOrientation(p, look!.stash, r10, exposurePrefix) : {};
   const module = p.append(gr3xDateModule(r10 ? 10 : round8 ? 8 : look ? 7 : 6));
@@ -364,7 +369,10 @@ export function installGr3xMenuAdditions(p: Gr3xDateProgram, o: { date?: Gr3xDat
     /** T21-TAB1: the lines go to a tab of their own in place of Movie Settings (the menu table's
      * entry `entry`, the movie descriptor `movie` as the model): its visibility, title (and its page's)
      * and icons (white, yellow, grey); Customize Settings stays the camera's. */
-    tab?: { entry: number; movie: number; visible: number; title: number; icons: readonly [number, number, number] } } }) {
+    tab?: { entry: number; movie: number; visible: number; title: number; icons: readonly [number, number, number] } };
+  /** WB button (wb-button.ts): the WB Button line's list, a list record of its own opened by the
+   * Fn Button Setting lines' controller (`controller`) instead of Horizon's (and the Macro Button line's). */
+  fnLines?: readonly { id: number; title: number; count: number; draw: number; set: number; isCurrent: number; controller: number }[] }) {
   const iconOff = o.onOffText ? TEXT_ICON_OFF : ICON_OFF, iconOn = o.onOffText ? TEXT_ICON_ON : ICON_ON;
   const ids = o.date;
   if (o.picture && o.endScreen) fail('IIIx pictures: list or submenu');
@@ -373,7 +381,7 @@ export function installGr3xMenuAdditions(p: Gr3xDateProgram, o: { date?: Gr3xDat
   const r8 = o.round8 === true;
   if (r8 && (!sub || !o.onOffText || [ids!.orient, ids!.shortName, ids!.longName, ids!.iconShortName, ids!.iconLongName].some(v => v === undefined)))
     fail('IIIx round 8 date imprint: the submenu, OFF / ON texts and the texts and icons of the third line and the two styles');
-  if (!ids && !o.picture && !o.endScreen && !o.film) fail('no IIIx menu additions');
+  if (!ids && !o.picture && !o.endScreen && !o.film && !o.fnLines?.length) fail('no IIIx menu additions');
   // --- Checks of the official code and data this relies on.
   const guards: readonly (readonly [number, number])[] = [
     ...(ids ? [[BUILDER, 0xe1a0c00d], [BUILDER + 4, movWord(3, lo(MENU_TABLE))], [BUILDER + 0x10, movWord(3, hi(MENU_TABLE), true)]] as const : []),
@@ -412,7 +420,7 @@ export function installGr3xMenuAdditions(p: Gr3xDateProgram, o: { date?: Gr3xDat
   for (const [low, high, r] of SELECT_SITES)
     if (p.word(low) !== movWord(r, lo(SELECT_TABLE)) || p.word(high) !== movWord(r, hi(SELECT_TABLE), true)) fail('IIIx list table site');
 
-  const lists: { id: number; title: number; count: number; draw: number; set: number; isCurrent: number }[] = [];
+  const lists: { id: number; title: number; count: number; draw: number; set: number; isCurrent: number; controller?: number }[] = [];
   const entries: Record<string, number> = {};
   let line = 0;
   const submenus: { id: number; record: Uint8Array }[] = [];
@@ -616,6 +624,7 @@ export function installGr3xMenuAdditions(p: Gr3xDateProgram, o: { date?: Gr3xDat
     lists.push({ id: GR3X_PICTURE_MENU_ID, title: o.picture.title, count: pe.pictureCount, draw: pe.pictureDraw, set: pe.pictureSet, isCurrent: pe.pictureIsCurrent });
     Object.assign(entries, pe);
   }
+  for (const l of o.fnLines ?? []) lists.push(l);
   const what = o.picture ? 'added menu lists' : 'date imprint';
   const records = lists.map(l => {
     const record = horizon.slice(), rv = new DataView(record.buffer);
@@ -685,7 +694,7 @@ export function installGr3xMenuAdditions(p: Gr3xDateProgram, o: { date?: Gr3xDat
 
   // --- Controller ids: Horizon Correction's list controller and key map.
   const rewind = o.film?.rewind;
-  const mapped = [...lists.map(l => [l.id, HORIZON_ID] as const), ...submenus.map(m => [m.id, D_RANGE_ID] as const),
+  const mapped = [...lists.map(l => [l.id, l.controller ?? HORIZON_ID] as const), ...submenus.map(m => [m.id, D_RANGE_ID] as const),
     ...(rewind ? [[rewind.id, rewind.dialog] as const] : []),
     ...(o.endScreen ? [[GR3X_PICTURE_LIST_ID, END_SCREEN_ID] as const] : [])];
   // With the End Screen submenu the factory also sets the End Screen list's mode: picture list

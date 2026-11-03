@@ -2512,6 +2512,10 @@ Demande de l'utilisateur : que Mode Memory puisse s'appliquer aussi aux modes U.
   avec un octet de mode ; fusion en U avec échange temporaire des 24 octets de cases). 3 à 5 builds.
 - **BOX suivante** (fonction Fn, plan T25-BOX1).
 - Réglages ADJ supplémentaires, Image Control custom supplémentaires, palier de crop 40 mm.
+- **Bogue (moyen, non traité)** : avec No movie, le bouton Wireless affiche encore au démarrage
+  l'icône de bascule photo / vidéo (signalé le 2026-11-02).
+- ~~**Touche WB dans Fn Button Settings**~~ : fait le 2026-11-02 (build WB-RC1, voir « Touche WB »
+  plus bas), à valider sur le boîtier.
 
 ## Publication GR Mod Film 0.9.0 (2026-11-02)
 
@@ -2597,3 +2601,131 @@ Demande de l'utilisateur : pouvoir masquer Standard dans l'ordre des Image Contr
   masqués (repli Monotone) ; tests unitaires (repli, validation, build par l'Engine reconnu).
 - **V1-RC7 testé sur le boîtier (2026-11-02)** : Reset Settings en P avec Standard masqué → la ligne
   Image Control affiche Monotone tout de suite. Candidat retenu pour la 0.9.1.
+
+## Correctif 0.9.2 : date incrustée alors qu'elle est désactivée (2026-11-02)
+
+- Symptôme (boîtier, 0.9.1) : avec le mode pellicule et sans « Date stamp » dans GR Mod Film, la
+  date s'incruste quand même.
+- Cause (certaine) : sans date proposée (`dateHidden`), l'étape date est construite quand même, car
+  le code du rouleau tourne dans son crochet d'exposition (`installGr3xExposureOrientation`). Seule la
+  ligne de menu était masquée (`adj.ts`, `GR3X_DATE_MENU_ID`). Le module lit toujours l'octet de
+  réglage `0x9a2` de l'enregistrement : une date activée auparavant (GR Mod, firmware précédent)
+  reste active et ne peut plus être coupée, la ligne étant masquée.
+- Correctif : `installGr3xDateImprintStage(..., off)` ; avec `dateHidden`, le contexte du module
+  contient le décalage `0xffff` (`GR3X_DATE_OFF`) au lieu de `0x9a2`. Le module
+  (`tools/datestamp/datestamp.c`, `k->offset >= 0x1000`) revient alors avant son premier appel,
+  quel que soit l'octet. L'étape et le crochet d'exposition restent en place (compteur intact).
+  Sans `dateHidden`, les octets du firmware ne changent pas.
+- Preuve : `film_roll_check.py` vérifie le mot du contexte et exécute le module avec l'octet `0x9a2`
+  à 1, 3 et 7 : avec la date masquée, aucun appel (retour immédiat, pile rendue) ; avec le décalage
+  `0x9a2`, l'appel de la plateforme est bien atteint (contrôle de la sonde). Le build 0.9.1 (V1-RC6
+  et suivants) échoue à ce contrôle, le build corrigé le passe ; idem build avec date proposée.
+
+## Touche WB dans Fn Button Settings (2026-11-02, build WB-RC1)
+
+Demande : rendre la touche WB réglable dans Fn Button Settings. Tout est statique puis vérifié en
+émulateur (`tools/gr3x/wb_button_probe.py`), pas encore sur le boîtier.
+
+### Ce que fait la touche WB dans le firmware (certitude : lu dans le code, vérifié en émulation)
+
+- Les touches de prise de vue sont des méthodes de `CaptureReadySwitchFunctionModel` (table de
+  méthodes `0x53b5bfd0`) : + 0x4c Fn (`0x5329e020`, réglage `0x922`, identifiant de touche 0x2e),
+  + 0x60 ISO (`0x5329e200`, `0x924`, 0xb), + 0x64 Drive (`0x5329e5b4`, `0x926`, 0xc), + 0x84
+  Movie/Wireless (`GetEventSwitchWlan` `0x53299f08`), + 0x58 et + 0x5c les deux autres directions
+  du pavé.
+- Les quatre directions déplacent le collimateur quand « 4-way Controller Action » le demande
+  (`0x532a441c` vrai) : événements 0xab (90°), 0xac (270°), 0xad (180°, ISO), 0xae (0°, Drive),
+  action commune `0x53226f0c`.
+- **La touche WB est la méthode + 0x5c (`0x53296694`)** : sur un appui (r2 = 0), après des
+  contrôles « appareil occupé » (`0x53237328`, `0x53236f38`, `0x53236f30`, `0x532374e0`,
+  `0x532380ac` sur le modèle `0x5320b19c`, `0x532a88a0` sur `0x5320b61c`, et le type des valeurs en
+  direct `0x535493ac(*0x53525d5c())` ≠ 2), elle publie l'événement 0x93 en `0x532969e8` ;
+  l'action globale de 0x93 (`0x53226804`) ouvre `0x0200004e`, le `WhiteBalanceController`
+  (constructeur `0x531c05f0`, chaîne `Controller/WhiteBalanceController.cpp`). Elle n'a aucun
+  réglage. Son identifiant de touche (celui du déplacement du collimateur) est 0xa.
+- Les autres touches appellent `GetEventCustomize` (`0x5329bcc8(this, &événements, f, appui,
+  [sp] = touche)`) avec la fonction lue dans l'enregistrement, pour tous les appuis (y compris
+  maintien et relâchement) hors déplacement du collimateur. Un événement se publie par
+  `0x53207c8c(tmp, code, 0, 0)`, `0x53200594(liste, tmp)`, `0x53207c98(tmp)`.
+
+### L'écran Fn Button Setting
+
+- Contrôleur `0x020000d1` (constructeur `0x531c9774`, titre 0x1b5), liste de 8 lignes : mise en
+  place `0x531c9528` (8 lignes de type 0x22, `0x53394610(liste, types, 8, 0x3a)`), table
+  `0x53b40f00` de 8 couples { genre, texte } (Fn 0x1b7, ISO 0x1bd, Drive 0x1bf, Movie/Wireless
+  0x1c1, Hold 0x1c3, Focus 0x28, Keep AE Lock 0x1c5, One Push AE 0x1cb), lue en `0x531c923c`
+  (ouverture : genre → `0x020000d2` + genre), `0x531c99c4` (valeurs : boucle `cmp r4,#8`, genres
+  0 à 4 par `0x531c97f0`, icône `0x53293e6c(modèle, f)`) et `0x531c9adc` (aide). Touche répétée :
+  arrêt sur la dernière ligne (`cmp r0,#7` en `0x531c91c4`).
+- Les listes des lignes sont toutes le contrôleur `0x531be784` (vecteur des fonctions en + 0x1a4),
+  enregistrements de liste 70 à 77 ; celui d'ISO (71) : nombre `0x531b3be8`, dessin `0x531b57b0`.
+
+### Le build WB-RC1 (`wbButton`, avec le mode pellicule seulement)
+
+- Réglage : octet libre **`0xabb`** de l'enregistrement (bourrage, aucun accès exact ; seul un
+  relevé de débogage lit le mot `+0xab8`). Il suit la BOX comme le reste de l'enregistrement ; 0
+  (valeur d'usine) = White Balance, 44 = Off, sinon la fonction (au delà de 44 : White Balance).
+  `0x93b` a été écarté : un `str` de mot en `+0x938` (`0x53461fe0`) l'écraserait.
+- Fonction 44 « White Balance » ajoutée à la liste de toutes les touches (texte 0x94 de l'appareil,
+  icône 213, celle d'Auto WB) : elle ouvre la balance des blancs après les mêmes contrôles que la
+  touche WB (`wbOpen`), depuis `GetEventCustomize` (appui seulement) et `GetEventSwitchWlan`.
+  Le filet des fonctions inconnues devient : 43 et au delà de 44 lus comme Off.
+- Touche WB : son objet est noté à l'entrée (`0x55804390`, mot de la sonde des touches, inutilisé
+  dans la forme publiée) ; à la place de 0x93, une autre fonction passe par `GetEventCustomize`
+  (l'objet, une copie des événements qui tient une référence, f, 0, touche 0xa) puis la suite
+  normale ; maintien et relâchement (r2 ≠ 0) vont aussi à `GetEventCustomize` hors déplacement du
+  collimateur, comme pour la touche ISO (pour Enable AF, AE Lock).
+- Écran : neuvième ligne « WB Button » (genre 8) : table recopiée, mise en place à 9 lignes,
+  ouverture de `0x020001c0` (identifiant libre), valeur (icône de la fonction), aide comme les
+  lignes 5 à 7, dernière ligne 8. Liste : enregistrement propre (celui d'ISO avec notre set et
+  is-current), contrôleur et touches de `0x020000d2`.
+- Nom de la ligne : dans chaque langue, le « ISO Button » de l'appareil avec WB à la place d'ISO
+  (chinois : 白平衡按鈕 / 白平衡按钮, caractères de l'appareil).
+- Vérifié en émulateur (`wb_button_probe.py`, 9 contre-épreuves détectées) ; `film_roll_check.py`
+  et `guard_probe.py` repassés ; sans `wbButton`, les fichiers sont identiques à l'octet près.
+  L'application envoie `wbButton` avec le mode pellicule.
+- **À vérifier sur le boîtier** : la ligne « WB Button » en bas de Fn Button Setting (défilement
+  jusqu'à la 9e ligne) ; WB par défaut ouvre toujours la balance des blancs ; une autre fonction
+  (ISO, Film Advance, Enable AF) sur la touche WB ; White Balance sur Fn ; mode « 4-way Controller
+  Action » ; persistance après extinction et dans une BOX.
+
+### Résultats sur le boîtier (WB-RC1, 2026-11-03)
+
+- Tout validé par l'utilisateur : ligne WB Button, fonctions sur la touche WB, White Balance sur
+  une autre touche, persistance. La date n'est plus incrustée en mode pellicule (correctif 0.9.2).
+- Demandes : WB Button sous Drive Button ; la même chose pour la touche Macro (la fleur), sa ligne
+  sous WB Button.
+
+## Touche Macro dans Fn Button Settings (2026-11-03, build WB-RC2)
+
+- La touche Macro est le haut du pavé : méthode + 0x58 de `CaptureReadySwitchFunctionModel`,
+  `0x532961e0` (identifiant de touche 9, déplacement du collimateur 0xab). Son comportement dépend
+  du mode de mise au point (octet `+0xc6` de l'enregistrement, lu par `0x5326c5f8`) et du type
+  d'appui : 0x71 (action `0x53226d1c` → `0x532b0a9c`, bascule Macro Mode) au relâchement d'un appui
+  court (appui 4) dans le cas courant ; 0x4d / 0x4e (`0x532a43a8(état, 1 / 0)`) et 0x72 selon le
+  mode ; mêmes contrôles « occupé » que la touche WB. Ligne de menu Macro Mode : texte 0xac,
+  valeur `+0x110`, icônes 380 (Off) / 381 (On) par `0x53293760`.
+- Choix (certitude : lu dans le code, vérifié en émulation) : Macro Mode reste entièrement le code
+  de l'appareil ; une autre fonction fait jouer à la touche Macro le gestionnaire de la touche ISO
+  (`0x5329e200`), qui envoie tous les appuis à `GetEventCustomize`, avec cette fonction et
+  l'identifiant 9 : deux remplacements dans ce gestionnaire, l'appel du réglage (`0x5329e2f4`) et
+  `mov r3,#0xb` (`0x5329e2f8`), qui lisent trois octets { actif, fonction, touche } en
+  `0x55804394` (zone de la sonde des touches, à zéro au démarrage) pendant l'appel seulement. La
+  touche ISO garde son réglage et son identifiant (vérifié).
+- Fonction 45 « Macro Mode » (texte 0xac, icône 381) pour toutes les touches : appui court de la
+  touche Macro (son gestionnaire natif avec l'appui 4). Octet `0xac5` (bourrage, seul le relevé de
+  débogage lit le mot `+0xac4`) : 0 Macro Mode, 45 Off. Pour la touche WB, 45 est désormais la
+  fonction Macro Mode (au delà de 45 : White Balance).
+- Écran : Fn, ISO, Drive, **WB Button, Macro Button**, Movie/Wireless, Hold, Focus, Keep AE Lock,
+  One Push AE (10 lignes). Nom « Macro Button » écrit pour chaque langue avec les caractères de
+  l'appareil (Macro Mode et ISO Button de la même langue).
+- Vérifié en émulateur (`wb_button_probe.py` : 64 cas de la touche Macro, la touche ISO intacte,
+  20 contre-épreuves détectées ; `film_roll_check.py`, `guard_probe.py`) ; sans les options, fichiers
+  identiques à l'octet près. L'application envoie `wbButton` et `macroButton` avec le mode pellicule.
+
+## Publication GR Mod Film 0.9.2 (2026-11-03)
+
+- Contenu : correctif de la date incrustée alors qu'elle est désactivée ; touches WB et Macro
+  réglables dans Fn Button Settings (WB-RC2 validé sur le boîtier le 2026-11-03) ; outils de la
+  spec développement / diptyque / grain (étapes 1 et 2, sans effet sur le firmware).
+- Reste ouvert : l'icône photo / vidéo du bouton Wireless au démarrage (liste v2).
