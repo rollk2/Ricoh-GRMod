@@ -2729,3 +2729,27 @@ Demande : rendre la touche WB réglable dans Fn Button Settings. Tout est statiq
   réglables dans Fn Button Settings (WB-RC2 validé sur le boîtier le 2026-11-03) ; outils de la
   spec développement / diptyque / grain (étapes 1 et 2, sans effet sur le firmware).
 - Reste ouvert : l'icône photo / vidéo du bouton Wireless au démarrage (liste v2).
+
+## Grain au déclenchement : le grain natif du boîtier (2026-11-03, build T-GRAIN1)
+
+- Demande : du grain sur le JPEG à la prise de vue, réglable dans l'écran Fn de l'Image Control
+  d'un film (intensité et taille). Remarque de l'utilisateur : le grain noir et blanc du boîtier
+  ne ralentit pas le JPEG. Piste suivie avant le module logiciel de `tools/develop`.
+- Le grain natif (Grain Effect, « Particle ») : réglage par look (Monotone, Soft, Hard,
+  Hi-Contrast B&W) ; **Negative Film**, look couleur, a aussi le sien
+  (`AfterReleaseStillImageControlNo0ParamNegativeFilmParticle`) sans ligne de menu. Valeur en
+  direct à `+0x795` des valeurs de prise de vue (lecteur `0x53551634`).
+- Étape de développement, paramètres du look (`0x536db7d8`, lecture du look en `0x536db7f8`,
+  déjà adaptée par GR Mod qui rend un film comme Standard) : un cas par look (11 à 22) écrit des
+  demi-mots en `+0x1e0 .. +0x1fe` du premier argument, fin commune `0x536db9c0`. **`+0x1f8` est le
+  grain** : les looks 13 à 16 et Negative Film (22) y copient `+0x795` ; Standard et les autres y
+  mettent 0. Pas de second paramètre de grain (taille) : `+0x1fa`, `+0x1fc`, `+0x1fe` servent à
+  d'autres looks (Bleach Bypass, Retro, HDR Tone). Valeurs de Grain Effect : 0 off, puis 3, 2, 1
+  pour « 1 », « 2 », « 3 ». Consommateur de `+0x1f8` non trouvé statiquement.
+- Build de test T-GRAIN1 (`grainTest`, `grain-native.ts`) : à la fin commune, pour un film du
+  build (look réel `+0x77c` = 64 + k), `+0x1f8` reçoit une valeur fixe : film 1 = 3 (faible),
+  film 2 = 2 (moyen), film 3 = 1 (fort). Vérifié en émulateur (`grain_native_probe.py`, cas
+  Standard et Monotone exécutés nativement, contre-épreuve détectée) ; sondes existantes repassées.
+- À voir sur le boîtier : le grain apparaît-il sur les films couleur, quel aspect, quel temps de
+  traitement ; ensuite seulement, la ligne Grain dans l'écran Fn (et la question de la taille, que
+  le natif ne règle pas).
