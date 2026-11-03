@@ -2686,3 +2686,37 @@ Demande : rendre la touche WB réglable dans Fn Button Settings. Tout est statiq
   jusqu'à la 9e ligne) ; WB par défaut ouvre toujours la balance des blancs ; une autre fonction
   (ISO, Film Advance, Enable AF) sur la touche WB ; White Balance sur Fn ; mode « 4-way Controller
   Action » ; persistance après extinction et dans une BOX.
+
+### Résultats sur le boîtier (WB-RC1, 2026-11-03)
+
+- Tout validé par l'utilisateur : ligne WB Button, fonctions sur la touche WB, White Balance sur
+  une autre touche, persistance. La date n'est plus incrustée en mode pellicule (correctif 0.9.2).
+- Demandes : WB Button sous Drive Button ; la même chose pour la touche Macro (la fleur), sa ligne
+  sous WB Button.
+
+## Touche Macro dans Fn Button Settings (2026-11-03, build WB-RC2)
+
+- La touche Macro est le haut du pavé : méthode + 0x58 de `CaptureReadySwitchFunctionModel`,
+  `0x532961e0` (identifiant de touche 9, déplacement du collimateur 0xab). Son comportement dépend
+  du mode de mise au point (octet `+0xc6` de l'enregistrement, lu par `0x5326c5f8`) et du type
+  d'appui : 0x71 (action `0x53226d1c` → `0x532b0a9c`, bascule Macro Mode) au relâchement d'un appui
+  court (appui 4) dans le cas courant ; 0x4d / 0x4e (`0x532a43a8(état, 1 / 0)`) et 0x72 selon le
+  mode ; mêmes contrôles « occupé » que la touche WB. Ligne de menu Macro Mode : texte 0xac,
+  valeur `+0x110`, icônes 380 (Off) / 381 (On) par `0x53293760`.
+- Choix (certitude : lu dans le code, vérifié en émulation) : Macro Mode reste entièrement le code
+  de l'appareil ; une autre fonction fait jouer à la touche Macro le gestionnaire de la touche ISO
+  (`0x5329e200`), qui envoie tous les appuis à `GetEventCustomize`, avec cette fonction et
+  l'identifiant 9 : deux remplacements dans ce gestionnaire, l'appel du réglage (`0x5329e2f4`) et
+  `mov r3,#0xb` (`0x5329e2f8`), qui lisent trois octets { actif, fonction, touche } en
+  `0x55804394` (zone de la sonde des touches, à zéro au démarrage) pendant l'appel seulement. La
+  touche ISO garde son réglage et son identifiant (vérifié).
+- Fonction 45 « Macro Mode » (texte 0xac, icône 381) pour toutes les touches : appui court de la
+  touche Macro (son gestionnaire natif avec l'appui 4). Octet `0xac5` (bourrage, seul le relevé de
+  débogage lit le mot `+0xac4`) : 0 Macro Mode, 45 Off. Pour la touche WB, 45 est désormais la
+  fonction Macro Mode (au delà de 45 : White Balance).
+- Écran : Fn, ISO, Drive, **WB Button, Macro Button**, Movie/Wireless, Hold, Focus, Keep AE Lock,
+  One Push AE (10 lignes). Nom « Macro Button » écrit pour chaque langue avec les caractères de
+  l'appareil (Macro Mode et ISO Button de la même langue).
+- Vérifié en émulateur (`wb_button_probe.py` : 64 cas de la touche Macro, la touche ISO intacte,
+  20 contre-épreuves détectées ; `film_roll_check.py`, `guard_probe.py`) ; sans les options, fichiers
+  identiques à l'octet près. L'application envoie `wbButton` et `macroButton` avec le mode pellicule.

@@ -1276,8 +1276,8 @@ export async function outputFirmware(dest: Dest, stock = false): Promise<void> {
       const built = await engine.build(changes.map((c) => c.request), ratios, clarity,
         { adjSoftFocus: soft && sourceInfo.features.softFocus === 'adj', dateStamp, monoUnlock, ...(directFlash ? { directFlash } : {}), ...(extras.length ? { extraSlots: extras } : {}), ...(pictures.length ? { shutdownPictures: pictures } : {}),
           ...(films ? { filmCount: films } : {}), ...(lookLayout ? { lookLayout } : {}),
-          // The film mode brings the WB button's line in Fn Button Settings (WB stays White Balance until changed).
-          ...(filmMode ? { filmMode: { codes: filmCodes() }, wbButton: true } : {}), ...(noMovie ? { noMovie } : {}),
+          // The film mode brings the WB and Macro buttons' lines in Fn Button Settings (each keeps its own function until changed).
+          ...(filmMode ? { filmMode: { codes: filmCodes() }, wbButton: true, macroButton: true } : {}), ...(noMovie ? { noMovie } : {}),
           // Every full GR III / IIIx build: the « AF Point » box in Mode Memory (ticked by default: no change until unticked).
           ...(filmModeChoosable() ? { afPoint: true, memoryU: true } : {}) });
       if (!Object.values(built.checks).every((v) => v === true)) throw new EngineError('selfcheck-failed', 'self-check');

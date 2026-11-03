@@ -371,8 +371,8 @@ export function installGr3xMenuAdditions(p: Gr3xDateProgram, o: { date?: Gr3xDat
      * and icons (white, yellow, grey); Customize Settings stays the camera's. */
     tab?: { entry: number; movie: number; visible: number; title: number; icons: readonly [number, number, number] } };
   /** WB button (wb-button.ts): the WB Button line's list, a list record of its own opened by the
-   * Fn Button Setting lines' controller (`controller`) instead of Horizon's. */
-  fnLine?: { id: number; title: number; count: number; draw: number; set: number; isCurrent: number; controller: number } }) {
+   * Fn Button Setting lines' controller (`controller`) instead of Horizon's (and the Macro Button line's). */
+  fnLines?: readonly { id: number; title: number; count: number; draw: number; set: number; isCurrent: number; controller: number }[] }) {
   const iconOff = o.onOffText ? TEXT_ICON_OFF : ICON_OFF, iconOn = o.onOffText ? TEXT_ICON_ON : ICON_ON;
   const ids = o.date;
   if (o.picture && o.endScreen) fail('IIIx pictures: list or submenu');
@@ -381,7 +381,7 @@ export function installGr3xMenuAdditions(p: Gr3xDateProgram, o: { date?: Gr3xDat
   const r8 = o.round8 === true;
   if (r8 && (!sub || !o.onOffText || [ids!.orient, ids!.shortName, ids!.longName, ids!.iconShortName, ids!.iconLongName].some(v => v === undefined)))
     fail('IIIx round 8 date imprint: the submenu, OFF / ON texts and the texts and icons of the third line and the two styles');
-  if (!ids && !o.picture && !o.endScreen && !o.film && !o.fnLine) fail('no IIIx menu additions');
+  if (!ids && !o.picture && !o.endScreen && !o.film && !o.fnLines?.length) fail('no IIIx menu additions');
   // --- Checks of the official code and data this relies on.
   const guards: readonly (readonly [number, number])[] = [
     ...(ids ? [[BUILDER, 0xe1a0c00d], [BUILDER + 4, movWord(3, lo(MENU_TABLE))], [BUILDER + 0x10, movWord(3, hi(MENU_TABLE), true)]] as const : []),
@@ -624,7 +624,7 @@ export function installGr3xMenuAdditions(p: Gr3xDateProgram, o: { date?: Gr3xDat
     lists.push({ id: GR3X_PICTURE_MENU_ID, title: o.picture.title, count: pe.pictureCount, draw: pe.pictureDraw, set: pe.pictureSet, isCurrent: pe.pictureIsCurrent });
     Object.assign(entries, pe);
   }
-  if (o.fnLine) lists.push(o.fnLine);
+  for (const l of o.fnLines ?? []) lists.push(l);
   const what = o.picture ? 'added menu lists' : 'date imprint';
   const records = lists.map(l => {
     const record = horizon.slice(), rv = new DataView(record.buffer);
