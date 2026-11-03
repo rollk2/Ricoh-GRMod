@@ -2512,6 +2512,8 @@ Demande de l'utilisateur : que Mode Memory puisse s'appliquer aussi aux modes U.
   avec un octet de mode ; fusion en U avec échange temporaire des 24 octets de cases). 3 à 5 builds.
 - **BOX suivante** (fonction Fn, plan T25-BOX1).
 - Réglages ADJ supplémentaires, Image Control custom supplémentaires, palier de crop 40 mm.
+- **Bogue (moyen, non traité)** : avec No movie, le bouton Wireless affiche encore au démarrage
+  l'icône de bascule photo / vidéo (signalé le 2026-11-02).
 - ~~**Touche WB dans Fn Button Settings**~~ : fait le 2026-11-02 (build WB-RC1, voir « Touche WB »
   plus bas), à valider sur le boîtier.
 
@@ -2720,3 +2722,10 @@ Demande : rendre la touche WB réglable dans Fn Button Settings. Tout est statiq
 - Vérifié en émulateur (`wb_button_probe.py` : 64 cas de la touche Macro, la touche ISO intacte,
   20 contre-épreuves détectées ; `film_roll_check.py`, `guard_probe.py`) ; sans les options, fichiers
   identiques à l'octet près. L'application envoie `wbButton` et `macroButton` avec le mode pellicule.
+
+## Publication GR Mod Film 0.9.2 (2026-11-03)
+
+- Contenu : correctif de la date incrustée alors qu'elle est désactivée ; touches WB et Macro
+  réglables dans Fn Button Settings (WB-RC2 validé sur le boîtier le 2026-11-03) ; outils de la
+  spec développement / diptyque / grain (étapes 1 et 2, sans effet sur le firmware).
+- Reste ouvert : l'icône photo / vidéo du bouton Wireless au démarrage (liste v2).
