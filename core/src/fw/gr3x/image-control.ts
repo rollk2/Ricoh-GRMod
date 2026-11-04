@@ -23,6 +23,7 @@ import { GR3X_SLOTS3_NATIVE } from './slots3-native';
 import { GR3X_SLOTS4_NATIVE } from './slots4-native';
 import { isGr3xFactoryLayout } from './look-layout';
 import { installGr3xHalationRows } from './halation-rows';
+import { gr3xMonoTable } from './datestamp';
 import { installGr3xGuardCode, installGr3xGuardRecall } from './guard';
 import { gr3xMaxId } from './geometry';
 import { monoLook } from '../aspect/lookstash';
@@ -554,6 +555,8 @@ export async function buildGr3xImageControls(raw: Uint8Array, options: Gr3xLookO
     // Round 7: 0.8.2's halation (soft start, Weak / Medium / Strong, red or white) for every film.
     ...(round7 ? { halation7: { light: slots.slice(0, capacity).map(s => s.quantizedCurves ? halationLight(s.quantizedCurves, s.postQ9) : PLAIN_LIGHT) } } : {}),
     diagnostics: options.jpegDiagnostics === true,
+    // The grain on the JPEG (jpeg_grain.c): the black-and-white films take the black-and-white profile.
+    ...(grain ? { grain: { mono: gr3xMonoTable(monoFilms ?? []) } } : {}),
   });
   // Round 10: the film's record comes from the descriptor's own table (films-r10.ts).
   const descriptor = round10 ? undefined : code(`push {r1-r3,ip};ldrb r2,[r7,#0x77c];` +

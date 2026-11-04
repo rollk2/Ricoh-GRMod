@@ -2799,3 +2799,27 @@ Demande : rendre la touche WB réglable dans Fn Button Settings. Tout est statiq
   look plus court, la boucle d'affichage (`0x531affa0`) masque les lignes au delà (`0x531b0080`),
   comme pour les looks de l'appareil. Vérifié en émulateur (capacité 14 pour Standard comme pour
   un film, en photo comme en vidéo ; contre-épreuve détectée).
+- **Résultat T-GRAIN4 sur le boîtier (2026-11-04) : les lignes Grain Effect et Grain Size
+  s'affichent.** Étape 1 validée.
+
+## Grain logiciel, étape 2 : le grain sur le JPEG (2026-11-04, T-GRAIN5)
+
+- Module `tools/develop/jpeg_grain.c` (avec `grain.c`, la bibliothèque de l'étape 2 de la spec),
+  compilé par `tools/develop/gen_jpeg_grain.py` en un bloc indépendant de l'adresse (9 112 octets,
+  sans données, vérifié lié à deux adresses) → `core/src/fw/gr3x/grain-module.ts`, avec les
+  quatre recettes de textures et deux profils calculés sur PC (couleur : archétype NEG400 de la
+  spec ; noir et blanc : BW400 ; un film noir et blanc par la table du build, comme la date).
+- Chaîne JPEG (`jpeg-stage.ts`) : Execute → halation → **grain** → date. Le module lit le mot du
+  look (`0x55804378`) : bits 20..21 le Grain (0 off, 1..3 = intensité faible / profil / forte),
+  22..23 la Taille (0 moyenne, 1 fine, 2 grosse). À chaque photo : textures faites dans le tas de
+  l'appareil (650 770 octets + 525 312 de travail, rendus après), graine = empreinte FNV de 64
+  échantillons de l'image (différente à chaque vue), grain sur l'image pleine et sur chacune des
+  plus petites (pas de texture mis à l'échelle de la largeur : même taille de grain sur la photo),
+  cache invalidé avant et nettoyé après. Image non reconnue, allocation refusée, Grain off : rien.
+- Vérifié : `tools/develop/jpeg_grain_probe.py` (module du firmware dans Unicorn, 32 cas × 3
+  images identiques au PC au bit près, cas « rien » et libérations) ; `tools/gr3x/grain_stage_probe.py`
+  (chaîne, contexte, registres, suite vers la date) ; sondes existantes repassées.
+- **Coût estimé** (émulateur) : textures 198 M instructions, puis 287 instructions par pixel :
+  environ 7,3 G instructions pour 24 Mpx et ses aperçus, quelques secondes de traitement en plus
+  par photo avec du grain (à mesurer sur le boîtier ; NEON non utilisé, piste d'accélération).
+- L'application envoie `grain` avec le mode pellicule (Grain off par défaut sur chaque film).

@@ -36,6 +36,7 @@ import type { HalationLight } from '../aspect/halation';
 import { halationLutR6, halationModuleR6, paramBytesR6 } from './halation-r6';
 import type { HalationLightR6 } from './halation-r6';
 import { GR3X_DATESTAMP_DIAG_R6_CODE, GR3X_HALATION_STATUS_R6_CODE } from './picture-modules-r6';
+import { GR3X_GRAIN_CODE, GR3X_GRAIN_ENTRY, GR3X_GRAIN_PROFILES, GR3X_GRAIN_RECIPES } from './grain-module';
 
 export const GR3X_JPEG_EXECUTE = 0x535047d4;
 export const GR3X_DEVELOP_LOOK_READ = 0x536db7f8;
@@ -63,6 +64,7 @@ const GUARDS: readonly (readonly [number, number])[] = [
 ];
 const HALATION_MAGIC = 0x324c4148; // 'HAL2', as GR IV 0.8.0
 const HALATION_MAGIC_R7 = 0x344c4148; // 'HAL4', as GR IV 0.8.2
+const GRAIN_MAGIC = 0x314e5247; // 'GRN1' (jpeg_grain.c)
 const LUT_N = 4096;
 /** Round 7: film k's entry in the module's look map (looks 64.. as 32..: its map has 64 entries). */
 export const GR3X_HALATION_FILM_STYLE = 32;
@@ -83,6 +85,9 @@ export interface Gr3xJpegOptions {
    * the camera through the stash word (look 64 + k as 32 + k, strength at bits 8..15, white bit 17). */
   halation7?: { light: readonly HalationLight[] };
   diagnostics?: boolean;
+  /** Round 10 with the grain: the grain module (tools/develop/jpeg_grain.c) after the halation,
+   * before the date; `mono` by style (64 entries: a film 64 + k at 32 + k), 1 black and white. */
+  grain?: { mono: Uint8Array };
   /** The date imprint's stub, already at Execute's entry: the chain ends there instead (halation
    * first, then the date, as on GR IV). */
   after?: number;
@@ -134,6 +139,17 @@ export function installGr3xJpegStage(p: Gr3xJpegProgram, o: Gr3xJpegOptions) {
     const stub = p.code(`push {r0-r3,ip,lr};ldr r1,[r1,#8];${addr('r0', ctx)}bl #${module};pop {r0-r3,ip,lr};${tail}`);
     entries.halation = stub; entries.halationModule = module; entries.halationContext = ctx;
     if (o.diagnostics) entries.halationStatus = GR3X_HALATION_STATUS;
+    tail = `b #${stub};`; first = stub;
+  }
+  if (o.grain) {
+    // The grain (after the halation, before the date): its context (jpeg_grain.c, struct gctx).
+    if (!o.halation7 || o.grain.mono.length !== 64) throw new FirmwareError('internal', 'IIIx grain: round 7 halation and a look map');
+    const bytes = (b64: string) => Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+    const recipes = p.append(bytes(GR3X_GRAIN_RECIPES)), profiles = p.append(bytes(GR3X_GRAIN_PROFILES)), mono = p.append(o.grain.mono);
+    const ctx = p.append(u32le([CACHE, CACHE_FLUSH_FOR_READ, CACHE_CLEAN, HEAP_ALLOC, HEAP_FREE, GR3X_HALATION_STASH, recipes, profiles, mono, GRAIN_MAGIC]));
+    const module = p.append(bytes(GR3X_GRAIN_CODE));
+    const stub = p.code(`push {r0-r3,ip,lr};ldr r1,[r1,#8];${addr('r0', ctx)}bl #${module + GR3X_GRAIN_ENTRY};pop {r0-r3,ip,lr};${tail}`);
+    Object.assign(entries, { grain: stub, grainModule: module, grainContext: ctx });
     tail = `b #${stub};`; first = stub;
   }
   if (o.halation7) {
