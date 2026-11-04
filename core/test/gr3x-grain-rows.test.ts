@@ -8,12 +8,13 @@ import { planGr3xMenu } from '../src/fw/gr3x/geometry';
 import { buildGr3xTestFirmware } from '../src/fw/gr3x/research-package';
 import { GR3X_GRAIN_SIZE_NAMES } from '../src/fw/gr3x/image-control';
 import { GR3X_FILMS_MODULE, GR3X_FILMS_MODULE_GRAIN } from '../src/fw/gr3x/films-native';
+import type { Gr3xLookOptions } from '../src/fw/gr3x/image-control';
 
 const input = process.env.GRMOD_GR3_FIRMWARE;
 const menu = planGr3xMenu([{ ratio: '65:24', name: 'XPan' }]);
 const curve = Array.from({ length: 256 }, (_, i) => Math.round(16383 * i / 255));
 const preset = { matrixQ13: Int16Array.from([8192, 0, 0, 0, 8192, 0, 0, 0, 8192]), curves: [Uint16Array.from(curve), Uint16Array.from(curve), Uint16Array.from(curve)] };
-const looks = { displayRevision: 3, ownParameters: true, filmCount: 2, films: [{ name: 'Portra', preset }, { name: 'Film 2' }] };
+const looks = { displayRevision: 3, ownParameters: true, filmCount: 2, films: [{ name: 'Portra', preset }, { name: 'Film 2' }] } as unknown as Gr3xLookOptions;
 const film = { adjSoftFocus: true, dateImprint: true, dateMenu: 'submenu', round7: true, round8: true, round9: true, round10: true, filmMode: { codes: {} }, dateHidden: true } as const;
 
 describe('grain rows: names and module', () => {
@@ -36,7 +37,7 @@ describe.skipIf(!input)('GR III grain rows', () => {
     const plain = await buildGr3xTestFirmware(raw, [], looks, menu, film);
     const grain = await buildGr3xTestFirmware(raw, [], looks, menu, { ...film, grain: true });
     const added = grain.manifest.sites.filter(s => !plain.manifest.sites.some(t => t.address === s.address));
-    expect(added.length).toBe(13);
+    expect(added.length).toBe(14);
     expect(added.every(s => /^grain:/.test(s.reason))).toBe(true);
     expect((grain.manifest as unknown as { grain?: boolean }).grain).toBe(true);
   }, 600000);

@@ -51,6 +51,8 @@ const START12 = 0x531adf20, SCALE12 = 0x531adf3c, POSITIONS12 = 0x531adf60, POSI
 const STORED_GETTER12 = 0x532c7520, MAP12 = 0x531ac7a8, LIVE_GETTER12 = 0x532c1ac0, TEXT12 = 0x532acb50, SETTER_NATIVE12 = 0x532c0b3c, ICON12 = 0x1dd;
 const START8 = 0x531ada20, SCALE8 = 0x531ada3c, POSITION8 = 0x531b04f4, LIST_TEXT8 = 0x531af3a4, LIST_ICON8 = 0x531af3b8, SETTER8 = 0x531b0db4;
 const STORED_GETTER8 = 0x532c6b94, MAP8 = 0x531ac654, LIVE_GETTER8 = 0x532c293c, TEXT8 = 0x532ac86c, SETTER_NATIVE8 = 0x532c056c, ICON8 = 0x1e9;
+/** The parameter screen's list set-up: its row capacity, read at ROWS_MAX; its line count of a column. */
+const ROWS_MAX = 0x531afc48, LINE_COUNT = 0x531afab8;
 const BACKUP = 0x532c337c, BACKUP_BODY = 0x532c325c, RESTORE = 0x532c34a8, RESTORE_BODY = 0x532c33c8;
 
 export interface Gr3xHalationRowsProgram {
@@ -236,10 +238,22 @@ export function installGr3xHalationRows(p: Gr3xHalationRowsProgram, o: Gr3xHalat
       p.patch(at, 0xe3a03000 | native, branchWord(at, stub), what);
       return stub;
     };
+    // The screen's row capacity (0x531afbe0): the longest list of the camera's looks (columns 0..11
+    // of each photo set, `cmp r4,#0xc`), which cut a film's list after its tenth line (Colour, Grain
+    // and Size never showed). For a film also the film's own columns (36 - 11 * set), counted by the
+    // screen's own line count (0x531afab8, valid lines only). r4, r6 free here; r5 the controller.
+    for (const [at, w] of [[ROWS_MAX, 0xe5d5019e], [ROWS_MAX + 4, bl(ROWS_MAX + 4, 0x536af31c)], [ROWS_MAX - 0x18, 0xe354000c]] as const)
+      if (p.u32(at) !== w >>> 0) fail(`rows guard at ${at.toString(16)}`);
+    const rowsMax = p.code(`${film('ip', 'r5')}bhi done;mov r6,#0;
+      next:mov r0,r5;mov r1,r6;add r2,r6,r6,lsl #1;add r2,r2,r6,lsl #3;rsb r2,r2,#36;bl #${LINE_COUNT};
+      ldrb r3,[r5,#0x19e];cmp r3,r0;strblo r0,[r5,#0x19e];add r6,r6,#1;cmp r6,#3;bne next;
+      done:ldrb r0,[r5,#0x19e];b #${ROWS_MAX + 4};`);
+    p.patch(ROWS_MAX, 0xe5d5019e, branchWord(ROWS_MAX, rowsMax), 'grain: the parameter screen has room for a film\'s lines');
     // Four positions for a film's Grain (as Grain Effect's: count 3, spacing 0x78).
     const positions12 = p.code(`${film('r2', 'r6')}mov r2,#4;mov r3,#0x5a;movls r2,#3;movls r3,#0x78;b #${POSITIONS12 + 8};`);
     p.patch(POSITIONS12, 0xe3a02004, branchWord(POSITIONS12, positions12), 'grain: a film\'s Grain has four positions');
     return {
+      grainRowsMax: rowsMax,
       grainStart: pos(START12, 'r6', STORED_GETTER12, G.grain, 'grain: the stored grain'),
       grainPosition: pos(POSITION12, 'r5', LIVE_GETTER12, G.grain, 'grain: the grain\'s position'),
       grainScale: scale(SCALE12, 0xc9, GRAIN_SCALE, 'grain: Grain Effect\'s scale'), grainPositions: positions12,

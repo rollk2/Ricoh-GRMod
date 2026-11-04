@@ -73,6 +73,7 @@ class RowsProbe10(FilmsProbe):
         elif at in NATIVE and not (at==TONING_RESTORE and self.restoring):
             self.native.append((NATIVE[at],cpu.reg_read(reg.UC_ARM_REG_R0),cpu.reg_read(reg.UC_ARM_REG_R1)));ret(0x7777)
         elif at==FOCUS_ADDRESS:ret(self.focus)
+        elif at==0x536af31c and getattr(self,'alloc',None):ret(self.alloc)   # the screen's row types buffer (3b)
         else:super()._hook(cpu,at,size,user)
     logged=ScreenProbe.logged;controller=ScreenProbe.controller;site=ScreenProbe.site;site_to=RowsProbe.site_to
 
@@ -124,6 +125,24 @@ def verify(data,manifest):
             assert n.call(LINE_COUNT,CTL,s,fc)-n.call(LINE_COUNT,CTL,s,sc)==sum(added);calls+=2
             c.mem_write(CTL+0x19a,bytes([fc]))
             for k,kind in enumerate((15,10)+((12,8) if grain else ())):n.focus=len(std[s])+k;assert n.call(CURRENT_KIND,CTL)==kind;calls+=1
+    # 3b. With the grain: the screen's row capacity (0x531afbe0 up to its list set-up call) covers
+    # a film's lines (the camera's own looks: the longest of their lists, as before).
+    if grain:
+        SETUP,TYPES_CALL=0x531afbe0,0x531afc8c
+        for look in (11,13,64,64+films-1):
+            for movie in (0,1):
+                n.controller(look,0,movie)
+                c.mem_write(CTL+0x194,struct.pack('<I',0x62058000))
+                for i in range(13):c.reg_write(getattr(reg,'UC_ARM_REG_R'+str(i)),0x12340000+i)
+                c.reg_write(reg.UC_ARM_REG_R0,CTL);c.reg_write(reg.UC_ARM_REG_SP,STACK);c.reg_write(reg.UC_ARM_REG_LR,0x5a5a5a5a)
+                n.alloc=REGION+0xb000;n.native=[];c.emu_start(SETUP,TYPES_CALL,count=200000);n.alloc=None
+                assert c.reg_read(reg.UC_ARM_REG_PC)==TYPES_CALL
+                rows=c.reg_read(reg.UC_ARM_REG_R2)
+                native=max(n.call(LINE_COUNT,CTL,s,col) for s in range(3) for col in range(12));calls+=36
+                want=max([native]+([n.call(LINE_COUNT,CTL,s,36-11*s) for s in range(3)] if film(look) else []))
+                assert rows==want,(look,movie,rows,want)
+                if film(look) and movie==0:assert rows>=len(std[0])+4,(look,rows)
+        report['row_capacity']=dict(native=native,film=want)
     # 4. Hooks, with settings read back through slots3.c itself.
     if r10:
         recs=fresh_records(random.Random(5),films)

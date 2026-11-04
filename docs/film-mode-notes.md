@@ -2782,3 +2782,11 @@ Demande : rendre la touche WB réglable dans Fn Button Settings. Tout est statiq
 - Vérifié en émulateur : `halation_rows_probe.py` (11 660 cas avec le grain, contre-épreuves
   détectées), `films_r10_verify.py` (mot du look et note EXIF avec le quartet haut) ; sans l'option
   les deux sondes passent comme avant. Option `grain` (mode pellicule, round 10).
+- **Résultat T-GRAIN2 sur le boîtier (2026-11-04)** : les deux dernières lignes visibles sont
+  Clarity et Halation ; ni Grain, ni Taille (ni Couleur). Cause (certaine, lue puis vérifiée en
+  émulation) : à l'ouverture, l'écran (`0x531afbe0`) fixe sa capacité de lignes à la plus longue
+  liste des looks de l'appareil (colonnes 0 à 11 de chaque jeu, `cmp r4,#0xc` en `0x531afc30`,
+  compte des lignes valides `0x531afab8`) : 10 ou 11 lignes ; la liste d'un film (colonnes 36,
+  25, 14) était coupée. Correctif (T-GRAIN3) : en `0x531afc48`, pour un film, la capacité prend
+  aussi la longueur de ses propres listes (jusqu'à 14 lignes avec le grain). Vérifié en émulateur
+  (`halation_rows_probe.py` section 3b, contre-épreuve détectée).
