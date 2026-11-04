@@ -132,6 +132,8 @@ export interface Gr3xAdjFeatures {
   macroButton?: boolean;
   /** T-GRAIN1 (test, film mode): the camera's own grain on the films, a fixed value per film (grain-native.ts). */
   grainTest?: readonly number[];
+  /** Film mode, round 10: Grain and Size rows on a film's Image Control parameter screen (halation-rows.ts, films.c -DGRAIN). */
+  grain?: boolean;
   filmRoll?: boolean | 'film' | 'folders' | 'folders-diag' | 'menu' | 'keys' | 'fn' | 'fn2' | 'fn3' | 'fn4' | 'fn5' | 'rt1' | 'fn6' | 'fn7' | 'dir1' | 'dir2' | 'dir3' | 'dg1' | 'dg2' | 'dg3' | 'dir4' | 'dir5' | 'dir6' | 'dir7' | 'dir8' | 'dir9' | 'dir10' | 'dir11' | 'dir12' | 'dir13' | 'dir14' | 'end1' | 'end2' | 'end3' | 'clo1' | 'clo2' | 'clo3' | 'clo4' | 'msg1' | 'rwd1' | 'hide1' | 'card1' | 'card2' | 'card3' | 'vid1' | 'vid2' | 'vid3' | 'vid4' | 'tab1' | 'name1' | 'name2';
   /** Round 8: the Image Control order and hidden looks (look-layout.ts; the camera's order with
    * nothing hidden is the same as none). */
@@ -233,6 +235,7 @@ export async function buildGr3xAdjResearch(raw: Uint8Array, ratioMenu: readonly 
   const wbButton = features.wbButton === true;
   if (wbButton && !(features.filmRoll === 'film' || features.filmRoll === 'name2')) fail('IIIx WB button: only with the film mode');
   const macroButton = features.macroButton === true;
+  if (features.grain && !features.filmMode) fail('IIIx grain rows: only with the film mode');
   if (macroButton && !wbButton) fail('IIIx Macro button: with the WB button');
   if (filmRoll && (!(round10 && dateImprint) || filmProbe)) fail('IIIx film roll: round 10 with the date imprint, without the film probe');
   if (features.lookLayout && !round8) fail('IIIx look layout: round 8');
@@ -603,7 +606,7 @@ export async function buildGr3xAdjResearch(raw: Uint8Array, ratioMenu: readonly 
     adjSoftFocus: softFocus,
     dateImprint: dateImprint ? { ...dateIds, form: dateForm, ...(round7 ? { iconOff: 296, iconOn: 297 } : {}), ...(lookNames ? { names: lookNames } : {}) } : undefined,
     round7,
-    ...(round8 ? { round8 } : {}), ...(round9 ? { round9 } : {}), ...(round10 ? { round10 } : {}), ...(filmProbe ? { filmProbe: features.filmProbe } : {}), ...(filmRoll ? { filmRoll: features.filmRoll } : {}), ...(features.filmMode ? { filmCodes } : {}), ...(dateHidden ? { dateHidden } : {}), ...(features.afReset ? { afReset: true } : {}), ...(features.afPoint ? { afPoint: true } : {}), ...(memoryU ? { memoryU: true } : {}), ...(wbButton ? { wbButton: true } : {}), ...(macroButton ? { macroButton: true } : {}), ...(features.grainTest ? { grainTest: [...features.grainTest] } : {}),
+    ...(round8 ? { round8 } : {}), ...(round9 ? { round9 } : {}), ...(round10 ? { round10 } : {}), ...(filmProbe ? { filmProbe: features.filmProbe } : {}), ...(filmRoll ? { filmRoll: features.filmRoll } : {}), ...(features.filmMode ? { filmCodes } : {}), ...(dateHidden ? { dateHidden } : {}), ...(features.afReset ? { afReset: true } : {}), ...(features.afPoint ? { afPoint: true } : {}), ...(memoryU ? { memoryU: true } : {}), ...(wbButton ? { wbButton: true } : {}), ...(macroButton ? { macroButton: true } : {}), ...(features.grainTest ? { grainTest: [...features.grainTest] } : {}), ...(features.grain ? { grain: true } : {}),
     ...(round8 && !layer.looksFollow && features.lookLayout && !isGr3xFactoryLayout(features.lookLayout, 0) ? { lookLayout: { order: [...features.lookLayout.order], hidden: [...features.lookLayout.hidden] } } : {}),
     pictures: pictureCount ? (pictureSub ? { form: 'submenu' as const, count: pictureCount, ...endIds, names: pictures.map((_, k) => endIds.factoryText + 1 + k),
       factoryIcons: [...endIds.factoryIcons], icons: [...endIds.icons], choices: pictures.map(x => x.id!) }

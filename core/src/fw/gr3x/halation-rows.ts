@@ -44,6 +44,13 @@ const STORED_GETTER10 = 0x532c70e4, LIVE_GETTER10 = 0x532c297c, TEXT10 = 0x532ac
 const START15 = 0x531ae84c, POSITION15 = 0x531b0564, LIST_TEXT15 = 0x531af6ec, LIST_ICON15 = 0x531af700, SETTER15 = 0x531b0d28;
 const STORED_GETTER15 = 0x532c9744, LIVE_GETTER15 = 0x532c2a5c, TEXT15 = 0x532ace68, PARTICLE_SETTER = 0x532c1780;
 const GRAIN_ICON = 0x1de, TONING_ICON = 0x1e9, TONING_SCALE = 0xd3;
+// Grain (kind 12, the filter effect of the black-and-white looks, five positions: four for a film)
+// and its size (kind 8, Bleach Bypass's Toning, three positions): grain-rows (round 10).
+const KIND_GRAIN_FILM = 12, KIND_SIZE = 8, GRAIN_EFFECT_TEXT = 0x133, GRAIN_SCALE = 0x39, SIZE_SCALE = 0xd3;
+const START12 = 0x531adf20, SCALE12 = 0x531adf3c, POSITIONS12 = 0x531adf60, POSITION12 = 0x531b0534, LIST_TEXT12 = 0x531af584, LIST_ICON12 = 0x531af598, SETTER12 = 0x531b0d64;
+const STORED_GETTER12 = 0x532c7520, MAP12 = 0x531ac7a8, LIVE_GETTER12 = 0x532c1ac0, TEXT12 = 0x532acb50, SETTER_NATIVE12 = 0x532c0b3c, ICON12 = 0x1dd;
+const START8 = 0x531ada20, SCALE8 = 0x531ada3c, POSITION8 = 0x531b04f4, LIST_TEXT8 = 0x531af3a4, LIST_ICON8 = 0x531af3b8, SETTER8 = 0x531b0db4;
+const STORED_GETTER8 = 0x532c6b94, MAP8 = 0x531ac654, LIVE_GETTER8 = 0x532c293c, TEXT8 = 0x532ac86c, SETTER_NATIVE8 = 0x532c056c, ICON8 = 0x1e9;
 const BACKUP = 0x532c337c, BACKUP_BODY = 0x532c325c, RESTORE = 0x532c34a8, RESTORE_BODY = 0x532c33c8;
 
 export interface Gr3xHalationRowsProgram {
@@ -62,6 +69,9 @@ export interface Gr3xHalationRowsOptions {
   /** Rounds 7..9: the settings kept and put back with the screen's own (round 10: the Toning byte is
    * one of the parameters the screen backs up and restores itself). */
   backup?: number; restore?: number;
+  /** Round 10 with the grain (films.c -DGRAIN): two more rows, Grain (Grain Effect's name, Off / 1 /
+   * 2 / 3) and its size (S / M / L), kept in the Toning byte's high nibble. */
+  grain?: { sizeText: number; grain: number; grainPut: number; grainText: number; size: number; sizePut: number; sizeText2: number };
 }
 
 const bl = (at: number, target: number) => (0xeb000000 | (((target - (at + 8)) >> 2) & 0xffffff)) >>> 0;
@@ -99,11 +109,12 @@ export function installGr3xHalationRows(p: Gr3xHalationRowsProgram, o: Gr3xHalat
   const list = (entry: number) => {
     const at = ov.getUint32(entry * 8, true), count = ov.getUint32(entry * 8 + 4, true);
     const items = p.read(at, count * 2);
-    for (let k = 0; k < count; k++) if (items[2 * k + 1] === KIND_TONING || items[2 * k + 1] === KIND_GRAIN) fail('Standard already has kind 10 or 15');
-    return Uint8Array.from([...items, 0, KIND_GRAIN, 0, KIND_TONING]);
+    for (let k = 0; k < count; k++) if ([KIND_TONING, KIND_GRAIN, ...(o.grain ? [KIND_GRAIN_FILM, KIND_SIZE] : [])].includes(items[2 * k + 1])) fail('Standard already has kind 10 or 15');
+    return Uint8Array.from([...items, 0, KIND_GRAIN, 0, KIND_TONING, ...(o.grain ? [0, KIND_GRAIN_FILM, 0, KIND_SIZE] : [])]);
   };
   const set0 = list(0), set12 = list(12);
-  if (set0.length !== 22 || set12.length !== 24 || set12[1] !== 17 || ov.getUint32(12 * 8, true) !== ov.getUint32(24 * 8, true)) fail('Standard lines');
+  const more = o.grain ? 4 : 0;
+  if (set0.length !== 22 + more || set12.length !== 24 + more || set12[1] !== 17 || ov.getUint32(12 * 8, true) !== ov.getUint32(24 * 8, true)) fail('Standard lines');
   const l0 = p.append(set0), l12 = p.append(set12);
   const extra = new Uint8Array(24), ev = new DataView(extra.buffer);
   [[l0, set0.length / 2], [l12, set12.length / 2], [l12, set12.length / 2]].forEach(([a, c], k) => { ev.setUint32(k * 8, a, true); ev.setUint32(k * 8 + 4, c, true); });
@@ -117,7 +128,8 @@ export function installGr3xHalationRows(p: Gr3xHalationRowsProgram, o: Gr3xHalat
     cmp r0,#1;moveq r0,#25;movhi r0,#14;movlo r0,#36;b #${BASE_RETURN};native:b #${BASE_DEFAULT_TARGET};`);
   p.patch(BASE_DEFAULT, 0xea000024, branchWord(BASE_DEFAULT, base), 'halation: a film\'s parameter lines');
   // --- Names (r0 the kind, r3 the text table entry, r4 the controller).
-  const subtitle = p.code(`ldrh r1,[r3,#2];cmp r0,#${KIND_GRAIN};beq grain;cmp r0,#${KIND_TONING};bne done;
+  const grainNames = o.grain ? `cmp r0,#${KIND_GRAIN_FILM};bne gs;${film('ip', 'r4')}movwls r1,#${GRAIN_EFFECT_TEXT};b done;gs:cmp r0,#${KIND_SIZE};bne gn;${film('ip', 'r4')}movwls r1,#${o.grain.sizeText};b done;gn:` : '';
+  const subtitle = p.code(`ldrh r1,[r3,#2];${grainNames}cmp r0,#${KIND_GRAIN};beq grain;cmp r0,#${KIND_TONING};bne done;
     ${film('ip', 'r4')}movwls r1,#${o.colourText};b done;
     grain:${film('ip', 'r4')}movwls r1,#${o.halationText};done:b #${SUBTITLE + 4};`);
   p.patch(SUBTITLE, 0xe1d310b2, branchWord(SUBTITLE, subtitle), 'halation: names of the lines');
@@ -179,6 +191,70 @@ export function installGr3xHalationRows(p: Gr3xHalationRowsProgram, o: Gr3xHalat
   };
   const backup = o.backup !== undefined ? thunk(BACKUP, BACKUP_BODY, o.backup, 'halation: kept when the parameter screen opens') : undefined;
   const restore = o.restore !== undefined ? thunk(RESTORE, RESTORE_BODY, o.restore, 'halation: put back on Cancel') : undefined;
-  return { table, lists: [l0, l12], base, subtitle, start15, position15, text15, icon15, setter15,
+  // ------------------------------------------------------------------ Grain (kind 12) and size (kind 8)
+  const grainRows = o.grain ? (() => {
+    const G = o.grain!;
+    const g: readonly (readonly [number, number])[] = [
+      [START12, bl(START12, STORED_GETTER12)], [START12 + 4, bl(START12 + 4, MAP12)], [START12 - 0x18, 0xe1a06000], [START12 + 0x34, 0xe1a07000],
+      [SCALE12, 0xe3a030c9], [POSITIONS12, 0xe3a02004], [POSITIONS12 + 4, 0xe3a0305a], [POSITIONS12 + 8, 0xe24b0054],
+      [POSITION12, bl(POSITION12, LIVE_GETTER12)], [POSITION12 + 4, bl(POSITION12 + 4, MAP12)], [POSITION12 + 8, 0xe1a04000],
+      [LIST_TEXT12, bl(LIST_TEXT12, TEXT12)], [LIST_TEXT12 - 0x18, 0xe1a06000], [LIST_ICON12, movWord(1, ICON12)],
+      [SETTER12, bl(SETTER12, SETTER_NATIVE12)], [SETTER12 - 4, 0xe7d31006],
+      [START8, bl(START8, STORED_GETTER8)], [START8 + 4, bl(START8 + 4, MAP8)], [START8 - 0x18, 0xe1a06000], [START8 + 0x34, 0xe1a07000],
+      [SCALE8, 0xe3a030d2], [START8 + 0x40, 0xe3a02002], [START8 + 0x44, 0xe3a030b4],
+      [POSITION8, bl(POSITION8, LIVE_GETTER8)], [POSITION8 + 4, bl(POSITION8 + 4, MAP8)], [POSITION8 + 8, 0xe1a04000],
+      [LIST_TEXT8, bl(LIST_TEXT8, TEXT8)], [LIST_TEXT8 - 0x18, 0xe1a06000], [LIST_ICON8, movWord(1, ICON8)],
+      [SETTER8, bl(SETTER8, SETTER_NATIVE8)], [SETTER8 - 4, 0xe7d31006],
+    ];
+    for (const [at, w] of g) if (p.u32(at) !== w >>> 0) fail(`grain guard at ${at.toString(16)}`);
+    // Start and position: for a film, the position itself (the native value-to-position map is skipped).
+    const pos = (at: number, ctl: string, native: number, get: number, what: string) => {
+      const stub = p.code(`${film('r2', ctl)}bhi native;ldrb r0,[${ctl},#0x198];ldrb r1,[${ctl},#0x199];bl #${get};b #${at + 8};
+        native:bl #${native};b #${at + 4};`);
+      p.patch(at, bl(at, native), bl(at, stub), what);
+      return stub;
+    };
+    const text = (at: number, native: number, fn: number, what: string) => {
+      const stub = p.code(`${film('r2', 'r6')}bhi native;mov r2,r1;ldrb r0,[r6,#0x198];ldrb r1,[r6,#0x199];bl #${fn};b #${at + 4};
+        native:bl #${native};b #${at + 4};`);
+      p.patch(at, bl(at, native), bl(at, stub), what);
+      return stub;
+    };
+    const icon = (at: number, native: number, what: string) => {
+      const stub = p.code(`${film('r1', 'r6')}movw r1,#${native};movwls r1,#${GRAIN_ICON};b #${at + 4};`);
+      p.patch(at, movWord(1, native), branchWord(at, stub), what);
+      return stub;
+    };
+    const setter = (at: number, native: number, put: number, what: string) => {
+      const stub = p.code(`${film('r2', 'r4')}bhi native;mov r2,r6;ldrb r0,[r4,#0x198];ldrb r1,[r4,#0x199];bl #${put};b #${at + 4};
+        native:bl #${native};b #${at + 4};`);
+      p.patch(at, bl(at, native), bl(at, stub), what);
+      return stub;
+    };
+    const scale = (at: number, native: number, mine: number, what: string) => {
+      const stub = p.code(`${film('r3', 'r6')}mov r3,#${native};movls r3,#${mine};b #${at + 4};`);
+      p.patch(at, 0xe3a03000 | native, branchWord(at, stub), what);
+      return stub;
+    };
+    // Four positions for a film's Grain (as Grain Effect's: count 3, spacing 0x78).
+    const positions12 = p.code(`${film('r2', 'r6')}mov r2,#4;mov r3,#0x5a;movls r2,#3;movls r3,#0x78;b #${POSITIONS12 + 8};`);
+    p.patch(POSITIONS12, 0xe3a02004, branchWord(POSITIONS12, positions12), 'grain: a film\'s Grain has four positions');
+    return {
+      grainStart: pos(START12, 'r6', STORED_GETTER12, G.grain, 'grain: the stored grain'),
+      grainPosition: pos(POSITION12, 'r5', LIVE_GETTER12, G.grain, 'grain: the grain\'s position'),
+      grainScale: scale(SCALE12, 0xc9, GRAIN_SCALE, 'grain: Grain Effect\'s scale'), grainPositions: positions12,
+      grainText: text(LIST_TEXT12, TEXT12, G.grainText, 'grain: value of the Grain line'),
+      grainIcon: icon(LIST_ICON12, ICON12, 'grain: icon of the Grain line'),
+      grainSetter: setter(SETTER12, SETTER_NATIVE12, G.grainPut, 'grain: store the grain'),
+      sizeStart: pos(START8, 'r6', STORED_GETTER8, G.size, 'grain: the stored size'),
+      sizePosition: pos(POSITION8, 'r5', LIVE_GETTER8, G.size, 'grain: the size\'s position'),
+      sizeScale: scale(SCALE8, 0xd2, SIZE_SCALE, 'grain: the size\'s scale'),
+      sizeText: text(LIST_TEXT8, TEXT8, G.sizeText2, 'grain: value of the Size line'),
+      sizeIcon: icon(LIST_ICON8, ICON8, 'grain: icon of the Size line'),
+      sizeSetter: setter(SETTER8, SETTER_NATIVE8, G.sizePut, 'grain: store the size'),
+    };
+  })() : undefined;
+
+  return { ...(grainRows ?? {}), table, lists: [l0, l12], base, subtitle, start15, position15, text15, icon15, setter15,
     scale10, positions10, start10, position10, text10, icon10, setter10, ...(backup !== undefined ? { backup, restore } : {}) };
 }

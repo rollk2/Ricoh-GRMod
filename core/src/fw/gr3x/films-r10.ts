@@ -69,7 +69,7 @@
 import { branchWord, movWord, wordsToBytes } from '../aspect/arm';
 import { linkModule } from '../aspect/native-link';
 import { FirmwareError } from '../types';
-import { GR3X_FILMS_MODULE } from './films-native';
+import { GR3X_FILMS_MODULE, GR3X_FILMS_MODULE_GRAIN } from './films-native';
 import { GR3X_R10, GR3X_SETTINGS_LOAD, GR3X_SETTINGS_SAVE, gr3xSettingsHook, gr3xSettingsPrior } from './round10';
 import type { Gr3xSite } from './round10';
 
@@ -160,6 +160,8 @@ export interface Gr3xR10ParameterOptions {
   prints: readonly number[];
   hiddenMask: number;
   setterSites: readonly number[];
+  /** The Grain and Size rows (films.c -DGRAIN): the Toning byte's high nibble. */
+  grain?: boolean;
 }
 
 export function installGr3xR10Parameters(p: Gr3xR10Program, o: Gr3xR10ParameterOptions) {
@@ -197,7 +199,7 @@ export function installGr3xR10Parameters(p: Gr3xR10Program, o: Gr3xR10ParameterO
   const prints = p.append(u32le([...o.prints, o.hiddenMask]));
   const origin = p.next();
   const priorLoad = gr3xSettingsPrior(p, 'load'), priorSave = gr3xSettingsPrior(p, 'save');
-  const mod = linkModule(GR3X_FILMS_MODULE, 'films', n, origin, {
+  const mod = linkModule(o.grain ? GR3X_FILMS_MODULE_GRAIN : GR3X_FILMS_MODULE, 'films', n, origin, {
     prior_native_save: priorSave, prior_native_load: priorLoad, storage_singleton: STORAGE, store_write: STORE_WRITE,
     store_read: STORE_READ, store_size: STORE_SIZE, heap_alloc: HEAP_ALLOC, sp_gap: GR3X_R10.slotState,
     settings_object: GR3X_SETTINGS_OBJECT, slot_prints: prints,
@@ -321,7 +323,7 @@ const RAW_RECORD = 0x535bf7c4, PLAY_NUMBER = 0x535c2508, PLAY_STYLE = 0x532b44dc
 const LIST_ASSIGN = 0x535c3ed8, LISTS = [0x535ca050, 0x535ca310] as const, LIST_CALLS = 17, LISTS_WITH_BLEACH = 7;
 const TONING_WRITER = 0x535c5e34, TONING_READER = 0x535c0d04;
 
-export function installGr3xR10PictureInfo(p: Gr3xR10Program, films: number, firstIcon: number) {
+export function installGr3xR10PictureInfo(p: Gr3xR10Program, films: number, firstIcon: number, grain = false) {
   const n = films;
   if (p.u32(TONE_WRITER) !== movWord(3, 0xad6c) || p.u32(NOTE_STORE) !== 0xe5903010) fail('maker note look');
   const writer = p.code(`ldrb ip,[r2,#0x77c];sub ip,ip,#${FIRST};cmp ip,#${n - 1};bhi native;mov r0,r1;mov r1,#0;movw r2,#${GR3X_FILM_TONE_CODE};add r2,r2,ip;b #${NOTE_STORE};
@@ -359,7 +361,7 @@ export function installGr3xR10PictureInfo(p: Gr3xR10Program, films: number, firs
   if (grown.length !== LISTS_WITH_BLEACH) fail(`maker note lists with Bleach Bypass: ${grown.length}`);
   // Bleach Bypass's Toning: a film's Halation state s as code 0x100 + s, and back.
   if (p.u32(TONING_WRITER) !== movWord(3, 0x7ad8) || p.u32(TONING_READER) !== movWord(3, 0xad90)) fail('maker note Toning');
-  const toningWriter = p.code(`ldrb ip,[r1,#0x77c];sub ip,ip,#${FIRST};cmp ip,#${n - 1};bhi native;ldrb r0,[r1,#0x786];cmp r0,#11;movhi r0,#0;add r0,r0,#0x100;bx lr;
+  const toningWriter = p.code(`ldrb ip,[r1,#0x77c];sub ip,ip,#${FIRST};cmp ip,#${n - 1};bhi native;ldrb r0,[r1,#0x786];${grain ? 'and r0,r0,#15;' : ''}cmp r0,#11;movhi r0,#0;add r0,r0,#0x100;bx lr;
     native:movw r3,#0x7ad8;b #${TONING_WRITER + 4};`);
   p.patch(TONING_WRITER, movWord(3, 0x7ad8), branchWord(TONING_WRITER, toningWriter), 'films: the maker note\'s Toning holds the Halation');
   const toningReader = p.code(`sub ip,r1,#0x100;cmp ip,#11;strbls ip,[r2,#0x786];bxls lr;movw r3,#0xad90;b #${TONING_READER + 4};`);

@@ -36,8 +36,11 @@ if not __debug__:raise RuntimeError('Validation requires Python assertions')
 SCALE10,POSITIONS10,START10,POSITION10,LIST_TEXT10,LIST_ICON10,SETTER10=0x531adcbc,0x531adce0,0x531adca0,0x531b0514,0x531af494,0x531af4a8,0x531b0d8c
 START15,POSITION15,LIST_TEXT15,LIST_ICON15,SETTER15=0x531ae84c,0x531b0564,0x531af6ec,0x531af700,0x531b0d28
 MAP15,MAP10=0x531ac868,0x531ac6f0
+G_START12,G_SCALE12,G_POSITIONS12,G_POSITION12,G_TEXT12,G_ICON12,G_SETTER12=0x531adf20,0x531adf3c,0x531adf60,0x531b0534,0x531af584,0x531af598,0x531b0d64
+G_START8,G_SCALE8,G_POSITION8,G_TEXT8,G_ICON8,G_SETTER8=0x531ada20,0x531ada3c,0x531b04f4,0x531af3a4,0x531af3b8,0x531b0db4
 NATIVE={0x532c70e4:'stored10',0x532c297c:'live10',0x532aca68:'text10',0x532c0894:'hdr',
-        0x532c9744:'stored15',0x532c2a5c:'live15',0x532ace68:'text15',0x532c1780:'particle'}
+        0x532c9744:'stored15',0x532c2a5c:'live15',0x532ace68:'text15',0x532c1780:'particle',
+        0x532c7520:'stored12',0x532c1ac0:'live12',0x532acb50:'text12',0x532c0b3c:'grainset',0x532c6b94:'stored8',0x532c293c:'live8',0x532ac86c:'text8',0x532c056c:'sizeset'}
 
 class RowsProbe(ScreenProbe):
     def _hook(self,cpu,at,size,user):
@@ -67,7 +70,7 @@ class RowsProbe10(FilmsProbe):
         ret=lambda v:(cpu.reg_write(reg.UC_ARM_REG_R0,v),cpu.reg_write(reg.UC_ARM_REG_PC,cpu.reg_read(reg.UC_ARM_REG_LR)))
         if self.restoring and at in (LIVE_LOOK,SET_OF,SETTINGS_GETTER):
             look,set_=self.restoring;ret(look if at==LIVE_LOOK else set_ if at==SET_OF else 0x55063f30)
-        elif at in NATIVE:
+        elif at in NATIVE and not (at==TONING_RESTORE and self.restoring):
             self.native.append((NATIVE[at],cpu.reg_read(reg.UC_ARM_REG_R0),cpu.reg_read(reg.UC_ARM_REG_R1)));ret(0x7777)
         elif at==FOCUS_ADDRESS:ret(self.focus)
         else:super()._hook(cpu,at,size,user)
@@ -79,7 +82,11 @@ def verify(data,manifest):
     n=(RowsProbe10 if r10 else RowsProbe)(data,manifest);c=n.uc;orig=lambda a,k:data[a-0x53000000:a-0x53000000+k]
     film=lambda look:64<=look<64+films
     cols,icons=manifest['catalogs']['textColumns'],manifest['catalogs']['iconCount']
-    hal_text,col_text=cols-2,cols-1
+    grain=manifest.get('grain')==True
+    # With the grain: the Size row's name is the last added text (Grain's is the camera's Grain Effect).
+    hal_text,col_text=(cols-3,cols-2) if grain else (cols-2,cols-1)
+    size_text=cols-1
+    GRAIN_ADD=[(0,12),(0,8)] if grain else []
     hal_icon,col_scale,red_icon,white_icon=icons-4,icons-3,icons-2,icons-1
     # 1. The table.
     table=None
@@ -90,8 +97,8 @@ def verify(data,manifest):
     entries=[struct.unpack('<2I',bytes(c.mem_read(table+8*k,8))) for k in range(39)]
     def items(k):p,cnt=entries[k];return [tuple(c.mem_read(p+2*i,2)) for i in range(cnt)]
     std=[items(0),items(12),items(24)]
-    for s in range(3):assert items(36+s)==std[s]+[(0,15),(0,10)],s
-    assert items(37)==items(38) and all(k not in (10,15) for _,k in items(0))
+    for s in range(3):assert items(36+s)==std[s]+[(0,15),(0,10)]+GRAIN_ADD,s
+    assert items(37)==items(38) and all(k not in (10,15,12,8) for _,k in items(0))
     report['table']=dict(entries=39,film_lines=[len(items(36+s)) for s in range(3)])
     # 2. Base column, every look, every set, both movie flags (the asserts only log).
     columns=0
@@ -111,11 +118,12 @@ def verify(data,manifest):
             n.controller(64,s,movie)
             for line in range(len(std[s])):
                 assert n.call(IS_VALID,CTL,s,fc,line)==n.call(IS_VALID,CTL,s,sc,line);calls+=2
-            added=[n.call(IS_VALID,CTL,s,fc,len(std[s])+k) for k in (0,1)];calls+=2
-            assert added==([1,1] if movie==0 else [0,0]),(s,movie,added)
+            nadd=4 if grain else 2
+            added=[n.call(IS_VALID,CTL,s,fc,len(std[s])+k) for k in range(nadd)];calls+=nadd
+            assert added==([1]*nadd if movie==0 else [0]*nadd),(s,movie,added)
             assert n.call(LINE_COUNT,CTL,s,fc)-n.call(LINE_COUNT,CTL,s,sc)==sum(added);calls+=2
             c.mem_write(CTL+0x19a,bytes([fc]))
-            for k,kind in ((0,15),(1,10)):n.focus=len(std[s])+k;assert n.call(CURRENT_KIND,CTL)==kind;calls+=1
+            for k,kind in enumerate((15,10)+((12,8) if grain else ())):n.focus=len(std[s])+k;assert n.call(CURRENT_KIND,CTL)==kind;calls+=1
     # 4. Hooks, with settings read back through slots3.c itself.
     if r10:
         recs=fresh_records(random.Random(5),films)
@@ -143,11 +151,11 @@ def verify(data,manifest):
             co=colour(look,s) if isfilm and s<3 else 0
             n.controller(look,s)
             # Names: Halation (kind 15) and Colour (kind 10) for a film, the official text otherwise.
-            for kind in (7,9,10,13,14,15,17):
+            for kind in (7,8,9,10,12,13,14,15,17):
                 for flags in (0,15):
                     out,vals,f=n.site(SUBTITLE,{0:kind,3:SUBTITLE_TABLE+kind*4,4:CTL},flags);calls+=1
                     official=struct.unpack('<H',orig(SUBTITLE_TABLE+kind*4+2,2))[0]
-                    want=hal_text if kind==15 and isfilm else col_text if kind==10 and isfilm else official
+                    want=hal_text if kind==15 and isfilm else col_text if kind==10 and isfilm else (0x133 if kind==12 else size_text if kind==8 else official) if grain and isfilm and kind in (12,8) else official
                     assert out[1]==want,(look,kind) ;assert out[0]==kind and out[2:4]==vals[2:4];hooks+=1
             # ---- Halation (kind 15)
             for at,ctl,kind in ((START15,6,'stored15'),(POSITION15,5,'live15')):
@@ -194,6 +202,42 @@ def verify(data,manifest):
                     restore(look,s)
                 else:assert n.native==[('hdr',0x6205c000,v)]
                 hooks+=1
+            # ---- Grain (kind 12) and size (kind 8), with the grain.
+            if grain:
+                gl=(look*3+s)%4 if isfilm and s<3 else 0;sz=(look+2*s)%3 if isfilm and s<3 else 1
+                if isfilm and s<3:n.call(fn('sp_grain_put'),look,s,gl);n.call(fn('sp_size_put'),look,s,sz);calls+=2
+                if isfilm and s<3:assert n.call(fn('sp_hal'),look,s)==st and n.call(fn('sp_col'),look,s)==co,'halation kept'
+                for at,ctl,kind,want in ((G_START12,6,'stored12',gl),(G_POSITION12,5,'live12',gl),(G_START8,6,'stored8',sz),(G_POSITION8,5,'live8',sz)):
+                    end=at+8 if isfilm else at+4
+                    out,vals=n.site_to(at,end,{0:0x6205c000,1:look,ctl:CTL});calls+=1
+                    if isfilm:assert out[0]==want and not n.native,(look,s,kind,out[0],want)
+                    else:assert out[0]==0x7777 and n.native==[(kind,0x6205c000,look)],(kind,n.native)
+                    hooks+=1
+                for at,native,txt in ((G_TEXT12,'text12',[b'--\0',b'1\0\0',b'2\0\0',b'3\0\0'][gl]),(G_TEXT8,'text8',[b'S\0\0',b'M\0\0',b'L\0\0'][sz])):
+                    c.mem_write(buf,b'\xa5'*4)
+                    out,vals=n.site_to(at,at+4,{0:0x62049000,1:buf,6:CTL})
+                    if isfilm:assert bytes(c.mem_read(buf,4))==txt+b'\xa5' and not n.native,(look,s,bytes(c.mem_read(buf,4)))
+                    else:assert n.native==[(native,0x62049000,buf)]
+                    hooks+=1
+                for at,native in ((G_ICON12,0x1dd),(G_ICON8,0x1e9)):
+                    out,vals=n.site_to(at,at+4,{0:0x111,2:0x222,6:CTL});assert out[1]==(0x1de if isfilm else native) and (out[0],out[2])==(0x111,0x222);hooks+=1
+                for at,native,mine in ((G_SCALE12,0xc9,0x39),(G_SCALE8,0xd2,0xd3)):
+                    out,vals=n.site_to(at,at+4,{6:CTL});assert out[3]==(mine if isfilm else native) and out[:3]==vals[:3];hooks+=1
+                out,vals=n.site_to(G_POSITIONS12,G_POSITIONS12+8,{6:CTL});assert (out[2],out[3])==((3,0x78) if isfilm else (4,0x5a));hooks+=1
+                for pos in range(4):
+                    out,vals=n.site_to(G_SETTER12,G_SETTER12+4,{0:0x6205c000,1:0x55,4:CTL,6:pos});calls+=1
+                    if isfilm:
+                        assert not n.native and n.call(fn('sp_grain'),look,s)==(pos if s<3 else 0) and n.call(fn('sp_hal'),look,s)==st and n.call(fn('sp_col'),look,s)==co
+                        assert n.call(fn('sp_size'),look,s)==(sz if s<3 else 1)
+                    else:assert n.native==[('grainset',0x6205c000,0x55)]
+                    hooks+=1
+                for pos in range(3):
+                    out,vals=n.site_to(G_SETTER8,G_SETTER8+4,{0:0x6205c000,1:0x55,4:CTL,6:pos});calls+=1
+                    if isfilm:
+                        assert not n.native and n.call(fn('sp_size'),look,s)==(pos if s<3 else 1) and n.call(fn('sp_hal'),look,s)==st and n.call(fn('sp_col'),look,s)==co
+                    else:assert n.native==[('sizeset',0x6205c000,0x55)]
+                    hooks+=1
+                if isfilm and s<3:n.call(fn('sp_grain_put'),look,s,0);n.call(fn('sp_size_put'),look,s,1);restore(look,s);calls+=3
     report['hook_cases']=hooks
     if r10:
         # Cancel (round 10): no thunks; the screen backs the Toning byte up with the other parameters

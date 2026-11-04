@@ -27,6 +27,8 @@ BINDINGS = ['prior_native_save', 'prior_native_load', 'storage_singleton', 'stor
             'heap_alloc', 'sp_gap', 'settings_object', 'slot_prints']
 EXPORTS = ['sp_load', 'sp_save', 'sp_style_set', 'sp_before_recall', 'sp_hal', 'sp_hal_put', 'sp_col', 'sp_col_put',
            'sp_hal_text', 'sp_raw_init', 'sp_raw_own', 'sp_raw_sync']
+# With -DGRAIN (grain-rows.ts): the Grain and Size lines, kept in the Toning byte's high nibble.
+GRAIN_EXPORTS = ['sp_grain', 'sp_grain_put', 'sp_size', 'sp_size_put', 'sp_grain_text', 'sp_size_text']
 
 
 def stubs():
@@ -40,10 +42,10 @@ def run(command):
     return result.stdout
 
 
-def compile_module(count, origin, bindings, relocs):
+def compile_module(count, origin, bindings, relocs, grain=False):
     with tempfile.TemporaryDirectory(prefix='grmod-films-') as folder:
         d = Path(folder)
-        (d / 'm.c').write_text(f'#define SLOT_COUNT {count}\n' + SOURCE.read_text(encoding='utf-8') + stubs(), encoding='utf-8')
+        (d / 'm.c').write_text(f'#define SLOT_COUNT {count}\n' + ('#define GRAIN 1\n' if grain else '') + SOURCE.read_text(encoding='utf-8') + stubs(), encoding='utf-8')
         script = ' '.join(f'{name} = {value:#x};' for name, value in bindings.items())
         script += (f' SECTIONS {{ . = {origin:#x}; .text : {{ *(.text*) *(.rodata*) }} '
                    '/DISCARD/ : { *(.ARM.exidx*) *(.ARM.extab*) *(.comment*) } }')
@@ -77,11 +79,11 @@ def half(word):
     return ((word >> 4) & 0xF000) | (word & 0xFFF)
 
 
-def make_template(count):
+def make_template(count, grain=False):
     origin = 0x54400000
     bindings = {symbol: 0x53400000 + 0x1234 * (index + 1) * 4 for index, symbol in enumerate(BINDINGS)}
-    plain, _, _ = compile_module(count, origin, bindings, False)
-    blob, symbols, table = compile_module(count, origin, bindings, True)
+    plain, _, _ = compile_module(count, origin, bindings, False, grain)
+    blob, symbols, table = compile_module(count, origin, bindings, True, grain)
     if plain != blob or len(blob) % 4:
         raise SystemExit('--emit-relocs changed the code')
     words = list(struct.unpack('<%dI' % (len(blob) // 4), blob))
@@ -119,7 +121,7 @@ def make_template(count):
     if pending:
         raise SystemExit('unpaired MOVW relocation')
     relocs.sort()
-    return {'blob': blob, 'relocs': relocs, 'exports': {s: symbols[s] - origin for s in EXPORTS}}
+    return {'blob': blob, 'relocs': relocs, 'exports': {s: symbols[s] - origin for s in EXPORTS + (GRAIN_EXPORTS if grain else [])}}
 
 
 def relocate(template, origin, bindings):
@@ -143,19 +145,20 @@ def relocate(template, origin, bindings):
 
 def main():
     out = {'bindings': BINDINGS, 'variants': {}}
-    for count in COUNTS:
-        template = make_template(count)
+    grain_out = {'bindings': BINDINGS, 'variants': {}}
+    for count, grain in [(c, g) for g in (False, True) for c in COUNTS]:
+        template = make_template(count, grain)
         origin = 0x543FC1D0 + 0x10 * count
         bindings = {symbol: 0x5370A5DC + 0x00FEDCB8 * (index + 1) % 0x00F00000 // 4 * 4 for index, symbol in enumerate(BINDINGS)}
-        expected, symbols, _ = compile_module(count, origin, bindings, False)
+        expected, symbols, _ = compile_module(count, origin, bindings, False, grain)
         if relocate(template, origin, bindings) != expected:
             raise SystemExit(f'{count}: relocated template differs from a real link')
         for symbol, offset in template['exports'].items():
             if symbols[symbol] - origin != offset:
                 raise SystemExit('export offset moved')
-        out['variants'][count] = {'code': base64.b64encode(template['blob']).decode('ascii'),
+        (grain_out if grain else out)['variants'][count] = {'code': base64.b64encode(template['blob']).decode('ascii'),
                                   'relocs': template['relocs'], 'exports': template['exports']}
-        print(count, len(template['blob']), 'bytes ok')
+        print(count, 'grain' if grain else '', len(template['blob']), 'bytes ok')
     version = run(['clang', '--version']).splitlines()[0]
     lines = [
         '// SPDX-License-Identifier: GPL-2.0-only',
@@ -169,6 +172,8 @@ def main():
         '',
         'export const GR3X_FILMS_SOURCE_SHA256 = ' + json.dumps(__import__('hashlib').sha256(SOURCE.read_bytes()).hexdigest()) + ';',
         'export const GR3X_FILMS_MODULE: NativeModule = ' + json.dumps(out, separators=(',', ':')) + ' as unknown as NativeModule;',
+        '// Built with -DGRAIN: the Grain and Size lines (grain-rows.ts).',
+        'export const GR3X_FILMS_MODULE_GRAIN: NativeModule = ' + json.dumps(grain_out, separators=(',', ':')) + ' as unknown as NativeModule;',
         '',
     ]
     TARGET.write_text('\n'.join(lines), encoding='utf-8')

@@ -65,6 +65,7 @@ def run_site(p,at,regs,flags,stop=None,count=200):
 
 def verify(data,base,manifest):
     assert manifest.get('round10') and manifest['kind']=='gr3x-image-control-patchset'
+    grain=manifest.get('grain')==True
     f=manifest['lookEntries']['films'];n=manifest['filmCount'];slots=manifest['addedLooks'];calls=0;cases=0
     films=[s['id'] for s in slots];assert films==list(range(64,64+n))
     stock,patched=LookProbe(data,base),LookProbe(data,manifest)
@@ -79,7 +80,7 @@ def verify(data,base,manifest):
     for a in ([] if os.environ.get('GR3X_SKIP_ADAPTERS')=='1' else adapters):   # (development re-runs only)
         src,dst=a['sourceRegister'],a['destinationRegister']
         for look in range(256):
-            for state in ((0,1,2,3,4,5,6,7,11,12,0xff) if a['address']==DEV_READ and 64<=look<64+n else (0,)):
+            for state in ((0,1,2,3,4,5,6,7,11,12,0xff)+((0x13,0x5a,0x91,0xe6,0x2b) if grain else ()) if a['address']==DEV_READ and 64<=look<64+n else (0,)):
                 for flags in range(16):
                     regs=[0x12340000+i for i in range(13)];regs[src]=COMMON
                     if a['address']==DEV_READ:regs[1]=STEP_ARG
@@ -89,8 +90,10 @@ def verify(data,base,manifest):
                     regs[dst]=11 if 64<=look<84 else look
                     assert out==regs and cpsr==(flags<<28)|0x13,(hex(a['address']),look,flags)
                     if a['address']==DEV_READ:
-                        lvl,white=level_of(state) if 64<=look<64+n else (0,0)
-                        want=(look-32 if look>=64 else look)|lvl<<8|white|0x10000
+                        # With the grain: the low nibble is the Halation state, bits 4..7 (grain, size) go to stash bits 20..23.
+                        hs=state&15 if grain else state
+                        lvl,white=level_of(hs) if 64<=look<64+n else (0,0)
+                        want=(look-32 if look>=64 else look)|lvl<<8|white|0x10000|(((state&0xf0)<<16) if grain and 64<=look<64+n else 0)
                         assert u32(patched.uc,STASH)==want,(look,state,hex(u32(patched.uc,STASH)),hex(want))
                     cases+=1
     # RAW development (the step's flag 0): GR IV's frame look and orientation words from the record (r3).
@@ -291,10 +294,11 @@ def verify(data,base,manifest):
         lists_with+=18 in olist
     assert lists_with==7
     for look in NATIVE+films:
-        for st in range(14):
+        for st in list(range(14))+([0x13,0x5a,0x91,0xe6,0x2b] if grain else []):
             for pr in (patched,stock):pr.uc.mem_write(RECORD,bytes(0x800));pr.uc.mem_write(RECORD+0x77c,bytes([look]));pr.uc.mem_write(RECORD+0x786,bytes([st]))
             got=patched.call(0x535c5e34,0,RECORD)
-            if look>=64:assert got==0x100+(st if st<=11 else 0),(look,st,hex(got))
+            hs=st&15 if grain else st
+            if look>=64:assert got==0x100+(hs if hs<=11 else 0),(look,st,hex(got))
             else:assert got==stock.call(0x535c5e34,0,RECORD),(look,st)
             calls+=2
     for code in list(range(0,4))+list(range(0xfe,0x10e))+[0xffff,0x8110]:

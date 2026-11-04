@@ -2753,3 +2753,32 @@ Demande : rendre la touche WB réglable dans Fn Button Settings. Tout est statiq
 - À voir sur le boîtier : le grain apparaît-il sur les films couleur, quel aspect, quel temps de
   traitement ; ensuite seulement, la ligne Grain dans l'écran Fn (et la question de la taille, que
   le natif ne règle pas).
+- **Résultat T-GRAIN1 sur le boîtier (2026-11-04) : aucun effet.** Le pipeline choisit aussi ses
+  tables de traitement selon le look (descripteur `0x536dc0f4`, tables par look) : la valeur de
+  `+0x1f8` ne suffit pas pour un look rendu comme Standard. Piste abandonnée ; retour au grain
+  logiciel (`tools/develop`), plan validé.
+
+## Grain logiciel, étape 1 : lignes Grain et Taille de l'écran Fn d'un film (2026-11-04, T-GRAIN2)
+
+- Écran des paramètres (ImageControlDetailController, `halation-rows.ts`), en plus de Halation
+  (genre 15) et Couleur (genre 10) : **Grain** sur le genre 12 (le filtre des looks noir et blanc,
+  cinq positions ramenées à quatre pour un film : Off / 1 / 2 / 3 ; échelle de Grain Effect 0x39,
+  icône 0x1de, nom = texte de l'appareil « Grain Effect » 0x133) et **Taille** sur le genre 8 (le
+  Toning de Bleach Bypass, trois positions S / M / L ; échelle 0xd3, icône 0x1de, nom ajouté en 21
+  langues, caractères de l'appareil). Adresses : genre 12 constructeur `0x531adf20` (getter
+  `0x532c7520`, carte `0x531ac7a8`, échelle `0x531adf3c`, positions `0x531adf60`), position
+  `0x531b0534`, texte `0x531af584`, icône `0x531af598`, réglage `0x531b0d64` ; genre 8 constructeur
+  `0x531ada20` (carte `0x531ac654`, échelle `0x531ada3c`), position `0x531b04f4`, texte
+  `0x531af3a4`, icône `0x531af3b8`, réglage `0x531b0db4` (natif `0x532c056c`, le réglage du Toning
+  que l'écran utilise aussi pour Annuler).
+- Rangement (round 10) : quartet haut de l'octet Toning des films (Bleach Bypass `+0x242` ...),
+  dont le quartet bas reste l'état Halation (0..11) : bits 4..5 le grain, bits 6..7 la taille
+  (0 moyenne, 1 fine, 2 grosse). Le setter du champ et la valeur en direct ne bornent pas l'octet
+  (vérifié : `0x5325d3cc`). `films.c` compilé avec `-DGRAIN` (`GR3X_FILMS_MODULE_GRAIN`, sans
+  l'option le module est identique à l'octet près) ; masque à 4 bits dans la note EXIF (Toning) et
+  dans l'adaptateur du développement, qui met aussi le quartet haut dans les bits 20..23 du mot du
+  look (`0x55804378`) pour l'étape 2 (le module de halation et la date ne lisent que les bits 0..17).
+  Annuler remet l'octet entier (grain compris) par `0x532c056c`.
+- Vérifié en émulateur : `halation_rows_probe.py` (11 660 cas avec le grain, contre-épreuves
+  détectées), `films_r10_verify.py` (mot du look et note EXIF avec le quartet haut) ; sans l'option
+  les deux sondes passent comme avant. Option `grain` (mode pellicule, round 10).

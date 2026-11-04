@@ -252,6 +252,32 @@ static volatile uint8_t *toning_of(uint32_t look, uint32_t set, State *s, int *f
     return &s->t[o][set][TONING];
 }
 
+#ifdef GRAIN
+/* With the grain (grain-rows.ts): the Toning byte's low nibble is the Halation state, bits 4..5
+ * the grain (0 off, 1..3) and bits 6..7 its size (0 medium, 1 fine, 2 coarse). */
+static uint32_t halation_state(uint32_t look, uint32_t set) {
+    int field;
+    volatile uint8_t *v = toning_of(look, set, state(), &field);
+    return v && (*v & 0x0fu) <= 11u ? (*v & 0x0fu) : 0u;
+}
+
+/* The whole byte (the Toning field through its setter when the film owns the set). */
+static void put_byte(uint32_t look, uint32_t set, uint32_t value) {
+    State *s = state();
+    int field;
+    volatile uint8_t *v = toning_of(look, set, s, &field);
+    if (!v || value > 0xffu || *v == value) return;
+    if (field) ((uint32_t (*)(uint8_t *, uint32_t))TONING_SETTER[set])(settings_object, value);
+    else { *v = (uint8_t)value; s->dirty = 1; }
+}
+
+static void put_state(uint32_t look, uint32_t set, uint32_t value) {
+    int field;
+    volatile uint8_t *v = toning_of(look, set, state(), &field);
+    if (!v || value > 11u) return;
+    put_byte(look, set, (*v & 0xf0u) | value);
+}
+#else
 static uint32_t halation_state(uint32_t look, uint32_t set) {
     int field;
     volatile uint8_t *v = toning_of(look, set, state(), &field);
@@ -266,6 +292,7 @@ static void put_state(uint32_t look, uint32_t set, uint32_t value) {
     if (field) ((uint32_t (*)(uint8_t *, uint32_t))TONING_SETTER[set])(settings_object, value);
     else { *v = (uint8_t)value; s->dirty = 1; }
 }
+#endif
 
 /* The parameter screen's Halation line: the strength (0 off, 1..3) of the film in a photo set. */
 uint32_t sp_hal(uint32_t look, uint32_t set) { return DECODE[halation_state(look, set)] & 3u; }
@@ -287,6 +314,42 @@ void sp_hal_text(uint32_t look, uint32_t set, uint8_t *text) {
     text[1] = v == 0u ? '-' : 0;
     text[2] = 0;
 }
+
+#ifdef GRAIN
+/* ---- Grain (bits 4..7 of the Toning byte) ----------------------------------------------------- */
+static uint32_t toning_byte(uint32_t look, uint32_t set) {
+    int field;
+    volatile uint8_t *v = toning_of(look, set, state(), &field);
+    return v ? *v : 0u;
+}
+static void put_bits(uint32_t look, uint32_t set, uint32_t shift, uint32_t value) {
+    uint32_t b = toning_byte(look, set);
+    if (value > 3u) return;
+    put_byte(look, set, (b & ~(3u << shift) & 0xffu) | value << shift);
+}
+/* The Grain line: 0 off, 1..3. */
+uint32_t sp_grain(uint32_t look, uint32_t set) { return toning_byte(look, set) >> 4 & 3u; }
+void sp_grain_put(uint32_t look, uint32_t set, uint32_t level) { put_bits(look, set, 4u, level); }
+/* The Size line's position: 0 fine, 1 medium, 2 coarse (stored 1, 0, 2: medium is the default). */
+static const uint8_t SIZE_POS[4] = {1, 0, 2, 1};
+static const uint8_t SIZE_CODE[3] = {1, 0, 2};
+uint32_t sp_size(uint32_t look, uint32_t set) { return SIZE_POS[toning_byte(look, set) >> 6 & 3u]; }
+void sp_size_put(uint32_t look, uint32_t set, uint32_t pos) { if (pos <= 2u) put_bits(look, set, 6u, SIZE_CODE[pos]); }
+/* Value texts (3-byte buffers): the grain as Grain Effect's ("--", "1", "2", "3"), the size S / M / L. */
+void sp_grain_text(uint32_t look, uint32_t set, uint8_t *text) {
+    uint32_t v = sp_grain(look, set);
+    if (!text) return;
+    text[0] = v == 0u ? '-' : (uint8_t)('0' + v);
+    text[1] = v == 0u ? '-' : 0;
+    text[2] = 0;
+}
+void sp_size_text(uint32_t look, uint32_t set, uint8_t *text) {
+    if (!text) return;
+    text[0] = (uint8_t)"SML"[sp_size(look, set)];
+    text[1] = 0;
+    text[2] = 0;
+}
+#endif
 
 /* ---- RAW development ------------------------------------------------------------------------- */
 static int raw_owner(uint32_t look) {
