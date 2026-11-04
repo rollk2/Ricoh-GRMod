@@ -2790,3 +2790,12 @@ Demande : rendre la touche WB réglable dans Fn Button Settings. Tout est statiq
   25, 14) était coupée. Correctif (T-GRAIN3) : en `0x531afc48`, pour un film, la capacité prend
   aussi la longueur de ses propres listes (jusqu'à 14 lignes avec le grain). Vérifié en émulateur
   (`halation_rows_probe.py` section 3b, contre-épreuve détectée).
+- **Résultat T-GRAIN3 sur le boîtier : toujours rien.** Cause complète : l'écran est construit une
+  seule fois (constructeur, `0x531afe38` appelle la mise en place `0x531afd44` → `0x531afbe0`)
+  avec le look Standard (`+0x198` = 11, écrit en `0x531afe24`), puis gardé pour tous les looks ; le
+  vrai look n'arrive qu'ensuite (`0x531acbe4`). Le test « est-ce un film » de T-GRAIN3 ne jouait
+  donc jamais. Correctif (T-GRAIN4) : la capacité vaut toujours au moins la plus longue liste d'un
+  film (14 lignes avec le grain), quel que soit le look et le mode à la construction ; pour un
+  look plus court, la boucle d'affichage (`0x531affa0`) masque les lignes au delà (`0x531b0080`),
+  comme pour les looks de l'appareil. Vérifié en émulateur (capacité 14 pour Standard comme pour
+  un film, en photo comme en vidéo ; contre-épreuve détectée).

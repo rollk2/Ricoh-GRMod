@@ -139,9 +139,10 @@ def verify(data,manifest):
                 assert c.reg_read(reg.UC_ARM_REG_PC)==TYPES_CALL
                 rows=c.reg_read(reg.UC_ARM_REG_R2)
                 native=max(n.call(LINE_COUNT,CTL,s,col) for s in range(3) for col in range(12));calls+=36
-                want=max([native]+([n.call(LINE_COUNT,CTL,s,36-11*s) for s in range(3)] if film(look) else []))
+                # The screen is built once (its look Standard) and kept for every look: the films' columns always count.
+                want=max([native,len(std[0])+4,len(std[1])+4])
                 assert rows==want,(look,movie,rows,want)
-                if film(look) and movie==0:assert rows>=len(std[0])+4,(look,rows)
+                if movie==0:assert rows>=len(std[0])+4,(look,rows)
         report['row_capacity']=dict(native=native,film=want)
     # 4. Hooks, with settings read back through slots3.c itself.
     if r10:
